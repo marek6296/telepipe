@@ -75,6 +75,15 @@ const INTEGERS: Record<string, [number, number]> = {
   max_links_per_hour: [0, 50],
   photo_cooldown_min: [0, 1440],
   morning_max_per_day: [0, 500],
+  // Tri stropy, ktoré držia účet mimo dohľadu Telegramu (`behavior.SAFETY_FIELDS`
+  // vo workeri). Worker ich číta od začiatku — `userbot._aktivne_rozhovory`,
+  // `_smie_oslovit` — len sa doteraz nedali nastaviť inak než kontrolným botom.
+  // Nula je vo workeri „strop vypnutý“ (`limity.smie_oslovit`, `limity.ma_miesto`),
+  // preto rozsah začína na nule; `chat_slot_min` nie, tam by nula ticho vypla
+  // aj `max_active_chats`.
+  max_outreach_per_hour: [0, 200],
+  max_active_chats: [0, 100],
+  chat_slot_min: [1, 1440],
 };
 
 /** Pravdepodobnosti 0–1. */

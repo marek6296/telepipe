@@ -26,7 +26,8 @@ const BEHAVIOR_COLUMNS =
   "long_pause_min_s, long_pause_max_s, defer_reply_chance, defer_min_s, defer_max_s, " +
   "question_chance, gag_chance, greeting_gap_hours, summary_every, " +
   "max_replies_per_hour, max_links_per_hour, photo_cooldown_min, " +
-  "morning_enabled, morning_max_per_day";
+  "morning_enabled, morning_max_per_day, " +
+  "max_outreach_per_hour, max_active_chats, chat_slot_min";
 
 export default async function BehaviorPage({ params }: PageProps<"/app/m/[id]/behavior">) {
   const { id } = await params;

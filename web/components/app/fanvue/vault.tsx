@@ -254,8 +254,9 @@ function FolderRow({
               <p className="px-4 pb-3 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
                 The caption is what she matches against the conversation, so write what is
                 actually in the photo. Nobody gets the same photo twice — Fanvue does not
-                remember that, we do. “Explicit” is a label for you: when she picks a photo
-                for a chat, the folder role decides.
+                remember that, we do. “Explicit” decides for this one photo and overrides
+                the folder: switch it on inside a free folder and the photo is treated as
+                explicit anyway, switch it off inside an explicit one and it is not.
               </p>
               <div className="grid gap-3 px-4 pb-4 sm:grid-cols-2 xl:grid-cols-3">
                 {photos.map((item) => (

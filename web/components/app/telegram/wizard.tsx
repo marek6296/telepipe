@@ -748,14 +748,15 @@ function StepControlBot({
         <div className="space-y-4">
           {alreadySaved && (
             <Callout tone="success" icon={<CheckCircle2 className="h-3.5 w-3.5" />}>
-              A token is already saved. Paste a new one only if you replaced the bot.
+              A token is already saved. Leave this empty to keep it — you only need to
+              paste one if you replaced the bot.
             </Callout>
           )}
           <Field
             label="Bot token"
             value={token}
             onChange={setToken}
-            placeholder="123456789:AAE…"
+            placeholder={alreadySaved ? "Leave empty to keep the saved token" : "123456789:AAE…"}
             mono
             type="password"
           />
@@ -776,7 +777,10 @@ function StepControlBot({
           <button
             type="button"
             onClick={save}
-            disabled={pending || !token || !chatId}
+            // Keď je token už uložený, stačí chat id — inak sa jedno číslo
+            // nedalo opraviť bez opätovného vylepenia tokenu, ktorý sa
+            // do políčka nikdy nepredvyplní.
+            disabled={pending || (!token && !alreadySaved) || !chatId}
             className="app-btn app-btn-primary h-10 w-full"
           >
             {pending && <Loader2 className="h-4 w-4 animate-spin" />}
