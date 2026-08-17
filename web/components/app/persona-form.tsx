@@ -148,7 +148,7 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
             defaultValue={persona.cta_link}
             placeholder="https://fanvue.com/yourprofile"
             type="url"
-            help="Leave this empty and she never sends a link at all. Hard limits still apply: at most 2 links per hour across all chats, once per fan every 48 hours."
+            help="Leave this empty and she never sends a link at all. Hard limits still apply: never before the 6th message, at most once per fan every 48 hours, and never more than the “Links per hour” cap you set on the Behavior tab."
           />
           <TextAreaField
             name="funnel_rules"
