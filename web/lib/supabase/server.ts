@@ -8,7 +8,7 @@ import { supabaseAnonKey, supabaseServiceKey, supabaseUrl } from "@/lib/env";
  * User-scoped klient pre server komponenty a server actions.
  * Session sa číta z cookies, dáta chráni RLS — toto je náš default.
  */
-export async function createClient() {
+export async function createClient(options?: { rememberMe?: boolean }) {
   const cookieStore = await cookies();
 
   return createServerClient(supabaseUrl(), supabaseAnonKey(), {
@@ -18,8 +18,14 @@ export async function createClient() {
       },
       setAll(cookiesToSet) {
         try {
-          for (const { name, value, options } of cookiesToSet) {
-            cookieStore.set(name, value, options);
+          for (const { name, value, options: cookieOptions } of cookiesToSet) {
+            // „Keep me signed in" vypnuté ⇒ session cookie (zmizne po zatvorení
+            // prehliadača). Inak necháme Supabase expiráciu tak ako ju poslala.
+            const finalOptions =
+              options?.rememberMe === false
+                ? { ...cookieOptions, maxAge: undefined, expires: undefined }
+                : cookieOptions;
+            cookieStore.set(name, value, finalOptions);
           }
         } catch {
           // Volané zo server komponentu — cookies sa dajú zapisovať len v akcii

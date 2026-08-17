@@ -42,5 +42,5 @@ export function siteUrl(): string {
   return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 }
 
-/** Google OAuth je za flagom — kým Marek nenastaví provider, button je disabled. */
-export const googleAuthEnabled = process.env.NEXT_PUBLIC_GOOGLE_AUTH === "true";
+// Feature flagy žijú v `lib/flags.ts` (client-safe) — tu ich len reexportujeme
+export { googleAuthEnabled } from "@/lib/flags";
