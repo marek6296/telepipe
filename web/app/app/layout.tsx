@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/app/app-shell";
+import { isAdminRole } from "@/lib/admin-ui";
 import { toNumber } from "@/lib/format";
 import { getAccount, listModels } from "@/lib/models";
 import { getUser } from "@/lib/supabase/server";
@@ -20,6 +21,7 @@ export default async function AppLayout({ children }: LayoutProps<"/app">) {
     <AppShell
       email={account?.email ?? user.email ?? "your account"}
       creditBalance={toNumber(account?.credit_balance_usd)}
+      isAdmin={isAdminRole(account?.role)}
       models={models.map((model) => ({
         id: model.id,
         name: model.name,

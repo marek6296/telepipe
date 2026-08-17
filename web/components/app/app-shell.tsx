@@ -13,6 +13,7 @@ import {
   Menu,
   Plus,
   Settings,
+  Shield,
   Wallet,
   X,
 } from "lucide-react";
@@ -47,11 +48,14 @@ export function AppShell({
   email,
   models,
   creditBalance,
+  isAdmin = false,
   children,
 }: {
   email: string;
   models: ShellModel[];
   creditBalance: number;
+  /** Rozhodnuté v serverovom layoute z `accounts.role` — klient sa nepýta. */
+  isAdmin?: boolean;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -68,6 +72,7 @@ export function AppShell({
     <SidebarContent
       email={email}
       models={models}
+      isAdmin={isAdmin}
       pathname={pathname}
       onNavigate={() => setMenuOpen(false)}
     />
@@ -174,11 +179,13 @@ export function AppShell({
 function SidebarContent({
   email,
   models,
+  isAdmin,
   pathname,
   onNavigate,
 }: {
   email: string;
   models: ShellModel[];
+  isAdmin: boolean;
   pathname: string;
   onNavigate: () => void;
 }) {
@@ -273,6 +280,29 @@ function SidebarContent({
             </li>
           </ul>
         </div>
+
+        {/* Admin vidí len ten, komu to server layout povolil (accounts.role). */}
+        {isAdmin && (
+          <div className="mt-7 border-t border-white/[0.06] pt-4">
+            <Link
+              href="/app/admin"
+              onClick={onNavigate}
+              aria-current={isActive(pathname, "/app/admin", false) ? "page" : undefined}
+              className={cn(
+                "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px] font-medium transition-all",
+                isActive(pathname, "/app/admin", false)
+                  ? "bg-[rgba(212,175,55,0.12)] text-[var(--gold-light)]"
+                  : "text-[var(--gold)]/65 hover:bg-[rgba(212,175,55,0.07)] hover:text-[var(--gold-light)]",
+              )}
+            >
+              {isActive(pathname, "/app/admin", false) && (
+                <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[var(--gold)]" />
+              )}
+              <Shield className="h-[17px] w-[17px] shrink-0 text-[var(--gold)]" />
+              Admin
+            </Link>
+          </div>
+        )}
       </nav>
 
       <div className="shrink-0 border-t border-white/[0.06] p-3">

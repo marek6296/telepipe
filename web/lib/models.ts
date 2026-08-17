@@ -40,6 +40,9 @@ export type AccountRow = {
   email: string;
   credit_balance_usd: string | number;
   created_at: string;
+  /** Migrácia 009 — rola rozhoduje o admin sekcii, plán je zatiaľ len štítok. */
+  role: string;
+  plan: string;
 };
 
 /** Modelka + čísla, ktoré chce klient vidieť na karte. */
@@ -63,7 +66,7 @@ export async function getAccount(): Promise<AccountRow | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("accounts")
-    .select("id, email, credit_balance_usd, created_at")
+    .select("id, email, credit_balance_usd, created_at, role, plan")
     .maybeSingle();
   return (data as AccountRow | null) ?? null;
 }
