@@ -20,7 +20,12 @@ const MIN_PASSWORD = 8;
 /** Interné cesty — chránime sa pred open redirectom cez `?next=`. */
 function safeNext(value: FormDataEntryValue | null): string {
   const next = typeof value === "string" ? value : "";
-  return next.startsWith("/") && !next.startsWith("//") ? next : "/app";
+  // Spätné lomítko musí padnúť tiež: prehliadače normalizujú `\` na `/`, takže
+  // `/\evil.com` alebo `\\evil.com` by inak prešlo ako protocol-relative URL.
+  if (!next || !next.startsWith("/") || next.startsWith("//") || next.includes("\\")) {
+    return "/app";
+  }
+  return next;
 }
 
 /** Supabase hlášky preložíme do zrozumiteľnej angličtiny. */

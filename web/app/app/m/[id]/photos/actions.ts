@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
+import { supabaseUrl } from "@/lib/env";
 import { getModel } from "@/lib/models";
 import { DAY_PARTS } from "@/lib/photos";
 import { createClient } from "@/lib/supabase/server";
@@ -23,7 +24,11 @@ export async function createPhotoAction(
   const model = await getModel(modelId);
   if (!model) return { error: "Model not found." };
 
-  if (!/^https?:\/\/\S+/.test(input.url)) {
+  // Klient nahráva priamo do bucketu a sem posiela public URL. Tá musí smerovať
+  // na NÁŠ storage a do priečinka TEJTO modelky — inak by šlo do evidencie
+  // podstrčiť cudziu/externú URL (leak, alebo cudzí obsah pod menom modelky).
+  const allowedPrefix = `${supabaseUrl()}/storage/v1/object/public/${BUCKET}/${model.id}/`;
+  if (!input.url.startsWith(allowedPrefix)) {
     return { error: "The upload did not return a usable link. Try again." };
   }
 

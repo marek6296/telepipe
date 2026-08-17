@@ -17,7 +17,12 @@ export async function GET(request: NextRequest) {
   const type = searchParams.get("type") as EmailOtpType | null;
 
   const rawNext = searchParams.get("next") ?? "/app";
-  const next = rawNext.startsWith("/") && !rawNext.startsWith("//") ? rawNext : "/app";
+  // Backslash tiež odmietame (defense in depth): `/\evil.com` sa v prehliadači
+  // normalizuje na protocol-relative URL a viedol by mimo našej domény.
+  const next =
+    rawNext.startsWith("/") && !rawNext.startsWith("//") && !rawNext.includes("\\")
+      ? rawNext
+      : "/app";
 
   // Za proxy (Vercel) je pravý host v x-forwarded-host
   const forwardedHost = request.headers.get("x-forwarded-host");

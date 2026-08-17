@@ -103,6 +103,11 @@ export async function startTelegramLoginAction(input: {
     .single();
 
   if (error || !data) {
+    // DB throttle (migrácia 008) bráni zaplaveniu Telegram SMS kódmi a DoS-u
+    // zdieľaného workera — hlášku prekladáme do zrozumiteľnej angličtiny.
+    if (error?.message.includes("rate_limit")) {
+      return { error: "Too many attempts. Please wait a few minutes and try again." };
+    }
     return { error: error?.message ?? "Could not start the login. Please try again." };
   }
 
