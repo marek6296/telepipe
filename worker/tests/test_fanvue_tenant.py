@@ -28,7 +28,14 @@ def _transport(rows, calls):
             body = json.loads(req.content) if req.content else None
         except ValueError:
             body = None
-        calls.append({"method": req.method, "url": str(req.url), "body": body})
+        calls.append({
+            "method": req.method,
+            "url": str(req.url),
+            "body": body,
+            # `Prefer` rozhoduje o insert vs. upsert — bez neho by sa testom
+            # zápisov dalo veriť len na polovicu.
+            "headers": dict(req.headers),
+        })
         path = req.url.path.replace("/rest/v1", "")
         return httpx.Response(200, json=rows.get(path, []))
 
@@ -196,30 +203,207 @@ class TestFronta:
 
 
 # ---------------------------------------------------------------------------
-# Fáza 3.2 — čo ešte nie je
+# Fanúšikovia (fv_users)
 # ---------------------------------------------------------------------------
 
 
-class TestNeskorsiaFaza:
+class TestFanusikovia:
+    async def test_fan_filtruje_na_modelku_aj_uuid(self):
+        calls = []
+        db = _db({"/fv_users": [{"fan_uuid": "f1", "msg_count": 3}]}, calls)
+        row = await db.fan("f1")
+        assert row["msg_count"] == 3
+        assert "fan_uuid=eq.f1" in calls[-1]["url"]
+        assert f"model_id=eq.{MODEL}" in calls[-1]["url"]
+
+    async def test_neznamy_fanusik_je_none(self):
+        """`_ensure_fan` na tom stojí — None znamená „založ ho"."""
+        assert await _db({"/fv_users": []}, []).fan("f1") is None
+
+    async def test_upsert_fan_pribali_model_id_do_tela(self):
+        calls = []
+        await _db({}, calls).upsert_fan("f1", {"handle": "joe"})
+        body = calls[-1]["body"]
+        assert body == {"model_id": MODEL, "fan_uuid": "f1", "handle": "joe"}
+        assert "merge-duplicates" in calls[-1]["headers"]["prefer"]
+
+    async def test_update_fan_nikdy_nepustí_patch_bez_modelky(self):
+        calls = []
+        await _db({}, calls).update_fan("f1", {"greeted": True})
+        assert f"model_id=eq.{MODEL}" in calls[-1]["url"]
+        assert "fan_uuid=eq.f1" in calls[-1]["url"]
+        assert calls[-1]["body"] == {"greeted": True}
+
+    async def test_linked_tg_ids_vracia_cisla(self):
+        db = _db({"/fv_users": [{"tg_id": 11}, {"tg_id": "22"}, {"tg_id": None}]}, [])
+        assert await db.linked_tg_ids() == {11, 22}
+
+    async def test_bez_fanusikov_nie_je_sparovany_nikto(self):
+        assert await _db({"/fv_users": []}, []).linked_tg_ids() == set()
+
+
+# ---------------------------------------------------------------------------
+# Správy (fv_messages)
+# ---------------------------------------------------------------------------
+
+
+class TestSpravy:
+    async def test_add_message_zapise_riadok_s_modelkou(self):
+        calls = []
+        await _db({}, calls).add_message("f1", "assistant", "ahoj")
+        assert calls[-1]["body"] == {
+            "model_id": MODEL, "fan_uuid": "f1", "role": "assistant", "content": "ahoj",
+        }
+
+    async def test_bez_message_uuid_sa_stlpec_neposiela(self):
+        """Prázdny reťazec by v DB vyzeral ako id správy, ktoré neexistuje."""
+        calls = []
+        await _db({}, calls).add_message("f1", "user", "hej")
+        assert "message_uuid" not in calls[-1]["body"]
+
+    async def test_add_message_je_insert_nie_upsert(self):
+        """PK je `id` — merge-duplicates by aj tak len vložil. Duplicity rieši
+        `known_message_uuids`, nie databáza."""
+        calls = []
+        await _db({}, calls).add_message("f1", "user", "hej", "m-9")
+        assert calls[-1]["body"]["message_uuid"] == "m-9"
+        assert "merge-duplicates" not in calls[-1]["headers"]["prefer"]
+
+    async def test_add_messages_prilepi_fanusika_ku_kazdemu_riadku(self):
+        calls = []
+        await _db({}, calls).add_messages(
+            "f1", [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]
+        )
+        assert all(r["fan_uuid"] == "f1" and r["model_id"] == MODEL for r in calls[-1]["body"])
+
+    async def test_prazdna_davka_nezavola_nic(self):
+        calls = []
+        await _db({}, calls).add_messages("f1", [])
+        assert calls == []
+
+    async def test_known_message_uuids_zahodi_prazdne(self):
+        db = _db({"/fv_messages": [{"message_uuid": "a"}, {"message_uuid": None}]}, [])
+        assert await db.known_message_uuids("f1") == {"a"}
+
+    async def test_history_vracia_od_najstarsej(self):
+        """DB dáva `id.desc` (najnovšie), prompt chce chronológiu."""
+        rows = [
+            {"role": "assistant", "content": "nova"},
+            {"role": "user", "content": "stara"},
+        ]
+        calls = []
+        db = _db({"/fv_messages": rows}, calls)
+        assert await db.history("f1", limit=2) == [
+            {"role": "user", "content": "stara"},
+            {"role": "assistant", "content": "nova"},
+        ]
+        assert "order=id.desc" in calls[-1]["url"] and "limit=2" in calls[-1]["url"]
+
+
+# ---------------------------------------------------------------------------
+# Vault (fv_folders / fv_media / fv_media_sends)
+# ---------------------------------------------------------------------------
+
+
+class TestVault:
+    async def test_folders_su_zoradene_podla_mena(self):
+        calls = []
+        await _db({"/fv_folders": []}, calls).folders()
+        assert "order=name.asc" in calls[-1]["url"]
+
+    async def test_save_folder_upsertuje_na_meno(self):
+        calls = []
+        await _db({}, calls).save_folder("Posts", {"role": "post"})
+        assert calls[-1]["body"] == {"model_id": MODEL, "name": "Posts", "role": "post"}
+        assert "merge-duplicates" in calls[-1]["headers"]["prefer"]
+
+    async def test_upsert_media_oznaci_kazdy_riadok_modelkou(self):
+        calls = []
+        await _db({}, calls).upsert_media([{"media_uuid": "m1"}, {"media_uuid": "m2"}])
+        assert [r["model_id"] for r in calls[-1]["body"]] == [MODEL, MODEL]
+
+    async def test_prazdny_sync_nezapisuje(self):
+        calls = []
+        await _db({}, calls).upsert_media([])
+        assert calls == []
+
+    async def test_media_in_berie_len_aktivne_z_priecinka(self):
+        calls = []
+        await _db({"/fv_media": []}, calls).media_in("Clients NSFW")
+        url = calls[-1]["url"]
+        assert "active=is.true" in url and "folder=eq.Clients" in url
+
+    async def test_update_media_filtruje_na_modelku(self):
+        calls = []
+        await _db({}, calls).update_media("m1", {"posted_at": "2026-08-17T00:00:00Z"})
+        assert f"model_id=eq.{MODEL}" in calls[-1]["url"]
+        assert "media_uuid=eq.m1" in calls[-1]["url"]
+
+    async def test_sent_media_je_mnozina_uuid(self):
+        db = _db({"/fv_media_sends": [{"media_uuid": "m1"}, {"media_uuid": "m2"}]}, [])
+        assert await db.sent_media("f1") == {"m1", "m2"}
+
+    async def test_record_send_upsertuje_prirodzeny_kluc(self):
+        """PK je (model_id, media_uuid, fan_uuid) — druhé poslanie riadok
+        neprimnoží."""
+        calls = []
+        await _db({}, calls).record_send("m1", "f1", 900)
+        assert calls[-1]["body"] == {
+            "model_id": MODEL, "media_uuid": "m1", "fan_uuid": "f1", "price_cents": 900,
+        }
+        assert "merge-duplicates" in calls[-1]["headers"]["prefer"]
+
+
+# ---------------------------------------------------------------------------
+# Izolácia dátovej vrstvy — každá metóda zvlášť
+# ---------------------------------------------------------------------------
+
+
+class TestIzolaciaFvTabuliek:
     @pytest.mark.parametrize(
         "call",
         [
-            lambda db: db.fan("f"),
-            lambda db: db.upsert_fan("f", {}),
-            lambda db: db.history("f"),
+            lambda db: db.fan("f1"),
+            lambda db: db.upsert_fan("f1", {"handle": "j"}),
+            lambda db: db.update_fan("f1", {"greeted": True}),
+            lambda db: db.linked_tg_ids(),
+            lambda db: db.add_message("f1", "user", "a"),
+            lambda db: db.add_messages("f1", [{"role": "user", "content": "a"}]),
+            lambda db: db.known_message_uuids("f1"),
+            lambda db: db.history("f1"),
             lambda db: db.folders(),
-            lambda db: db.media_in("x"),
-            lambda db: db.sent_media("f"),
-            lambda db: db.record_send("m", "f", 100),
+            lambda db: db.save_folder("F", {"role": "post"}),
+            lambda db: db.upsert_media([{"media_uuid": "m1"}]),
+            lambda db: db.media_in("F"),
+            lambda db: db.all_media(),
+            lambda db: db.update_media("m1", {"active": False}),
+            lambda db: db.sent_media("f1"),
+            lambda db: db.record_send("m1", "f1", 100),
         ],
     )
-    async def test_chybajuca_tabulka_kricci(self, call):
-        """Ticho vrátené prázdno by znamenalo odpisovať do prázdna."""
-        with pytest.raises(NotImplementedError):
-            await call(_db({}, []))
+    async def test_model_id_je_v_kazdom_volani(self, call):
+        """Zapisuje sa service kľúčom, RLS teda neplatí — `model_id` v dotaze
+        alebo v tele je JEDINÉ, čo drží modelky oddelené."""
+        calls = []
+        rows = {p: [] for p in ("/fv_users", "/fv_messages", "/fv_folders",
+                                "/fv_media", "/fv_media_sends")}
+        await call(_db(rows, calls))
+        assert calls, "metóda nesiahla do DB vôbec"
+        for c in calls:
+            in_url = f"model_id=eq.{MODEL}" in c["url"]
+            body = c["body"] if isinstance(c["body"], list) else [c["body"]]
+            in_body = bool(body) and all(
+                isinstance(r, dict) and r.get("model_id") == MODEL for r in body
+            )
+            assert in_url or in_body, c
 
-    async def test_bez_fv_users_nie_je_sparovany_nikto(self):
-        assert await _db({}, []).linked_tg_ids() == set()
+    async def test_dvaja_tenanti_nevidia_do_toho_isteho_chatu(self):
+        calls = []
+        t = _transport({"/fv_messages": []}, calls)
+        await TenantFanvueDb(t, "model-A", KEY).history("spolocny-fan")
+        await TenantFanvueDb(t, "model-B", KEY).history("spolocny-fan")
+        assert "model_id=eq.model-A" in calls[0]["url"]
+        assert "model_id=eq.model-B" in calls[1]["url"]
 
 
 # ---------------------------------------------------------------------------

@@ -30,15 +30,14 @@ Prečo tu a nie inde:
 Výsledok: fanvue_api.py ani fanvue_agent.py sa nemuseli dotknúť — porting
 kontrakt ostal neporušený a plaintext token neopustí tento súbor smerom do DB.
 
-ROZSAH FÁZY 3.1
+ROZSAH FÁZY 3.2
 ---------------
-Táto fáza prináša pripojenie účtu a frontu udalostí. Dátová vrstva odpisovania
-(`fv_users`, `fv_messages`, `fv_folders`, `fv_media`, `fv_media_sends`) príde vo
-fáze 3.2 — metódy, ktoré ju potrebujú, sú nižšie zámerne `NotImplementedError`
-s menom chýbajúcej tabuľky, nie ticho prázdne. `start_fanvue` sa k nim navyše
-nedostane: agent sa spúšťa len keď je `fanvue.enabled` true, a to je stĺpec bez
-klientského grantu s defaultom false. Kým je vypnutý, udalosti sa vo fronte
-kopia — namiesto toho, aby ich prázdny agent označil za vybavené a zahodil.
+Fáza 3.1 priniesla pripojenie účtu a frontu udalostí; táto dopĺňa dátovú vrstvu
+odpisovania (`fv_users`, `fv_messages`, `fv_folders`, `fv_media`,
+`fv_media_sends`, migrácia 012) — teda všetko, čo agent potrebuje, aby vedel
+komu, čo a s akou históriou odpisuje. Odpisovanie samo ostáva za vypínačom
+`fanvue.enabled` (default false, prepína ho majiteľ v dashboarde): pripojiť účet
+a spustiť agenta sú dve vedomé rozhodnutia, nie jedno.
 """
 from __future__ import annotations
 
@@ -58,6 +57,12 @@ BEHAVIOR = "/behavior"
 USERS = "/dm_users"
 MESSAGES = "/dm_messages"
 FACTS = "/facts"
+
+FV_USERS = "/fv_users"
+FV_MESSAGES = "/fv_messages"
+FV_FOLDERS = "/fv_folders"
+FV_MEDIA = "/fv_media"
+FV_SENDS = "/fv_media_sends"
 
 # `fanvue_agent` číta `event["type"]`, v DB je stĺpec `event_type` (aby sa
 # nebilo s rezervovaným slovom a sedelo to s webhookom). PostgREST vie stĺpec
@@ -86,6 +91,15 @@ class TenantFanvueDb:
 
     async def _patch(self, path: str, params: Dict[str, str], body: Dict[str, Any]) -> None:
         await self._t._patch(path, params, body)
+
+    async def _post(self, path: str, body: Any, upsert: bool = False) -> None:
+        await self._t._post(path, body, upsert=upsert)
+
+    def _own(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        """Riadok na zápis s `model_id`. Zapisuje sa cez service kľúč (RLS
+        neplatí), takže tenanta drží iba toto — preto to má vlastné meno a
+        prechádza tadiaľ KAŽDÝ zápis, nie len tie, na ktoré si spomenieme."""
+        return {"model_id": self.model_id, **row}
 
     # ---------- nastavenia a tokeny ----------
 
@@ -170,12 +184,17 @@ class TenantFanvueDb:
         return rows[0] if rows else {}
 
     async def linked_tg_ids(self) -> set:
-        """Telegram id, ktoré už patria nejakému fanúšikovi.
+        """Telegram id, ktoré už patria nejakému fanúšikovi. Jeden človek
+        nemôže byť dvaja.
 
-        Fáza 3.2: kým `fv_users` neexistuje, nie je spárovaný nikto — prázdna
-        množina je správna odpoveď, nie výpadok.
+        Strážcom jednoznačnosti je táto množina (`fanmatch.best(…, taken=…)`),
+        nie unikátny index v DB — pozri komentár v migrácii 012.
         """
-        return set()
+        rows = await self._get(
+            FV_USERS,
+            {"model_id": self._mine, "select": "tg_id", "tg_id": "not.is.null"},
+        )
+        return {int(r["tg_id"]) for r in rows if r.get("tg_id") is not None}
 
     async def link_candidates(self, limit: int = 200) -> List[Dict[str, Any]]:
         """Konverzácie, z ktorých mohol prísť — komu odišiel odkaz."""
@@ -229,65 +248,131 @@ class TenantFanvueDb:
         out["recent"] = list(reversed(msgs))
         return out
 
-    # ---------- fáza 3.2: dátová vrstva odpisovania ----------
+    # ---------- fanúšikovia a správy ----------
     #
-    # Tabuľky fv_users / fv_messages / fv_folders / fv_media / fv_media_sends
-    # zatiaľ neexistujú. Radšej hlučné `NotImplementedError` než dotaz, ktorý
-    # PostgREST odmietne nezrozumiteľným PGRST205 — a hlavne než ticho vrátené
-    # prázdno, po ktorom by agent odpísal do prázdna.
-
-    @staticmethod
-    def _later(table: str):
-        raise NotImplementedError(
-            f"Fanvue tabuľka `{table}` pribudne vo fáze 3.2 (odpisovanie na Fanvue)."
-        )
+    # Od tohto miesta nižšie je to tá istá dátová vrstva ako v predlohe
+    # (`fanvue_api.FanvueDb`), len s `model_id` v každom filtri aj v každom tele
+    # zápisu. Upserty nepotrebujú `on_conflict`: primárne kľúče tabuliek z 012 sú
+    # presne tie zložené `(model_id, …)`, ktoré PostgREST odvodí sám.
 
     async def fan(self, fan_uuid: str) -> Optional[Dict[str, Any]]:
-        self._later("fv_users")
+        rows = await self._get(
+            FV_USERS,
+            {"model_id": self._mine, "fan_uuid": f"eq.{fan_uuid}", "select": "*"},
+        )
+        return rows[0] if rows else None
 
     async def upsert_fan(self, fan_uuid: str, patch: Dict[str, Any]) -> None:
-        self._later("fv_users")
+        await self._post(FV_USERS, self._own({"fan_uuid": fan_uuid, **patch}), upsert=True)
 
     async def update_fan(self, fan_uuid: str, patch: Dict[str, Any]) -> None:
-        self._later("fv_users")
+        await self._patch(
+            FV_USERS, {"model_id": self._mine, "fan_uuid": f"eq.{fan_uuid}"}, patch
+        )
 
     async def add_message(
         self, fan_uuid: str, role: str, content: str, message_uuid: str = ""
     ) -> None:
-        self._later("fv_messages")
+        """Jedna správa do archívu.
+
+        Predloha tu posielala `Prefer: resolution=merge-duplicates`, keď mala
+        `message_uuid` — lenže PK bol `id` (bigserial), takže z toho bol vždy
+        obyčajný insert. Zostáva teda insert, a to zámerne: duplicitám bráni
+        `known_message_uuids()` v `reconcile`, ktorý najprv zistí, čo už máme.
+        """
+        row: Dict[str, Any] = {"fan_uuid": fan_uuid, "role": role, "content": content}
+        if message_uuid:
+            row["message_uuid"] = message_uuid
+        await self._post(FV_MESSAGES, self._own(row))
 
     async def add_messages(self, fan_uuid: str, rows: List[Dict[str, str]]) -> None:
-        self._later("fv_messages")
+        """Doplnenie viacerých správ naraz. Prázdny zoznam nič nerobí."""
+        if rows:
+            await self._post(
+                FV_MESSAGES, [self._own({"fan_uuid": fan_uuid, **r}) for r in rows]
+            )
 
     async def known_message_uuids(self, fan_uuid: str, limit: int = 200) -> set:
-        self._later("fv_messages")
+        rows = await self._get(
+            FV_MESSAGES,
+            {
+                "model_id": self._mine,
+                "fan_uuid": f"eq.{fan_uuid}",
+                "select": "message_uuid",
+                "message_uuid": "not.is.null",
+                "order": "id.desc",
+                "limit": str(limit),
+            },
+        )
+        return {r["message_uuid"] for r in rows if r.get("message_uuid")}
 
     async def history(self, fan_uuid: str, limit: int = 16) -> List[Dict[str, str]]:
-        self._later("fv_messages")
+        rows = await self._get(
+            FV_MESSAGES,
+            {
+                "model_id": self._mine,
+                "fan_uuid": f"eq.{fan_uuid}",
+                "select": "role,content",
+                "order": "id.desc",
+                "limit": str(limit),
+            },
+        )
+        return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+
+    # ---------- obsah z vaultu ----------
 
     async def folders(self) -> List[Dict[str, Any]]:
-        self._later("fv_folders")
+        return await self._get(
+            FV_FOLDERS, {"model_id": self._mine, "select": "*", "order": "name.asc"}
+        )
 
     async def save_folder(self, name: str, patch: Dict[str, Any]) -> None:
-        self._later("fv_folders")
+        await self._post(FV_FOLDERS, self._own({"name": name, **patch}), upsert=True)
 
     async def upsert_media(self, rows: List[Dict[str, Any]]) -> None:
-        self._later("fv_media")
+        """Zápis po dávkach. Existujúce si nechajú popis aj cenu — tie sú naše,
+        vo vaulte nie sú a prepísať ich synchronizáciou by bola škoda."""
+        if rows:
+            await self._post(FV_MEDIA, [self._own(r) for r in rows], upsert=True)
 
     async def media_in(self, folder: str) -> List[Dict[str, Any]]:
-        self._later("fv_media")
+        return await self._get(
+            FV_MEDIA,
+            {
+                "model_id": self._mine,
+                "folder": f"eq.{folder}",
+                "active": "is.true",
+                "select": "*",
+            },
+        )
 
     async def all_media(self) -> List[Dict[str, Any]]:
-        self._later("fv_media")
+        return await self._get(
+            FV_MEDIA, {"model_id": self._mine, "select": "*", "order": "folder.asc"}
+        )
 
     async def update_media(self, media_uuid: str, patch: Dict[str, Any]) -> None:
-        self._later("fv_media")
+        await self._patch(
+            FV_MEDIA, {"model_id": self._mine, "media_uuid": f"eq.{media_uuid}"}, patch
+        )
 
     async def sent_media(self, fan_uuid: str) -> set:
-        self._later("fv_media_sends")
+        """Čo už tento človek videl. Dvakrát to isté je najlacnejší spôsob,
+        ako sa prezradiť."""
+        rows = await self._get(
+            FV_SENDS,
+            {"model_id": self._mine, "fan_uuid": f"eq.{fan_uuid}", "select": "media_uuid"},
+        )
+        return {r["media_uuid"] for r in rows}
 
     async def record_send(self, media_uuid: str, fan_uuid: str, price_cents: int) -> None:
-        self._later("fv_media_sends")
+        await self._post(
+            FV_SENDS,
+            self._own(
+                {"media_uuid": media_uuid, "fan_uuid": fan_uuid, "price_cents": price_cents}
+            ),
+            upsert=True,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -301,8 +386,8 @@ async def start_fanvue(cfg, g, transport, llm, cleanup: list) -> Optional[asynci
     Podmienky (všetky musia platiť):
       * worker vie o Fanvue appke (FANVUE_CLIENT_ID + FANVUE_CLIENT_SECRET),
       * modelka má pripojený účet (`fanvue.connected`),
-      * odpisovanie na Fanvue je zapnuté (`fanvue.enabled`) — do fázy 3.2
-        vypnuté, viď hlavička súboru.
+      * odpisovanie na Fanvue je zapnuté (`fanvue.enabled`) — vypínač
+        v dashboarde, default false, viď hlavička súboru.
 
     `llm` je ten istý `MeteredLlm` ako pre Telegram — Fanvue tak platí z toho
     istého kreditu a bez zostatku sa neodpisuje ani tam. Úloha aj HTTP klient
