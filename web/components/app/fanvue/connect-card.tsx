@@ -10,18 +10,27 @@ import {
   Unlink,
 } from "lucide-react";
 
-import { disconnectFanvueAction } from "@/app/app/m/[id]/fanvue/actions";
+import {
+  disconnectFanvueAction,
+  setFanvueEnabledAction,
+} from "@/app/app/m/[id]/fanvue/actions";
 import { Callout, Card, CardHeader } from "@/components/app/ui";
 import { RelativeTime } from "@/components/app/relative-time";
 import { dateTime, isPast } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import type { FanvueConnection } from "@/lib/fanvue";
 
 /**
  * Karta pripojenia Fanvue účtu.
  *
  * Pripojenie je celé v OAuth redirecte (`/api/fanvue/start`), takže tu nie je
- * formulár — len odkaz tam a tlačidlo späť. Tokeny sa v prehliadači nikdy
- * neobjavia; server posiela iba to, čo je vidieť nižšie.
+ * formulár — len odkaz tam, tlačidlo späť a vypínač agenta. Tokeny sa
+ * v prehliadači nikdy neobjavia; server posiela iba to, čo je vidieť nižšie.
+ *
+ * Vypínač je ZÁMERNE samostatný krok po pripojení a default je vypnutý:
+ * pripojiť účet znamená „telepipe má prístup", nie „píš mojim fanúšikom".
+ * Prepína ho server action so service kľúčom — klient na `fanvue.enabled`
+ * zápisový grant nemá (migrácia 011).
  */
 export function FanvueConnectCard({
   modelId,
@@ -36,12 +45,28 @@ export function FanvueConnectCard({
 }) {
   const [pending, startTransition] = useTransition();
   const [failed, setFailed] = useState<string | null>(null);
+  // Optimistický stav prepínača: server action prekreslí stránku, ale
+  // prepínač musí odpovedať hneď — inak to vyzerá, že klik nič neurobil.
+  const [enabled, setEnabled] = useState(fanvue.enabled);
 
   const disconnect = () => {
     setFailed(null);
     startTransition(async () => {
       const result = await disconnectFanvueAction(modelId);
       if (result?.error) setFailed(result.error);
+    });
+  };
+
+  const toggleAgent = () => {
+    const next = !enabled;
+    setFailed(null);
+    setEnabled(next);
+    startTransition(async () => {
+      const result = await setFanvueEnabledAction(modelId, next);
+      if (result?.error) {
+        setEnabled(!next); // späť tam, kde to naozaj je
+        setFailed(result.error);
+      }
     });
   };
 
@@ -98,10 +123,36 @@ export function FanvueConnectCard({
                     {fanvue.creator_uuid || "—"}
                   </code>
                 </Row>
-                <Row label="Replies on Fanvue">
-                  {fanvue.enabled ? "On" : "Off — coming with the Fanvue agent"}
-                </Row>
               </dl>
+
+              <div className="flex items-start justify-between gap-4 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-[13px] font-medium text-white/80">Agent enabled</p>
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-white/30">
+                    When enabled, the AI replies to Fanvue messages using this
+                    model&apos;s persona and credits.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={enabled}
+                  aria-label="Agent enabled"
+                  onClick={toggleAgent}
+                  disabled={pending}
+                  className={cn(
+                    "relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-60",
+                    enabled ? "bg-[var(--gold)]" : "bg-white/[0.12]",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
+                      enabled ? "translate-x-[22px]" : "translate-x-0.5",
+                    )}
+                  />
+                </button>
+              </div>
 
               {scopes.length > 0 && (
                 <div>

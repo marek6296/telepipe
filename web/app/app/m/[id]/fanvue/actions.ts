@@ -46,3 +46,40 @@ export async function disconnectFanvueAction(
   revalidatePath(`/app/m/${model.id}/fanvue`);
   return { ok: true };
 }
+
+/**
+ * Zapnutie/vypnutie odpisovania na Fanvue (`fanvue.enabled`).
+ *
+ * `enabled` je vypínač AGENTA, nie pripojenia — účet môže byť pripojený a
+ * ticho. Default je false a ostáva ním aj po pripojení: rozbehnúť odpisovanie
+ * je vedomé rozhodnutie, nie vedľajší účinok OAuth redirectu.
+ *
+ * Klient na tento stĺpec nemá zápisový grant (migrácia 011), takže sa píše
+ * service kľúčom — a ten obchádza RLS. Vlastníctvo preto overuje user-scoped
+ * `getModel` a `model_id` je aj vo filtri samotného update.
+ *
+ * Zapnúť sa dá len pripojený účet: bez tokenov by agent aj tak hneď spadol na
+ * refresh, a `connected` vo filtri je lacnejšie než to zistiť až vo workeri.
+ */
+export async function setFanvueEnabledAction(
+  modelId: string,
+  enabled: boolean,
+): Promise<{ ok?: boolean; error?: string }> {
+  await requireUser();
+  const model = await getModel(modelId);
+  if (!model) return { error: "Model not found." };
+
+  const admin = createServiceClient();
+  const { data, error } = await admin
+    .from("fanvue")
+    .update({ enabled, updated_at: new Date().toISOString() })
+    .eq("model_id", model.id)
+    .eq("connected", true)
+    .select("model_id");
+
+  if (error) return { error: error.message };
+  if (!data?.length) return { error: "Connect the Fanvue account first." };
+
+  revalidatePath(`/app/m/${model.id}/fanvue`);
+  return { ok: true };
+}
