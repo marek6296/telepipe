@@ -3,6 +3,9 @@
 MeteredLlm má rovnaké verejné metódy ako Llm — moduly predlohy nič nepoznajú.
 Pred volaním kontrola zostatku (≤0 → OutOfCredits + pauza modelu), po volaní
 zápis do ledgeru: atlas cena z cenníka, klientovi × multiplier.
+
+Neobmedzené účty (`accounts.unlimited`) kontrolu preskakujú — nikdy sa
+nepauzujú a nič sa im neodpočíta, ale do ledgeru sa zapisujú rovnako.
 """
 from __future__ import annotations
 import logging
@@ -42,7 +45,12 @@ class MeteredLlm:
         return getattr(self._llm, name)
 
     async def _metered(self, method: str, *args, **kwargs):
-        if await self._reg.credit_balance(self._model_id) <= 0:
+        # Neobmedzený účet (superadmin, interné modelky) sa nekontroluje vôbec:
+        # žiadna pauza, žiadna správa majiteľovi. Meranie tým NEKONČÍ — usage
+        # sa zapíše nižšie rovnako a `record_usage` len na strane DB preskočí
+        # odpočet, takže reálna spotreba ostáva v admin číslach vidieť.
+        balance, unlimited = await self._reg.credit_state(self._model_id)
+        if not unlimited and balance <= 0:
             # Kým sa runner zastaví (pool ho odpojí do ~30 s), stihne prísť
             # ďalších správ — stav aj správu majiteľovi preto posielame len
             # pri PRVOM zistení, inak by to bol spam do chatu aj do DB.

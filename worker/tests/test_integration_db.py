@@ -58,6 +58,9 @@ async def test_lease_lifecycle(real):
         balance = await reg.record_usage(row["id"], "chat", 10, 5, 0, 0.001, 0.002)
         assert balance == pytest.approx(4.998)
         assert await reg.credit_balance(row["id"]) == pytest.approx(4.998)
+        # Nový účet je vždy obmedzený — odpočet teda prebehol.
+        bal, unlimited = await reg.credit_state(row["id"])
+        assert bal == pytest.approx(4.998) and unlimited is False
         await reg.release_all("it-replika")
         freed = await reg.model_row(row["id"])
         assert freed["claimed_by"] is None

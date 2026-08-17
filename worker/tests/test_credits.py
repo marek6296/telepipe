@@ -14,11 +14,13 @@ class FakeLlm:
         return "ahoj"
 
 class FakeRegistry:
-    def __init__(self, balance=10.0):
+    def __init__(self, balance=10.0, unlimited=False):
         self._balance = balance
+        self._unlimited = unlimited
         self.usage_rows = []
         self.status_calls = []
     async def credit_balance(self, model_id): return self._balance
+    async def credit_state(self, model_id): return self._balance, self._unlimited
     async def pricing(self, slug):
         return {"input_usd_per_mtok": 3.0, "output_usd_per_mtok": 15.0, "multiplier": 2.0}
     async def record_usage(self, model_id, kind, i, o, u, atlas, charged):
@@ -74,6 +76,36 @@ async def test_notify_failure_does_not_swallow_out_of_credits():
     m = MeteredLlm(FakeLlm(), reg, model_id="m-1", model_slug="s", notify=boom)
     with pytest.raises(OutOfCredits):
         await m.reply("sys", [])
+
+
+async def test_unlimited_account_replies_at_zero_balance():
+    """Neobmedzený účet pri nulovom kredite odpovedá ďalej — žiadny OutOfCredits."""
+    reg = FakeRegistry(balance=0.0, unlimited=True); llm = FakeLlm()
+    m = MeteredLlm(llm, reg, model_id="m-1", model_slug="s")
+    assert await m.reply("sys", []) == "ahoj"
+    assert llm.calls == 1
+
+
+async def test_unlimited_account_never_pauses_nor_notifies():
+    reg = FakeRegistry(balance=-5.0, unlimited=True)     # aj do mínusu
+    sent = []
+    async def notify(text): sent.append(text)
+    m = MeteredLlm(FakeLlm(), reg, model_id="m-1", model_slug="s", notify=notify)
+    for _ in range(3):
+        await m.reply("sys", [])
+    assert reg.status_calls == []                # stav modelu sa nedotkne
+    assert sent == []                            # majiteľ nedostane nič
+
+
+async def test_unlimited_account_still_records_usage():
+    """Odpočet preskakuje DB (record_usage), ale udalosť v ledgeri musí byť —
+    inak by vlastná prevádzka zmizla z admin čísel."""
+    reg = FakeRegistry(balance=0.0, unlimited=True)
+    m = MeteredLlm(FakeLlm(), reg, model_id="m-1", model_slug="x-ai/grok-4.5")
+    await m.reply("sys", [])
+    kind, i, o, atlas, charged = reg.usage_rows[0]
+    assert kind == "chat" and i == 1000 and o == 500
+    assert atlas == pytest.approx(0.0105) and charged == pytest.approx(0.021)
 
 
 async def test_summarize_uses_summary_kind():

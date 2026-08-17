@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from transport import SupabaseTransport
 
@@ -77,6 +77,24 @@ class Registry:
         # MeteredLlm padol na `None <= 0`. Numeric chodí aj ako string.
         raw = await self._t._rpc("credit_balance", {"p_model": model_id})
         return float(raw or 0)
+
+    async def credit_state(self, model_id: str) -> Tuple[float, bool]:
+        """Zostatok + príznak `unlimited` jedným RPC (pred každou odpoveďou).
+
+        `credit_state` je table-returning, takže z PostgREST chodí zoznam
+        riadkov; neexistujúci účet = prázdny zoznam. Parsovanie je zámerne
+        tolerantné — chýbajúci riadok aj chýbajúci kľúč znamenajú (0.0, False),
+        aby MeteredLlm nikdy nedostala None do porovnania. Numeric chodí aj
+        ako string, preto float().
+
+        Chybu prenosu (výpadok Supabase) NEPREHLTÁME: 0.0 by tu znamenalo
+        „došiel kredit" a modelka by sa kvôli jednému 500-ku pauzla.
+        """
+        raw = await self._t._rpc("credit_state", {"p_model": model_id})
+        row = raw[0] if isinstance(raw, list) and raw else raw
+        if not isinstance(row, dict):
+            return 0.0, False
+        return float(row.get("balance") or 0), bool(row.get("unlimited"))
 
     async def record_usage(
         self,

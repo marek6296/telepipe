@@ -43,6 +43,33 @@ async def test_credit_balance_returns_float():
     assert await reg.credit_balance("m-1") == 12.5
 
 
+async def test_credit_state_parses_row():
+    """Table-returning RPC chodí ako zoznam riadkov; numeric ako string."""
+    seen = {}
+    def handler(req):
+        seen["url"] = str(req.url); seen["body"] = json.loads(req.content)
+        return httpx.Response(200, json=[{"balance": "12.5", "unlimited": True}])
+    reg = Registry(_mock(handler))
+    assert await reg.credit_state("m-1") == (12.5, True)
+    assert "/rpc/credit_state" in seen["url"]
+    assert seen["body"] == {"p_model": "m-1"}
+
+
+async def test_credit_state_missing_row_is_zero_and_limited():
+    """Neexistujúci účet → prázdny zoznam. Von (0.0, False), nie pád."""
+    def handler(req):
+        return httpx.Response(200, json=[])
+    reg = Registry(_mock(handler))
+    assert await reg.credit_state("m-1") == (0.0, False)
+
+
+async def test_credit_state_tolerates_null_and_missing_keys():
+    def handler(req):
+        return httpx.Response(200, json={"balance": None})
+    reg = Registry(_mock(handler))
+    assert await reg.credit_state("m-1") == (0.0, False)
+
+
 async def test_pricing_cached():
     calls = {"n": 0}
     def handler(req):
