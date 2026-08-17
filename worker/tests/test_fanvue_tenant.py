@@ -68,6 +68,17 @@ def _db(rows, calls):
     return TenantFanvueDb(_transport(rows, calls), MODEL, KEY)
 
 
+def _zrus(cleanup):
+    """Zruší všetky úlohy z cleanupu — presne ako `runner._drain_cleanup`.
+
+    `start_fanvue` spúšťa dve úlohy (vault + agent) a nezrušený `while True`
+    by v testoch prežil svoj test a zamiešal sa do ďalšieho.
+    """
+    for item in cleanup:
+        if isinstance(item, asyncio.Task):
+            item.cancel()
+
+
 # ---------------------------------------------------------------------------
 # Šifrovací seam
 # ---------------------------------------------------------------------------
@@ -460,7 +471,7 @@ def fake_agent(monkeypatch):
 
 
 class TestStart:
-    async def test_nepripojeny_ucet_agenta_nespusti(self):
+    async def test_nepripojeny_ucet_nespusti_nic(self):
         cleanup = []
         task = await start_fanvue(
             _Cfg(), _globals(), _transport({"/fanvue": [_row(connected=False)]}, []), None, cleanup
@@ -468,12 +479,40 @@ class TestStart:
         assert task is None and cleanup == []
 
     async def test_vypnute_odpisovanie_agenta_nespusti(self):
-        """Kým fáza 3.2 nepribudne, `enabled` je false a fronta sa len plní."""
+        """`enabled` je vypínač ODPISOVANIA — účet môže byť pripojený a ticho."""
         cleanup = []
         task = await start_fanvue(
             _Cfg(), _globals(), _transport({"/fanvue": [_row(enabled=False)]}, []), None, cleanup
         )
-        assert task is None and cleanup == []
+        try:
+            assert task is None
+            # Vault sa načítava aj tak: priradiť priečinkom rolu musí ísť SKÔR,
+            # než sa agent zapne.
+            assert any(isinstance(item, asyncio.Task) for item in cleanup)
+        finally:
+            _zrus(cleanup)
+
+    async def test_vypnute_odpisovanie_pusti_len_vault(self, fake_agent):
+        cleanup = []
+        task = await start_fanvue(
+            _Cfg(), _globals(), _transport({"/fanvue": [_row(enabled=False)]}, []), None, cleanup
+        )
+        try:
+            assert task is None
+            assert fake_agent.made == [], "agent sa nesmel spustiť"
+        finally:
+            _zrus(cleanup)
+
+    async def test_pripojeny_ucet_pusti_aj_nacitanie_vaultu(self, fake_agent):
+        cleanup = []
+        task = await start_fanvue(
+            _Cfg(), _globals(), _transport({"/fanvue": [_row()]}, []), object(), cleanup
+        )
+        try:
+            tasks = [i for i in cleanup if isinstance(i, asyncio.Task)]
+            assert len(tasks) == 2, "vault aj agent musia bežať vedľa seba"
+        finally:
+            _zrus(cleanup)
 
     async def test_bez_appky_sa_do_db_ani_nepozera(self):
         calls = []
@@ -498,18 +537,21 @@ class TestStart:
         try:
             assert task is not None
             await fake_agent.wait()
-            # Úloha musí ísť do cleanupu PRED klientom, inak by sa zatvoril
-            # skôr, než ho agent prestane používať.
-            assert cleanup[0] is task
-            assert hasattr(cleanup[1], "close")
+            # Úlohy musia ísť do cleanupu PRED klientom, inak by sa zatvoril
+            # skôr, než ho prestanú používať.
+            assert task in cleanup
+            klient = cleanup[-1]
+            assert hasattr(klient, "close")
+            assert cleanup.index(task) < cleanup.index(klient)
         finally:
-            task.cancel()
+            _zrus(cleanup)
 
     async def test_agent_dostane_ten_isty_metered_llm(self, fake_agent):
         """Fanvue musí platiť z toho istého kreditu ako Telegram."""
         llm = object()
+        cleanup = []
         task = await start_fanvue(
-            _Cfg(), _globals(), _transport({"/fanvue": [_row()]}, []), llm, []
+            _Cfg(), _globals(), _transport({"/fanvue": [_row()]}, []), llm, cleanup
         )
         try:
             await fake_agent.wait()
@@ -517,7 +559,75 @@ class TestStart:
             assert agent.llm is llm
             assert isinstance(agent.db, TenantFanvueDb) and agent.db.model_id == MODEL
         finally:
-            task.cancel()
+            _zrus(cleanup)
+
+
+# ---------------------------------------------------------------------------
+# Fronta „načítaj vault"
+# ---------------------------------------------------------------------------
+
+
+class TestFrontaSync:
+    async def test_pending_sync_berie_nedokoncenu_od_najstarsej(self):
+        calls = []
+        db = _db({"/fanvue_sync_requests": []}, calls)
+        assert await db.pending_sync() is None
+        url = calls[-1]["url"]
+        assert "finished_at=is.null" in url
+        assert "order=id.asc" in url and "limit=1" in url
+        assert f"model_id=eq.{MODEL}" in url
+
+    async def test_start_sync_zapise_cas_a_filtruje_na_riadok(self):
+        calls = []
+        await _db({}, calls).start_sync(4)
+        assert "id=eq.4" in calls[-1]["url"]
+        assert f"model_id=eq.{MODEL}" in calls[-1]["url"]
+        assert calls[-1]["body"]["started_at"]
+
+    async def test_finish_sync_zapise_vysledok(self):
+        calls = []
+        await _db({}, calls).finish_sync(4, ok=True, folders=3, media_new=7, media_seen=40)
+        body = calls[-1]["body"]
+        assert body["ok"] is True and body["folders"] == 3
+        assert body["media_new"] == 7 and body["media_seen"] == 40
+        assert body["finished_at"] and body["error"] == ""
+
+    async def test_neuspech_riadok_tiez_uzavrie(self):
+        """`finished_at is null` je zámok — otvorená požiadavka by zablokovala
+        tlačidlo aj pre ďalšie pokusy."""
+        calls = []
+        await _db({}, calls).finish_sync(4, ok=False, error="401 Unauthorized")
+        body = calls[-1]["body"]
+        assert body["ok"] is False and body["finished_at"]
+        assert body["error"] == "401 Unauthorized"
+
+    async def test_dlha_chyba_sa_skrati(self):
+        calls = []
+        await _db({}, calls).finish_sync(4, ok=False, error="x" * 900)
+        assert len(calls[-1]["body"]["error"]) == 400
+
+    async def test_mark_vault_synced_pise_do_fanvue(self):
+        calls = []
+        await _db({}, calls).mark_vault_synced()
+        assert calls[-1]["url"].split("?")[0].endswith("/fanvue")
+        assert f"model_id=eq.{MODEL}" in calls[-1]["url"]
+        assert calls[-1]["body"]["media_synced_at"]
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda db: db.pending_sync(),
+            lambda db: db.start_sync(1),
+            lambda db: db.finish_sync(1, ok=True),
+            lambda db: db.mark_vault_synced(),
+        ],
+    )
+    async def test_model_id_je_v_kazdom_volani(self, call):
+        calls = []
+        await call(_db({"/fanvue_sync_requests": []}, calls))
+        assert calls
+        for c in calls:
+            assert f"model_id=eq.{MODEL}" in c["url"], c["url"]
 
 
 # ---------------------------------------------------------------------------

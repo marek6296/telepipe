@@ -64,6 +64,7 @@ FV_MESSAGES = "/fv_messages"
 FV_FOLDERS = "/fv_folders"
 FV_MEDIA = "/fv_media"
 FV_SENDS = "/fv_media_sends"
+SYNC = "/fanvue_sync_requests"
 
 # `fanvue_agent` číta `event["type"]`, v DB je stĺpec `event_type` (aby sa
 # nebilo s rezervovaným slovom a sedelo to s webhookom). PostgREST vie stĺpec
@@ -381,6 +382,71 @@ class TenantFanvueDb:
             upsert=True,
         )
 
+    # ---------- fronta „načítaj vault" ----------
+    #
+    # Dashboard nemá ako vault načítať sám: prístupový token je šifrovaný a
+    # dešifrovací seam je tento súbor. Web preto len vloží riadok do
+    # `fanvue_sync_requests` (smie vyplniť jediný stĺpec, `model_id` — migrácia
+    # 015) a `fvvault.VaultSync` si ho tu vyberie.
+
+    async def pending_sync(self) -> Optional[Dict[str, Any]]:
+        """Najstaršia nedokončená požiadavka. None = fronta je prázdna."""
+        rows = await self._get(
+            SYNC,
+            {
+                "model_id": self._mine,
+                "finished_at": "is.null",
+                "select": "id,requested_at,started_at",
+                "order": "id.asc",
+                "limit": "1",
+            },
+        )
+        return rows[0] if rows else None
+
+    async def start_sync(self, request_id: int) -> None:
+        await self._patch(
+            SYNC,
+            {"model_id": self._mine, "id": f"eq.{request_id}"},
+            {"started_at": datetime.now(timezone.utc).isoformat()},
+        )
+
+    async def finish_sync(
+        self,
+        request_id: int,
+        ok: bool,
+        folders: int = 0,
+        media_new: int = 0,
+        media_seen: int = 0,
+        error: str = "",
+    ) -> None:
+        """Uzavretie požiadavky. Píše sa aj po zlyhaní.
+
+        `finished_at is null` je zároveň zámok (partial unique index z 015):
+        keby sa neúspešná požiadavka nechala otvorená, tlačidlo v dashboarde
+        by ostalo zablokované aj pre ďalšie pokusy.
+        """
+        await self._patch(
+            SYNC,
+            {"model_id": self._mine, "id": f"eq.{request_id}"},
+            {
+                "finished_at": datetime.now(timezone.utc).isoformat(),
+                "ok": bool(ok),
+                "folders": int(folders),
+                "media_new": int(media_new),
+                "media_seen": int(media_seen),
+                "error": str(error or "")[:400],
+            },
+        )
+
+    async def mark_vault_synced(self) -> None:
+        """Kedy naposledy vault dobehol. Ide bokom od frontu, aby to karta
+        vedela ukázať aj vtedy, keď je zoznam požiadaviek dávno prečítaný."""
+        await self._patch(
+            FANVUE,
+            {"model_id": self._mine},
+            {"media_synced_at": datetime.now(timezone.utc).isoformat()},
+        )
+
 
 # ---------------------------------------------------------------------------
 # Spustenie agenta vedľa Telegramu
@@ -388,16 +454,24 @@ class TenantFanvueDb:
 
 
 async def start_fanvue(cfg, g, transport, llm, cleanup: list) -> Optional[asyncio.Task]:
-    """Spustí Fanvue agenta pre tenanta, ak má prečo bežať. Inak vráti None.
+    """Spustí Fanvue pre tenanta. Vráti úlohu agenta, alebo None.
 
-    Podmienky (všetky musia platiť):
-      * worker vie o Fanvue appke (FANVUE_CLIENT_ID + FANVUE_CLIENT_SECRET),
-      * modelka má pripojený účet (`fanvue.connected`),
-      * odpisovanie na Fanvue je zapnuté (`fanvue.enabled`) — vypínač
-        v dashboarde, default false, viď hlavička súboru.
+    Bežia tu DVE úlohy a majú rôzne podmienky:
+
+      * **načítanie vaultu** (`fvvault.VaultSync`) stačí pripojený účet
+        (`fanvue.connected`). Priradiť priečinkom rolu a fotkám cenu musí ísť
+        SKÔR, než sa agent zapne — inak by prvá zapnutá modelka buď mlčala
+        (nemá čo poslať), alebo poslala fotku z priečinka, o ktorom ešte nikto
+        nepovedal, na čo je;
+      * **odpisovanie** (`FanvueAgent`) navyše potrebuje `fanvue.enabled` —
+        vypínač v dashboarde, default false. Pripojiť účet a rozbehnúť
+        odpisovanie sú dve vedomé rozhodnutia, nie jedno.
+
+    Nad oboma je ešte podmienka, že worker o Fanvue appke vôbec vie
+    (FANVUE_CLIENT_ID + FANVUE_CLIENT_SECRET).
 
     `llm` je ten istý `MeteredLlm` ako pre Telegram — Fanvue tak platí z toho
-    istého kreditu a bez zostatku sa neodpisuje ani tam. Úloha aj HTTP klient
+    istého kreditu a bez zostatku sa neodpisuje ani tam. Úlohy aj HTTP klient
     idú do `cleanup`, ktorý runner odbaví pri `stop()`.
 
     Nič sa tu nechytá: volajúci (runner) to obaľuje `try/except` presne ako
@@ -409,19 +483,28 @@ async def start_fanvue(cfg, g, transport, llm, cleanup: list) -> Optional[asynci
 
     from fanvue_agent import FanvueAgent
     from fanvue_api import Fanvue
+    from fvvault import VaultSync
 
     db = TenantFanvueDb(transport, cfg.model_id, g.encryption_key)
     row = await db.settings()
     if not row.get("connected"):
         return None
-    if not row.get("enabled"):
-        log.info("model %s: Fanvue pripojený, odpisovanie vypnuté", cfg.model_id)
-        return None
 
     api = Fanvue(db, g.fanvue_client_id, g.fanvue_client_secret)
-    task = asyncio.create_task(FanvueAgent(db, api, llm).run())
     # Poradie je dôležité: `_drain_cleanup` ide zoznamom odpredu, takže sa
-    # najprv zruší úloha a až potom sa zatvorí klient, ktorý používa.
+    # najprv zrušia úlohy a až potom zatvorí klient, ktorý používajú.
+    sync = asyncio.create_task(VaultSync(db, api).run())
+    cleanup.append(sync)
+
+    if not row.get("enabled"):
+        cleanup.append(api)
+        log.info(
+            "model %s: Fanvue pripojený, odpisovanie vypnuté — beží len vault",
+            cfg.model_id,
+        )
+        return None
+
+    task = asyncio.create_task(FanvueAgent(db, api, llm).run())
     cleanup.append(task)
     cleanup.append(api)
     log.info("model %s: Fanvue agent beží ako @%s", cfg.model_id, row.get("handle") or "?")
