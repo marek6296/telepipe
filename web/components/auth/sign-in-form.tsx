@@ -22,7 +22,7 @@ export function SignInForm({ next }: { next?: string }) {
   return (
     <div>
       <h1 className="animate-element animate-delay-200 text-[clamp(1.8rem,3.6vw,2.4rem)] font-semibold leading-tight text-balance-tight">
-        <span className="text-gradient-white">Welcome back</span>
+        <span className="lp-text-bright">Welcome back</span>
       </h1>
       <p className="animate-element animate-delay-300 mt-2.5 text-[14.5px] text-white/45">
         Sign in to manage your models, chats and credits.
@@ -58,13 +58,13 @@ export function SignInForm({ next }: { next?: string }) {
               type="checkbox"
               name="remember"
               defaultChecked
-              className="h-4 w-4 rounded border-white/20 bg-white/5 accent-[var(--gold)]"
+              className="h-4 w-4 rounded border-white/20 bg-white/5 accent-white"
             />
             Keep me signed in
           </label>
           <Link
             href="/reset-password"
-            className="text-[13px] font-medium text-[var(--gold)] transition-colors hover:text-[var(--gold-light)]"
+            className="text-[13px] font-medium text-white/70 underline-offset-4 transition-colors hover:text-white hover:underline"
           >
             Reset password
           </Link>
@@ -87,7 +87,7 @@ export function SignInForm({ next }: { next?: string }) {
         New to Telepipe?{" "}
         <Link
           href="/register"
-          className="font-semibold text-[var(--gold)] transition-colors hover:text-[var(--gold-light)]"
+          className="font-semibold text-white underline-offset-4 transition-colors hover:underline"
         >
           Create an account
         </Link>

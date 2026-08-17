@@ -30,49 +30,45 @@ const FEATURES = [
 export function Features() {
   return (
     <section id="features" className="relative scroll-mt-24 px-6 py-28 sm:py-36">
-      <div className="pointer-events-none absolute inset-0 bg-grid-fine" />
+      <div className="pointer-events-none absolute inset-0 lp-grid-fine" />
 
       <div className="relative mx-auto max-w-6xl">
         <div className="max-w-2xl">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.26em] text-[var(--gold)]">
-            Features
-          </p>
-          <h2 className="mt-4 text-[clamp(2rem,4.4vw,3.2rem)] font-semibold leading-[1.1] text-balance-tight text-white">
+          <p className="lp-eyebrow">Features</p>
+          <h2 className="mt-4 text-[clamp(2rem,4.4vw,3.2rem)] font-semibold leading-[1.1] lp-tight text-white">
             Everything a chatter does.
-            <span className="text-gradient-gold"> Without the payroll.</span>
+            <span className="lp-text-dim"> Without the payroll.</span>
           </h2>
-          <p className="mt-5 text-base leading-relaxed text-white/50">
+          <p className="mt-5 text-base leading-relaxed text-white/45">
             Telepipe replaces the night shift, the weekend shift and the
             &ldquo;sorry, I was asleep&rdquo; shift — with one agent per model that
             never breaks character.
           </p>
         </div>
 
-        <div className="mt-14 grid gap-5 sm:grid-cols-2">
+        <div className="mt-14 grid gap-4 sm:grid-cols-2">
           {FEATURES.map((feature, index) => (
             <article
               key={feature.title}
-              className="widget-depth group relative overflow-hidden rounded-3xl p-7 transition-transform duration-300 hover:-translate-y-1"
+              className="lp-card lp-card-hover group relative overflow-hidden p-7"
             >
-              <div className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.16),transparent_66%)] opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
-
               <div className="relative flex items-start gap-4">
-                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-[rgba(212,175,55,0.24)] bg-[rgba(212,175,55,0.09)]">
-                  <feature.icon className="h-5 w-5 text-[var(--gold)]" />
+                <span className="lp-icon-chip h-10 w-10 shrink-0 transition-colors duration-300 group-hover:border-white/20 group-hover:text-white">
+                  <feature.icon className="h-[18px] w-[18px]" strokeWidth={1.5} />
                 </span>
                 <div>
                   <div className="flex items-baseline gap-3">
-                    <h3 className="text-lg font-semibold text-white">
+                    <h3 className="text-[17px] font-semibold text-white">
                       {feature.title}
                     </h3>
-                    <span className="text-[10px] font-mono text-white/20">
+                    <span className="font-mono text-[10px] text-white/20">
                       0{index + 1}
                     </span>
                   </div>
-                  <p className="mt-2.5 text-[14.5px] leading-relaxed text-white/50">
+                  <p className="mt-2.5 text-[14.5px] leading-relaxed text-white/45">
                     {feature.body}
                   </p>
-                  <p className="mt-4 text-[11px] font-medium uppercase tracking-[0.14em] text-[var(--gold-dark)]">
+                  <p className="mt-4 text-[11px] font-medium uppercase tracking-[0.14em] text-white/25">
                     {feature.meta}
                   </p>
                 </div>

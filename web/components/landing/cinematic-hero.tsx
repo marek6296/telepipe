@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef } from "react";
 import Link from "next/link";
-import { ArrowRight, Clock, Sparkles, TrendingUp } from "lucide-react";
+import { ArrowRight, Clock, TrendingUp } from "lucide-react";
 import { gsap } from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 
@@ -17,8 +17,27 @@ import {
 const useIsomorphicLayoutEffect =
   typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
-/** Dĺžka pinnutého scrollu v px — priamo z predlohy CinematicHero. */
-const SCENE_SCROLL = 7000;
+/**
+ * Dĺžka pinnutého scrollu.
+ *
+ * Pôvodne fixných 7000 px. Vnímané tempo scrollu ale závisí od výšky okna —
+ * na 1080p obrazovke je 7000 px „6,5 obrazovky", na notebooku 8,7. Preto je
+ * vzdialenosť odvodená od `innerHeight` a clampnutá, aby ostala v rozumnom
+ * rozsahu. Timeline má 9,35 jednotky, takže na typickom 1280×800 vychádza
+ * ~445 px scrollu na jednotku.
+ */
+const SCENE_SCROLL_VH = 5.2;
+const SCENE_SCROLL_MIN = 3600;
+const SCENE_SCROLL_MAX = 5200;
+
+const sceneScroll = () =>
+  Math.round(
+    gsap.utils.clamp(
+      SCENE_SCROLL_MIN,
+      SCENE_SCROLL_MAX,
+      window.innerHeight * SCENE_SCROLL_VH,
+    ),
+  );
 
 export function CinematicHero() {
   return (
@@ -75,6 +94,11 @@ function CinematicScene() {
       const cta = q("[data-cta]")!;
       const ctaItems = qa("[data-cta-item]");
 
+      // Navigácia žije mimo scény (fixed header), preto ju hľadáme v dokumente.
+      const navGroups = gsap.utils.toArray<HTMLElement>(
+        document.querySelectorAll<HTMLElement>("[data-nav-reveal]"),
+      );
+
       /* --- Počiatočné stavy ------------------------------------------------ */
       gsap.set(card, {
         left: "50%",
@@ -98,8 +122,14 @@ function CinematicScene() {
       gsap.set(ringArc, { strokeDashoffset: RING_CIRCUMFERENCE });
       gsap.set(cta, { opacity: 0, y: 48, filter: "blur(16px)", pointerEvents: "none" });
       gsap.set(ctaItems, { opacity: 0, y: 26 });
+      // Nav je skrytá až kým nedobehne intro text (reveal je na intro timeline).
+      gsap.set(navGroups, { opacity: 0, y: -14, pointerEvents: "none" });
 
-      /* --- Pinnutá scroll scéna (scrub) ------------------------------------ */
+      /* --- Pinnutá scroll scéna (scrub) ------------------------------------
+         Tempo: každý beat dostane scroll úmerný tomu, koľko sa v ňom vizuálne
+         deje. Prázdne `.to({}, …)` držania sú zrezané na krátke nádychy
+         (0,15–0,25 jednotky), aby scroll nikde „nezomrel".
+         Mapa beatov je v komentároch nižšie. */
       const counter = { value: 0 };
 
       const tl = gsap.timeline({
@@ -107,108 +137,136 @@ function CinematicScene() {
         scrollTrigger: {
           trigger: scene,
           start: "top top",
-          end: `+=${SCENE_SCROLL}`,
+          end: () => `+=${sceneScroll()}`,
           pin: true,
-          scrub: 1,
+          scrub: 0.8,
           anticipatePin: 1,
           invalidateOnRefresh: true,
         },
       });
 
       tl
-        // 1) Intro odchádza
-        .to(intro, { opacity: 0, y: -90, filter: "blur(12px)", duration: 1.1 }, 0)
-        .to(scrollHint, { opacity: 0, duration: 0.4 }, 0)
-        .to(halo, { scale: 1.35, opacity: 0.85, duration: 2.4 }, 0)
+        /* Beat 1 — intro odchádza (0.00 → 0.95) */
+        .to(intro, { opacity: 0, y: -84, filter: "blur(12px)", duration: 0.95 }, 0)
+        .to(scrollHint, { opacity: 0, duration: 0.3 }, 0)
+        .to(halo, { scale: 1.3, opacity: 0.8, duration: 2.2 }, 0)
 
-        // 2) Karta priletí zdola
-        .to(card, { y: 0, opacity: 1, rotateX: 0, duration: 1.7, ease: "power3.out" }, 0.6)
+        /* Beat 2 — karta priletí zdola (0.55 → 2.05) */
+        .to(card, { y: 0, opacity: 1, rotateX: 0, duration: 1.5, ease: "power3.out" }, 0.55)
 
-        // 3) Roztiahne sa na celú obrazovku
+        /* Beat 3 — roztiahne sa na celú obrazovku (2.05 → 3.15) */
         .to(
           card,
-          { width: "100vw", height: "100vh", borderRadius: 0, duration: 1.2, ease: "power2.inOut" },
-          2.3,
+          {
+            width: "100vw",
+            height: "100vh",
+            borderRadius: 0,
+            duration: 1.1,
+            ease: "power2.inOut",
+          },
+          2.05,
         )
 
-        // 4) Obsah karty sa odhalí
-        .to(cardInner, { opacity: 1, scale: 1, duration: 0.9 }, 2.7)
-        .to(cardCopy, { opacity: 1, y: 0, filter: "blur(0px)", stagger: 0.14, duration: 0.7 }, 2.9)
-        .to(phoneWrap, { opacity: 1, y: 0, duration: 1.1, ease: "power2.out" }, 2.85)
+        /* Beat 4 — obsah karty sa odhalí (2.85 → 4.04) */
+        .to(cardInner, { opacity: 1, scale: 1, duration: 0.8 }, 2.85)
+        .to(
+          cardCopy,
+          { opacity: 1, y: 0, filter: "blur(0px)", stagger: 0.13, duration: 0.65 },
+          3.0,
+        )
+        .to(phoneWrap, { opacity: 1, y: 0, duration: 0.95, ease: "power2.out" }, 2.95)
 
-        // 5) Príbeh v telefóne — bubliny, ring counter, widgety
-        .to(bubbles, { opacity: 1, y: 0, scale: 1, stagger: 0.17, duration: 0.5 }, 3.5)
+        /* Beat 5 — konverzácia v telefóne (3.95 → 5.04) */
+        .to(bubbles, { opacity: 1, y: 0, scale: 1, stagger: 0.16, duration: 0.45 }, 3.95)
+
+        /* Beat 6 — ring counter, widgety, badges (4.85 → 6.18) */
         .to(
           ringArc,
           {
             strokeDashoffset: RING_CIRCUMFERENCE * (1 - RING_PROGRESS),
-            duration: 1.3,
+            duration: 1.05,
             ease: "power1.inOut",
           },
-          4.3,
+          4.85,
         )
         .to(
           counter,
           {
             value: RING_TARGET,
-            duration: 1.3,
+            duration: 1.05,
             ease: "power1.inOut",
             onUpdate: () => {
               ringValue.textContent = String(Math.round(counter.value));
             },
           },
-          4.3,
+          4.85,
         )
-        .to(widgets, { opacity: 1, y: 0, stagger: 0.28, duration: 0.5 }, 4.7)
-        .to(badges, { opacity: 1, scale: 1, stagger: 0.2, duration: 0.5, ease: "back.out(2)" }, 5.0)
+        .to(widgets, { opacity: 1, y: 0, stagger: 0.25, duration: 0.45 }, 5.15)
+        .to(badges, { opacity: 1, scale: 1, stagger: 0.18, duration: 0.45, ease: "back.out(2)" }, 5.55)
 
-        // 6) Pullback na 85vw × 85vh so zaoblením
+        /* nádych 6.18 → 6.35 */
+
+        /* Beat 7 — pullback na 85vw × 85vh (6.35 → 7.40) */
         .to(
           card,
-          { width: "85vw", height: "85vh", borderRadius: 36, duration: 1.3, ease: "power2.inOut" },
-          6.4,
+          {
+            width: "85vw",
+            height: "85vh",
+            borderRadius: 32,
+            duration: 1.05,
+            ease: "power2.inOut",
+          },
+          6.35,
         )
 
-        // 7) Karta odplávala, prichádza CTA
-        .to(card, { y: -140, scale: 0.9, opacity: 0, duration: 1.1, ease: "power2.in" }, 7.9)
-        .set(cta, { pointerEvents: "auto" }, 8.2)
-        .to(cta, { opacity: 1, y: 0, filter: "blur(0px)", duration: 1.0 }, 8.25)
-        .to(ctaItems, { opacity: 1, y: 0, stagger: 0.16, duration: 0.6 }, 8.5)
-        .to({}, { duration: 0.5 }, 9.4); // doznenie na konci pinu
+        /* nádych 7.40 → 7.55 */
 
-      /* --- Intro reveal (blur + clip-path, stagger) ------------------------- */
-      gsap.from(introKicker, {
-        opacity: 0,
-        y: 18,
-        duration: 0.8,
-        ease: "power3.out",
-        delay: 0.1,
-      });
-      gsap.from(introLines, {
-        opacity: 0,
-        y: 44,
-        filter: "blur(16px)",
-        clipPath: "inset(108% 0% -8% 0%)",
-        duration: 1.25,
-        stagger: 0.16,
-        ease: "power4.out",
-        delay: 0.25,
-      });
-      gsap.from(introSub, {
-        opacity: 0,
-        y: 26,
-        filter: "blur(10px)",
-        duration: 1,
-        ease: "power3.out",
-        delay: 0.85,
-      });
-      gsap.from(scrollHint, {
-        opacity: 0,
-        y: 14,
-        duration: 0.8,
-        ease: "power2.out",
-        delay: 1.4,
-      });
+        /* Beat 8 — karta odplávala, prichádza CTA (7.55 → 9.10) */
+        .to(card, { y: -140, scale: 0.9, opacity: 0, duration: 0.95, ease: "power2.in" }, 7.55)
+        .set(cta, { pointerEvents: "auto" }, 7.8)
+        .to(cta, { opacity: 1, y: 0, filter: "blur(0px)", duration: 0.85 }, 7.85)
+        .to(ctaItems, { opacity: 1, y: 0, stagger: 0.15, duration: 0.55 }, 8.1)
+
+        /* Beat 9 — krátke doznenie, nech CTA nezmizne hneď s koncom pinu */
+        .to({}, { duration: 0.25 }, 9.1);
+
+      /* --- Intro reveal (blur + scale + rotationX + clip-path wipe) ---------
+         Beží hneď po načítaní, nezávisle od scrollu. Na konci sa odhalí
+         navigácia aj jej dve auth tlačidlá. */
+      const introTl = gsap.timeline({ delay: 0.15 });
+
+      introTl
+        .from(introKicker, { opacity: 0, y: 16, duration: 0.7, ease: "power3.out" }, 0)
+        .from(
+          introLines,
+          {
+            opacity: 0,
+            yPercent: 55,
+            scale: 0.94,
+            rotationX: -32,
+            filter: "blur(14px)",
+            clipPath: "inset(105% 0% -5% 0%)",
+            transformOrigin: "50% 100%",
+            transformPerspective: 900,
+            duration: 1.35,
+            stagger: 0.18,
+            ease: "expo.out",
+          },
+          0.1,
+        )
+        .from(
+          introSub,
+          { opacity: 0, y: 22, filter: "blur(10px)", duration: 0.9, ease: "power3.out" },
+          0.75,
+        )
+        // Navigácia + Sign in / Get Started sa objavia až keď text dosadne.
+        .to(
+          navGroups,
+          { opacity: 1, y: 0, duration: 0.7, stagger: 0.09, ease: "power2.out" },
+          1.2,
+        )
+        .set(navGroups, { pointerEvents: "auto" }, 1.9)
+        .from(scrollHint, { opacity: 0, y: 12, duration: 0.7, ease: "power2.out" }, 1.55);
 
       /* --- Mouse paralaxa telefónu (rAF lerp, ±12°) ------------------------- */
       const target = { rx: 0, ry: 0 };
@@ -259,10 +317,10 @@ function CinematicScene() {
         className="relative h-[100svh] w-full overflow-hidden bg-black"
       >
         {/* Pozadie */}
-        <div className="pointer-events-none absolute inset-0 bg-grid" />
+        <div className="pointer-events-none absolute inset-0 lp-grid" />
         <div
           data-halo
-          className="gold-halo pointer-events-none absolute left-1/2 top-1/2 h-[820px] w-[820px] -translate-x-1/2 -translate-y-1/2 opacity-50"
+          className="lp-halo pointer-events-none absolute left-1/2 top-1/2 h-[820px] w-[820px] -translate-x-1/2 -translate-y-1/2 opacity-50"
         />
         <div className="film-grain-fixed" />
 
@@ -273,24 +331,24 @@ function CinematicScene() {
         >
           <p
             data-intro-kicker
-            className="mb-7 inline-flex items-center gap-2 rounded-full border border-[rgba(212,175,55,0.28)] bg-[rgba(212,175,55,0.06)] px-4 py-1.5 text-[11px] font-medium uppercase tracking-[0.22em] text-[var(--gold-light)]"
+            className="lp-hairline mb-7 inline-flex items-center gap-2 rounded-full bg-white/[0.03] px-4 py-1.5 text-[11px] font-medium uppercase tracking-[0.22em] text-white/55"
           >
-            <Sparkles className="h-3 w-3" />
+            <span className="h-1 w-1 rounded-full bg-white/60" />
             AI chat agents for creators
           </p>
 
-          <h1 className="max-w-[68rem] text-[clamp(1.95rem,5.4vw,4.4rem)] font-semibold leading-[1.04] text-balance-tight">
-            <span data-intro-line className="block text-gradient-white">
+          <h1 className="max-w-[68rem] text-[clamp(1.95rem,5.4vw,4.4rem)] font-semibold leading-[1.04] lp-tight">
+            <span data-intro-line className="block lp-text-dim">
               Your models never sleep.
             </span>
-            <span data-intro-line className="block text-gradient-gold">
+            <span data-intro-line className="block lp-text-bright">
               Chats become subscribers.
             </span>
           </h1>
 
           <p
             data-intro-sub
-            className="mt-7 max-w-xl text-[clamp(0.95rem,1.7vw,1.15rem)] leading-relaxed text-white/50"
+            className="mt-7 max-w-xl text-[clamp(0.95rem,1.7vw,1.15rem)] leading-relaxed text-white/45"
           >
             Telepipe runs your Telegram DMs on autopilot — human-sounding replies,
             real voice messages, and the right link at the perfect moment.
@@ -301,19 +359,18 @@ function CinematicScene() {
             className="absolute bottom-10 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-white/30"
           >
             Scroll
-            <span className="relative h-9 w-[1px] overflow-hidden bg-white/15">
-              <span className="absolute inset-x-0 top-0 h-3 animate-pulse-gold bg-[var(--gold)]" />
+            <span className="relative h-9 w-[1px] overflow-hidden bg-white/12">
+              <span className="lp-scroll-tick absolute inset-x-0 top-0 h-3 bg-white/80" />
             </span>
           </div>
         </div>
 
-        {/* --- Scéna 2: letiaca karta ------------------------------------- */}
-        <div
-          data-card
-          className="premium-depth-card absolute z-30 overflow-hidden opacity-0"
-        >
-          <div className="pointer-events-none absolute inset-0 bg-grid-fine" />
-          <div className="pointer-events-none absolute -left-40 top-1/3 h-[420px] w-[420px] gold-halo opacity-40" />
+        {/* --- Scéna 2: letiaca karta -------------------------------------
+            Karta a jej sheen sú zámerne neutrálne — jediný farebný prvok na
+            celej stránke je telefón vo vnútri, a ten nesmie mať konkurenciu. */}
+        <div data-card className="lp-depth-card absolute z-30 overflow-hidden opacity-0">
+          <div className="pointer-events-none absolute inset-0 lp-grid-fine" />
+          <div className="lp-halo pointer-events-none absolute -left-40 top-1/3 h-[420px] w-[420px] opacity-40" />
 
           <div
             data-card-inner
@@ -325,13 +382,13 @@ function CinematicScene() {
               <div className="max-w-md text-center lg:text-left">
                 <p
                   data-card-copy
-                  className="text-[clamp(2.6rem,5vw,4.2rem)] font-extrabold leading-none tracking-[-0.045em] text-gradient-gold"
+                  className="text-[clamp(2.6rem,5vw,4.2rem)] font-extrabold leading-none tracking-[-0.045em] lp-text-bright"
                 >
                   TELEPIPE
                 </p>
                 <h2
                   data-card-copy
-                  className="mt-5 text-[clamp(1.5rem,2.6vw,2.3rem)] font-semibold leading-tight text-white text-balance-tight"
+                  className="mt-5 text-[clamp(1.5rem,2.6vw,2.3rem)] font-semibold leading-tight text-white lp-tight"
                 >
                   One agent. Every fan.
                   <br />
@@ -339,7 +396,7 @@ function CinematicScene() {
                 </h2>
                 <p
                   data-card-copy
-                  className="mt-4 text-[15px] leading-relaxed text-white/50"
+                  className="mt-4 text-[15px] leading-relaxed text-white/45"
                 >
                   Your model&apos;s persona, tone and boundaries — learned once, then
                   applied to every conversation, day and night.
@@ -356,7 +413,7 @@ function CinematicScene() {
                   ].map((item) => (
                     <li
                       key={item}
-                      className="widget-depth rounded-full px-3.5 py-1.5 text-[11.5px] font-medium text-white/70"
+                      className="lp-glass rounded-full px-3.5 py-1.5 text-[11.5px] font-medium text-white/70"
                     >
                       {item}
                     </li>
@@ -364,43 +421,47 @@ function CinematicScene() {
                 </ul>
               </div>
 
-              {/* Pravý stĺpec — telefón + floating badges */}
+              {/* Pravý stĺpec — telefón + floating badges.
+                  Telefón aj badges ostávajú zlaté (Marek: „nech je telefón jediná
+                  farebná vec, je to showcase"). */}
               <div className="relative">
                 <div data-phone-wrap className="relative">
                   <PhoneMockup animated />
                 </div>
 
-                <div
-                  data-badge
-                  className="widget-depth widget-depth-gold absolute -left-14 -top-11 hidden animate-float-slow items-center gap-2.5 rounded-2xl px-4 py-3 sm:flex"
-                >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[rgba(212,175,55,0.14)]">
-                    <Clock className="h-4 w-4 text-[var(--gold)]" />
-                  </span>
-                  <span className="text-left">
-                    <span className="block text-[13px] font-semibold text-white">
-                      24/7 auto-replies
+                {/* `data-badge` animuje GSAP (opacity + scale), plávanie je na
+                    vnorenom elemente — CSS animácia by inline transform prebila. */}
+                <div data-badge className="absolute -left-14 -top-11 hidden sm:block">
+                  <div className="widget-depth widget-depth-gold animate-float-slow flex items-center gap-2.5 rounded-2xl px-4 py-3">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[rgba(212,175,55,0.14)]">
+                      <Clock className="h-4 w-4 text-[var(--gold)]" />
                     </span>
-                    <span className="block text-[10.5px] text-white/45">
-                      never a missed DM
+                    <span className="text-left">
+                      <span className="block text-[13px] font-semibold text-white">
+                        24/7 auto-replies
+                      </span>
+                      <span className="block text-[10.5px] text-white/45">
+                        never a missed DM
+                      </span>
                     </span>
-                  </span>
+                  </div>
                 </div>
 
-                <div
-                  data-badge
-                  className="widget-depth widget-depth-gold absolute -bottom-12 -right-24 hidden animate-float-slow items-center gap-2.5 rounded-2xl px-4 py-3 sm:flex"
-                  style={{ animationDelay: "1.6s" }}
-                >
-                  <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[rgba(212,175,55,0.14)]">
-                    <TrendingUp className="h-4 w-4 text-[var(--gold)]" />
-                  </span>
-                  <span className="text-left">
-                    <span className="block text-[13px] font-semibold text-[var(--gold-light)]">
-                      +38 subscribers
+                <div data-badge className="absolute -bottom-12 -right-24 hidden sm:block">
+                  <div
+                    className="widget-depth widget-depth-gold animate-float-slow flex items-center gap-2.5 rounded-2xl px-4 py-3"
+                    style={{ animationDelay: "1.6s" }}
+                  >
+                    <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[rgba(212,175,55,0.14)]">
+                      <TrendingUp className="h-4 w-4 text-[var(--gold)]" />
                     </span>
-                    <span className="block text-[10.5px] text-white/45">this week</span>
-                  </span>
+                    <span className="text-left">
+                      <span className="block text-[13px] font-semibold text-[var(--gold-light)]">
+                        +38 subscribers
+                      </span>
+                      <span className="block text-[10.5px] text-white/45">this week</span>
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -414,27 +475,27 @@ function CinematicScene() {
         >
           <h2
             data-cta-item
-            className="max-w-4xl text-[clamp(2.2rem,6.4vw,4.8rem)] font-semibold leading-[1.05] text-balance-tight"
+            className="max-w-4xl text-[clamp(2.2rem,6.4vw,4.8rem)] font-semibold leading-[1.05] lp-tight"
           >
-            <span className="text-gradient-gold">Put your DMs on autopilot.</span>
+            <span className="lp-text-bright">Put your DMs on autopilot.</span>
           </h2>
-          <p data-cta-item className="mt-6 max-w-xl text-base text-white/50">
+          <p data-cta-item className="mt-6 max-w-xl text-base text-white/45">
             Connect Telegram, describe your model, and let Telepipe turn every
             conversation into revenue.
           </p>
           <div
             data-cta-item
-            className="mt-11 flex flex-col items-center gap-4 sm:flex-row"
+            className="mt-11 flex flex-col items-center gap-3 sm:flex-row"
           >
-            <Link href="/register" className="btn-modern-light h-14 px-9 text-[15px]">
+            <Link href="/register" className="lp-btn lp-btn-primary h-12 px-7 text-[14.5px]">
               Get Started
               <ArrowRight className="h-4 w-4" />
             </Link>
-            <Link href="/login" className="btn-modern-dark h-14 px-9 text-[15px]">
+            <Link href="/login" className="lp-btn lp-btn-ghost h-12 px-7 text-[14.5px]">
               Sign In
             </Link>
           </div>
-          <p data-cta-item className="mt-7 text-xs text-white/30">
+          <p data-cta-item className="mt-8 text-xs text-white/30">
             No card required · Usage-based credits · Cancel anytime
           </p>
         </div>
@@ -450,44 +511,44 @@ function CinematicScene() {
 function StaticHero() {
   return (
     <section className="relative overflow-hidden bg-black px-6 pb-24 pt-36">
-      <div className="pointer-events-none absolute inset-0 bg-grid" />
-      <div className="gold-halo pointer-events-none absolute left-1/2 top-40 h-[620px] w-[620px] -translate-x-1/2 opacity-40" />
+      <div className="pointer-events-none absolute inset-0 lp-grid" />
+      <div className="lp-halo pointer-events-none absolute left-1/2 top-40 h-[620px] w-[620px] -translate-x-1/2 opacity-40" />
 
       <div className="relative mx-auto max-w-5xl text-center">
-        <p className="mb-6 inline-flex items-center gap-2 rounded-full border border-[rgba(212,175,55,0.28)] bg-[rgba(212,175,55,0.06)] px-4 py-1.5 text-[11px] font-medium uppercase tracking-[0.22em] text-[var(--gold-light)]">
-          <Sparkles className="h-3 w-3" />
+        <p className="lp-hairline mb-6 inline-flex items-center gap-2 rounded-full bg-white/[0.03] px-4 py-1.5 text-[11px] font-medium uppercase tracking-[0.22em] text-white/55">
+          <span className="h-1 w-1 rounded-full bg-white/60" />
           AI chat agents for creators
         </p>
-        <h1 className="text-[clamp(2.2rem,6.4vw,4.6rem)] font-semibold leading-[1.05] text-balance-tight">
-          <span className="block text-gradient-white">Your models never sleep.</span>
-          <span className="block text-gradient-gold">Chats become subscribers.</span>
+        <h1 className="text-[clamp(2.2rem,6.4vw,4.6rem)] font-semibold leading-[1.05] lp-tight">
+          <span className="block lp-text-dim">Your models never sleep.</span>
+          <span className="block lp-text-bright">Chats become subscribers.</span>
         </h1>
-        <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-white/50">
+        <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-white/45">
           Telepipe runs your Telegram DMs on autopilot — human-sounding replies,
           real voice messages, and the right link at the perfect moment.
         </p>
-        <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">
-          <Link href="/register" className="btn-modern-light h-14 px-9 text-[15px]">
+        <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <Link href="/register" className="lp-btn lp-btn-primary h-12 px-7 text-[14.5px]">
             Get Started
             <ArrowRight className="h-4 w-4" />
           </Link>
-          <Link href="/login" className="btn-modern-dark h-14 px-9 text-[15px]">
+          <Link href="/login" className="lp-btn lp-btn-ghost h-12 px-7 text-[14.5px]">
             Sign In
           </Link>
         </div>
       </div>
 
-      <div className="premium-depth-card relative mx-auto mt-20 max-w-6xl overflow-hidden rounded-[36px] px-8 py-14">
-        <div className="pointer-events-none absolute inset-0 bg-grid-fine" />
+      <div className="lp-depth-card relative mx-auto mt-20 max-w-6xl overflow-hidden rounded-[32px] px-8 py-14">
+        <div className="pointer-events-none absolute inset-0 lp-grid-fine" />
         <div className="relative flex flex-col items-center gap-12 lg:flex-row lg:justify-between">
           <div className="max-w-md text-center lg:text-left">
-            <p className="text-[clamp(2.2rem,4.4vw,3.6rem)] font-extrabold leading-none tracking-[-0.045em] text-gradient-gold">
+            <p className="text-[clamp(2.2rem,4.4vw,3.6rem)] font-extrabold leading-none tracking-[-0.045em] lp-text-bright">
               TELEPIPE
             </p>
             <h2 className="mt-5 text-2xl font-semibold leading-tight text-white">
               One agent. Every fan. Answered in seconds.
             </h2>
-            <p className="mt-4 text-[15px] leading-relaxed text-white/50">
+            <p className="mt-4 text-[15px] leading-relaxed text-white/45">
               Your model&apos;s persona, tone and boundaries — learned once, then
               applied to every conversation, day and night.
             </p>
@@ -496,7 +557,7 @@ function StaticHero() {
                 (item) => (
                   <li
                     key={item}
-                    className="widget-depth rounded-full px-3.5 py-1.5 text-[11.5px] font-medium text-white/70"
+                    className="lp-glass rounded-full px-3.5 py-1.5 text-[11.5px] font-medium text-white/70"
                   >
                     {item}
                   </li>

@@ -26,7 +26,7 @@ export function RequestResetForm() {
   return (
     <div>
       <h1 className="animate-element animate-delay-200 text-[clamp(1.8rem,3.6vw,2.4rem)] font-semibold leading-tight text-balance-tight">
-        <span className="text-gradient-white">Reset password</span>
+        <span className="lp-text-bright">Reset password</span>
       </h1>
       <p className="animate-element animate-delay-300 mt-2.5 text-[14.5px] text-white/45">
         Enter your email and we will send you a link to set a new password.
@@ -64,7 +64,7 @@ export function RequestResetForm() {
         Remembered it?{" "}
         <Link
           href="/login"
-          className="font-semibold text-[var(--gold)] transition-colors hover:text-[var(--gold-light)]"
+          className="font-semibold text-white underline-offset-4 transition-colors hover:underline"
         >
           Back to sign in
         </Link>
@@ -83,7 +83,7 @@ export function UpdatePasswordForm() {
   return (
     <div>
       <h1 className="animate-element animate-delay-200 text-[clamp(1.8rem,3.6vw,2.4rem)] font-semibold leading-tight text-balance-tight">
-        <span className="text-gradient-white">Set a new password</span>
+        <span className="lp-text-bright">Set a new password</span>
       </h1>
       <p className="animate-element animate-delay-300 mt-2.5 text-[14.5px] text-white/45">
         Choose a password you have not used on Telepipe before.

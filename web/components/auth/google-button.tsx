@@ -32,7 +32,7 @@ export function GoogleButton({ label = "Continue with Google" }: { label?: strin
         disabled={disabled}
         aria-disabled={disabled}
         title={googleAuthEnabled ? undefined : "Available soon"}
-        className="btn-modern-dark h-12 w-full text-[14px]"
+        className="lp-btn lp-btn-ghost h-12 w-full text-[14px]"
       >
         <GoogleIcon />
         {label}
@@ -42,14 +42,14 @@ export function GoogleButton({ label = "Continue with Google" }: { label?: strin
       {!googleAuthEnabled && (
         <span
           role="tooltip"
-          className="pointer-events-none absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-[rgba(212,175,55,0.3)] bg-black px-2.5 py-1.5 text-[11.5px] font-medium text-[var(--gold-light)] opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100"
+          className="pointer-events-none absolute -top-9 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/12 bg-[#101010] px-2.5 py-1.5 text-[11.5px] font-medium text-white/75 opacity-0 shadow-lg transition-opacity duration-200 group-hover:opacity-100 group-focus-within:opacity-100"
         >
           Available soon
         </span>
       )}
 
       {error && (
-        <p role="alert" className="mt-2 text-[12px] text-[#ffb3a7]">
+        <p role="alert" className="mt-2 text-[12px] text-[#f87171]">
           {error}
         </p>
       )}

@@ -13,7 +13,14 @@ const LINKS = [
   { href: "#pricing", label: "Pricing" },
 ];
 
-/** Fixná blur navigácia zo SaaS predlohy — biele logo, zlaté CTA. */
+/**
+ * Fixná blur navigácia v štýle dashboardu — monochróm, zlatá len v logu.
+ *
+ * Reveal: prvky s `data-nav-reveal` štartujú skryté a odhalí ich intro timeline
+ * v `CinematicScene` (nie scroll timeline — objaví sa teda hneď po načítaní,
+ * až keď dosadne intro text). Pri `prefers-reduced-motion` GSAP nebeží vôbec
+ * a `.lp-nav-reveal` si viditeľnosť vynúti cez CSS v `landing.css`.
+ */
 export function LandingNav() {
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
@@ -36,14 +43,19 @@ export function LandingNav() {
   return (
     <header
       className={cn(
-        "fixed inset-x-0 top-0 z-[80] transition-all duration-300",
+        "fixed inset-x-0 top-0 z-[80] transition-colors duration-300",
         scrolled
           ? "border-b border-white/[0.07] bg-black/60 backdrop-blur-xl supports-[backdrop-filter]:bg-black/45"
           : "border-b border-transparent bg-transparent",
       )}
     >
-      <nav className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-5 sm:px-8">
-        <Link href="/" className="flex items-center" aria-label="Telepipe home">
+      <nav className="mx-auto flex h-[68px] max-w-7xl items-center justify-between px-5 sm:px-8">
+        <Link
+          href="/"
+          data-nav-reveal
+          className="lp-nav-reveal flex items-center"
+          aria-label="Telepipe home"
+        >
           <Image
             src="/logo-white.png"
             alt="Telepipe"
@@ -54,12 +66,12 @@ export function LandingNav() {
           />
         </Link>
 
-        <ul className="hidden items-center gap-9 md:flex">
+        <ul data-nav-reveal className="lp-nav-reveal hidden items-center gap-8 md:flex">
           {LINKS.map((link) => (
             <li key={link.href}>
               <a
                 href={link.href}
-                className="text-[13.5px] font-medium text-white/60 transition-colors hover:text-[var(--gold-light)]"
+                className="text-[13.5px] font-medium text-white/55 transition-colors hover:text-white"
               >
                 {link.label}
               </a>
@@ -67,23 +79,31 @@ export function LandingNav() {
           ))}
         </ul>
 
-        <div className="hidden items-center gap-3 md:flex">
-          <Link href="/login" className="btn-ghost-gold h-10 px-4 text-[13.5px]">
+        <div
+          data-nav-reveal
+          className="lp-nav-reveal hidden items-center gap-2.5 md:flex"
+        >
+          <Link href="/login" className="lp-btn lp-btn-quiet h-9 px-3.5 text-[13.5px]">
             Sign in
           </Link>
-          <Link href="/register" className="btn-modern-light h-10 px-5 text-[13.5px]">
+          <Link href="/register" className="lp-btn lp-btn-primary h-9 px-4 text-[13.5px]">
             Get Started
           </Link>
         </div>
 
         <button
           type="button"
+          data-nav-reveal
           onClick={() => setOpen((value) => !value)}
           aria-label={open ? "Close menu" : "Open menu"}
           aria-expanded={open}
-          className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 text-white/80 md:hidden"
+          className="lp-nav-reveal lp-hairline flex h-9 w-9 items-center justify-center rounded-lg text-white/75 transition-colors hover:text-white md:hidden"
         >
-          {open ? <X className="h-4.5 w-4.5" /> : <Menu className="h-4.5 w-4.5" />}
+          {open ? (
+            <X className="h-4.5 w-4.5" strokeWidth={1.5} />
+          ) : (
+            <Menu className="h-4.5 w-4.5" strokeWidth={1.5} />
+          )}
         </button>
       </nav>
 
@@ -100,24 +120,24 @@ export function LandingNav() {
               <a
                 href={link.href}
                 onClick={() => setOpen(false)}
-                className="block rounded-xl px-3 py-3 text-[15px] font-medium text-white/75 hover:bg-white/[0.04] hover:text-[var(--gold-light)]"
+                className="block rounded-lg px-3 py-3 text-[15px] font-medium text-white/70 transition-colors hover:bg-white/[0.04] hover:text-white"
               >
                 {link.label}
               </a>
             </li>
           ))}
-          <li className="flex flex-col gap-3 pt-4">
+          <li className="flex flex-col gap-2.5 pt-4">
             <Link
               href="/login"
               onClick={() => setOpen(false)}
-              className="btn-modern-dark h-12 w-full text-[14px]"
+              className="lp-btn lp-btn-ghost h-11 w-full text-[14px]"
             >
               Sign in
             </Link>
             <Link
               href="/register"
               onClick={() => setOpen(false)}
-              className="btn-modern-light h-12 w-full text-[14px]"
+              className="lp-btn lp-btn-primary h-11 w-full text-[14px]"
             >
               Get Started
             </Link>

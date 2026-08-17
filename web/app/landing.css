@@ -1,0 +1,391 @@
+/* ===========================================================================
+   Telepipe landing (/) + auth — monochrómna téma
+
+   POZOR: tento súbor je LANDING/AUTH-SCOPED a je zámerne oddelený od
+   `globals.css` (ten vlastní appka a jej `.app-*` triedy). Landing sem patrí
+   celý — nič z tohto sa nesmie sťahovať do globals.css.
+
+   Paleta je tá istá ako v /app (#0A0A0A bg, #101010 surface, #1F1F1F/#2E2E2E
+   borders, text ramp #FAFAFA → #52525B). Landing smie byť o kúsok „bohatší"
+   (je to marketing) — hlbšie tiene, jemné biele halo — ale ostáva striktne
+   monochrómny. Farba je výhradne signál: zelená status bodka, červená chyba.
+   Zlatá je JEDINE v logu (obrázok).
+
+   Triedy sú neobalené v @layer, takže prebijú Tailwind utility (tie sú
+   v @layer utilities) bez ohľadu na poradie importov.
+=========================================================================== */
+
+.lp-scope {
+  --lp-bg: #000000;
+  --lp-bg-2: #0a0a0a;
+  --lp-surface: #101010;
+  --lp-surface-2: #151515;
+  --lp-border: #1f1f1f;
+  --lp-border-strong: #2e2e2e;
+  --lp-text: #fafafa;
+  --lp-text-2: #a1a1aa;
+  --lp-text-3: #71717a;
+  --lp-text-4: #52525b;
+  --lp-up: #4ade80;
+  --lp-down: #f87171;
+}
+
+/* Focus ring aj selection sú v globals.css zlaté — tu ich prepíšeme na bielu.
+   `.lp-scope :where(...)` má vyššiu špecificitu ako holé `:where(...)`. */
+.lp-scope :where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.65);
+  outline-offset: 2px;
+}
+
+.lp-scope ::selection {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+/* ---------------------------------------------------------------------------
+   Typografia
+--------------------------------------------------------------------------- */
+
+.lp-text-bright {
+  background-image: linear-gradient(180deg, #ffffff 0%, #ededf0 52%, #b4b4bb 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.lp-text-dim {
+  background-image: linear-gradient(180deg, #a1a1aa 0%, #5b5b63 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.lp-tight {
+  text-wrap: balance;
+  letter-spacing: -0.03em;
+}
+
+.lp-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--lp-text-4);
+}
+
+/* ---------------------------------------------------------------------------
+   Buttony — rovnaká logika ako `.app-btn` v dashboarde:
+   primárny = biely na čiernom, sekundárny = ghost s borderom.
+   Žiadne „tactile" zlaté tiene, žiadne gradienty.
+--------------------------------------------------------------------------- */
+
+.lp-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 10px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid transparent;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    opacity 0.16s ease;
+}
+
+.lp-btn:disabled,
+.lp-btn[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.lp-btn-primary {
+  background: #fafafa;
+  color: #0a0a0a;
+  font-weight: 600;
+}
+.lp-btn-primary:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: #ffffff;
+}
+.lp-btn-primary:active:not(:disabled) {
+  background: #e4e4e7;
+}
+
+.lp-btn-ghost {
+  background: transparent;
+  border-color: var(--lp-border-strong);
+  color: var(--lp-text-2);
+}
+.lp-btn-ghost:hover:not(:disabled):not([aria-disabled="true"]) {
+  background: var(--lp-surface-2);
+  border-color: #3f3f46;
+  color: var(--lp-text);
+}
+
+.lp-btn-quiet {
+  background: transparent;
+  color: var(--lp-text-3);
+}
+.lp-btn-quiet:hover:not(:disabled) {
+  background: var(--lp-surface-2);
+  color: var(--lp-text);
+}
+
+/* ---------------------------------------------------------------------------
+   Povrchy
+--------------------------------------------------------------------------- */
+
+.lp-card {
+  background: var(--lp-surface);
+  border: 1px solid var(--lp-border);
+  border-radius: 16px;
+  transition:
+    border-color 0.24s ease,
+    background-color 0.24s ease;
+}
+
+.lp-card-hover:hover {
+  background: var(--lp-surface-2);
+  border-color: var(--lp-border-strong);
+}
+
+.lp-panel {
+  background: #0e0e0e;
+  border: 1px solid var(--lp-border-strong);
+  border-radius: 20px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7);
+}
+
+/* Veľká „hero" karta — monochrómna náhrada za premium-depth-card. */
+.lp-depth-card {
+  background-image:
+    radial-gradient(120% 90% at 50% 0%, rgba(255, 255, 255, 0.06) 0%, transparent 62%),
+    linear-gradient(165deg, #161616 0%, #0b0b0b 48%, #050505 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.055),
+    0 40px 120px rgba(0, 0, 0, 0.85),
+    0 8px 28px rgba(0, 0, 0, 0.7);
+}
+
+.lp-glass {
+  background: linear-gradient(
+    160deg,
+    rgba(26, 26, 26, 0.9) 0%,
+    rgba(10, 10, 10, 0.94) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 12px 34px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+/* Zvýraznená sklenená vrstva — floating badges okolo telefónu. */
+.lp-glass-raised {
+  background: linear-gradient(
+    160deg,
+    rgba(38, 38, 38, 0.86) 0%,
+    rgba(12, 12, 12, 0.94) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 16px 44px rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+.lp-hairline {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Štvorcový chip pod tenkú lucide ikonu. */
+.lp-icon-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.72);
+}
+
+/* ---------------------------------------------------------------------------
+   Formuláre — sklenené inputy s bielym focusom (zlatý ring je preč)
+--------------------------------------------------------------------------- */
+
+.lp-input {
+  width: 100%;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.028);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  color: var(--lp-text);
+  padding: 0.85rem 1rem;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  outline: none;
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background-color 0.16s ease;
+}
+
+.lp-input::placeholder {
+  color: var(--lp-text-4);
+}
+
+.lp-input:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.lp-input:focus,
+.lp-input:focus-visible {
+  border-color: #52525b;
+  background: rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.07);
+  outline: none;
+}
+
+.lp-input[aria-invalid="true"] {
+  border-color: rgba(248, 113, 113, 0.55);
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.14);
+}
+
+.lp-label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--lp-text-2);
+}
+
+/* ---------------------------------------------------------------------------
+   Pozadia — mriežka a halo, obe biele
+--------------------------------------------------------------------------- */
+
+.lp-grid {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 40%, #000 20%, transparent 78%);
+  -webkit-mask-image: radial-gradient(
+    ellipse 70% 60% at 50% 40%,
+    #000 20%,
+    transparent 78%
+  );
+}
+
+.lp-grid-fine {
+  background-image:
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+  mask-image: radial-gradient(ellipse 60% 55% at 50% 50%, #000 10%, transparent 75%);
+  -webkit-mask-image: radial-gradient(
+    ellipse 60% 55% at 50% 50%,
+    #000 10%,
+    transparent 75%
+  );
+}
+
+.lp-halo {
+  background: radial-gradient(
+    circle at center,
+    rgba(255, 255, 255, 0.1) 0%,
+    rgba(255, 255, 255, 0.035) 36%,
+    transparent 68%
+  );
+  filter: blur(26px);
+}
+
+/* ---------------------------------------------------------------------------
+   Telefón — Telegram bubliny v monochróme
+--------------------------------------------------------------------------- */
+
+.lp-bubble-in {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.lp-bubble-out {
+  background: linear-gradient(150deg, #ffffff 0%, #d9d9de 100%);
+  color: #0b0b0b;
+  box-shadow: 0 6px 18px rgba(255, 255, 255, 0.1);
+}
+
+.lp-widget {
+  background: linear-gradient(
+    160deg,
+    rgba(28, 28, 28, 0.92) 0%,
+    rgba(10, 10, 10, 0.94) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* ---------------------------------------------------------------------------
+   Dekoratívne animácie
+   POZOR: `.lp-float` musí sedieť na inom elemente ako ten, ktorý animuje GSAP.
+   CSS animácia prebíja inline transform, takže by GSAP-u zožrala scale.
+--------------------------------------------------------------------------- */
+
+@keyframes lp-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
+
+.lp-float {
+  animation: lp-float 7s ease-in-out infinite;
+}
+
+/* Bodka, ktorá steká po scroll-hint linke. */
+@keyframes lp-scroll-tick {
+  0% {
+    transform: translateY(-100%);
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(320%);
+    opacity: 0;
+  }
+}
+
+.lp-scroll-tick {
+  animation: lp-scroll-tick 2.1s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-float,
+  .lp-scroll-tick {
+    animation: none !important;
+  }
+
+  /* GSAP scénu pri reduced-motion vôbec nespúšťame, takže nav musí byť
+     viditeľný sám od seba (GSAP by ho inak nechal na opacity 0). */
+  .lp-nav-reveal {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

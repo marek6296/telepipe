@@ -28,7 +28,7 @@ export function SignUpForm() {
   return (
     <div>
       <h1 className="animate-element animate-delay-200 text-[clamp(1.8rem,3.6vw,2.4rem)] font-semibold leading-tight text-balance-tight">
-        <span className="text-gradient-white">Create your account</span>
+        <span className="lp-text-bright">Create your account</span>
       </h1>
       <p className="animate-element animate-delay-300 mt-2.5 text-[14.5px] text-white/45">
         Start with a test balance — no card required.
@@ -73,7 +73,7 @@ export function SignUpForm() {
           <input
             type="checkbox"
             name="terms"
-            className="mt-0.5 h-4 w-4 shrink-0 rounded border-white/20 bg-white/5 accent-[var(--gold)]"
+            className="mt-0.5 h-4 w-4 shrink-0 rounded border-white/20 bg-white/5 accent-white"
           />
           I agree to run only accounts I am authorised to operate, and to
           Telepipe&apos;s usage-based billing.
@@ -96,7 +96,7 @@ export function SignUpForm() {
         Already have an account?{" "}
         <Link
           href="/login"
-          className="font-semibold text-[var(--gold)] transition-colors hover:text-[var(--gold-light)]"
+          className="font-semibold text-white underline-offset-4 transition-colors hover:underline"
         >
           Sign in
         </Link>
@@ -108,11 +108,11 @@ export function SignUpForm() {
 function CheckYourEmail({ email }: { email?: string }) {
   return (
     <div className="animate-element text-center">
-      <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl border border-[rgba(212,175,55,0.28)] bg-[rgba(212,175,55,0.09)]">
-        <MailCheck className="h-6 w-6 text-[var(--gold)]" />
+      <span className="lp-icon-chip mx-auto flex h-14 w-14 rounded-2xl">
+        <MailCheck className="h-6 w-6" strokeWidth={1.5} />
       </span>
       <h1 className="mt-7 text-[clamp(1.6rem,3.2vw,2.1rem)] font-semibold leading-tight">
-        <span className="text-gradient-gold">Check your email</span>
+        <span className="lp-text-bright">Check your email</span>
       </h1>
       <p className="mx-auto mt-4 max-w-sm text-[14.5px] leading-relaxed text-white/50">
         We sent a confirmation link{email ? " to " : ""}
@@ -123,7 +123,7 @@ function CheckYourEmail({ email }: { email?: string }) {
         Nothing in your inbox after a minute? Check spam — the confirmation is sent
         by Supabase on our behalf.
       </p>
-      <Link href="/login" className="btn-modern-dark mt-8 h-12 w-full text-[14px]">
+      <Link href="/login" className="lp-btn lp-btn-ghost mt-8 h-12 w-full text-[14px]">
         Back to sign in
       </Link>
     </div>

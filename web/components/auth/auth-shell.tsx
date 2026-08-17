@@ -4,13 +4,13 @@ import Link from "next/link";
 import { ArrowLeft, Quote } from "lucide-react";
 
 /**
- * Dvojstĺpcový glass layout zo SignInPage predlohy — vľavo formulár,
- * vpravo čierno-zlatý vizuál s ukážkovými testimonialmi.
+ * Dvojstĺpcový layout — vľavo formulár, vpravo vizuálny panel s ukážkovými
+ * testimonialmi. Split ostáva, farby idú do monochrómu (zlatá len v logu).
  */
 export function AuthShell({ children }: { children: ReactNode }) {
   return (
     <div className="relative flex min-h-svh w-full flex-1">
-      <div className="pointer-events-none absolute inset-0 bg-grid-fine" />
+      <div className="pointer-events-none absolute inset-0 lp-grid-fine" />
       <div className="film-grain-fixed" />
 
       {/* --- Ľavý stĺpec: formulár ---------------------------------------- */}
@@ -28,9 +28,9 @@ export function AuthShell({ children }: { children: ReactNode }) {
           </Link>
           <Link
             href="/"
-            className="inline-flex items-center gap-1.5 text-[12.5px] text-white/40 transition-colors hover:text-[var(--gold-light)]"
+            className="inline-flex items-center gap-1.5 text-[12.5px] text-white/40 transition-colors hover:text-white"
           >
-            <ArrowLeft className="h-3.5 w-3.5" />
+            <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.5} />
             Back to site
           </Link>
         </div>
@@ -46,10 +46,10 @@ export function AuthShell({ children }: { children: ReactNode }) {
 
       {/* --- Pravý stĺpec: vizuál + testimonials --------------------------- */}
       <div className="relative hidden p-4 lg:block lg:w-1/2">
-        <div className="premium-depth-card relative h-full w-full overflow-hidden rounded-[28px]">
-          <div className="pointer-events-none absolute inset-0 bg-grid-fine" />
-          <div className="gold-halo pointer-events-none absolute -right-32 -top-32 h-[520px] w-[520px]" />
-          <div className="gold-halo pointer-events-none absolute -bottom-40 -left-24 h-[440px] w-[440px] opacity-70" />
+        <div className="lp-depth-card relative h-full w-full overflow-hidden rounded-[24px]">
+          <div className="pointer-events-none absolute inset-0 lp-grid-fine" />
+          <div className="lp-halo pointer-events-none absolute -right-32 -top-32 h-[520px] w-[520px]" />
+          <div className="lp-halo pointer-events-none absolute -bottom-40 -left-24 h-[440px] w-[440px] opacity-70" />
 
           <div className="relative flex h-full flex-col justify-between p-10 xl:p-14">
             <div className="animate-element animate-delay-300">
@@ -60,10 +60,10 @@ export function AuthShell({ children }: { children: ReactNode }) {
                 height={70}
                 className="h-9 w-auto"
               />
-              <h2 className="mt-10 max-w-md text-[clamp(1.65rem,2.4vw,2.4rem)] font-semibold leading-[1.12] text-balance-tight">
-                <span className="text-gradient-white">Your models never sleep.</span>
+              <h2 className="mt-10 max-w-md text-[clamp(1.65rem,2.4vw,2.4rem)] font-semibold leading-[1.12] lp-tight">
+                <span className="lp-text-dim">Your models never sleep.</span>
                 <br />
-                <span className="text-gradient-gold">Neither does your funnel.</span>
+                <span className="lp-text-bright">Neither does your funnel.</span>
               </h2>
               <p className="mt-5 max-w-sm text-[14.5px] leading-relaxed text-white/45">
                 One agent per model, answering every Telegram DM in seconds — with
@@ -71,7 +71,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
               </p>
             </div>
 
-            <div className="space-y-3.5">
+            <div className="space-y-3">
               <Testimonial
                 quote="We stopped paying for a night shift entirely. The agent keeps the tone we spent months training chatters on."
                 name="Mara V."
@@ -111,15 +111,13 @@ function Testimonial({
   delay?: string;
 }) {
   return (
-    <figure
-      className={`glass-panel animate-element ${delay} rounded-2xl p-5`}
-    >
-      <Quote className="h-4 w-4 text-[var(--gold)]" />
+    <figure className={`lp-glass animate-element ${delay} rounded-2xl p-5`}>
+      <Quote className="h-4 w-4 text-white/30" strokeWidth={1.5} />
       <blockquote className="mt-3 text-[13.5px] leading-relaxed text-white/70">
         {quote}
       </blockquote>
       <figcaption className="mt-4 flex items-center gap-3">
-        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[linear-gradient(140deg,#e8c766,#a8872a)] text-[12px] font-bold text-black">
+        <span className="lp-hairline flex h-9 w-9 items-center justify-center rounded-full bg-white/[0.06] text-[12px] font-semibold text-white/80">
           {initials}
         </span>
         <span>

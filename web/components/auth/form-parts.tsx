@@ -6,7 +6,7 @@ import { AlertCircle, CheckCircle2, Eye, EyeOff, Loader2 } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-/** Glass input s labelom — základ všetkých auth formulárov. */
+/** Sklenený input s labelom — základ všetkých auth formulárov. */
 export function Field({
   label,
   name,
@@ -29,10 +29,7 @@ export function Field({
   const id = useId();
   return (
     <div className={className}>
-      <label
-        htmlFor={id}
-        className="mb-2 block text-[12.5px] font-medium tracking-tight text-white/60"
-      >
+      <label htmlFor={id} className="lp-label mb-2">
         {label}
       </label>
       <input
@@ -43,7 +40,7 @@ export function Field({
         defaultValue={defaultValue}
         autoComplete={autoComplete}
         required={required}
-        className="glass-input"
+        className="lp-input"
       />
     </div>
   );
@@ -68,10 +65,7 @@ export function PasswordField({
 
   return (
     <div>
-      <label
-        htmlFor={id}
-        className="mb-2 block text-[12.5px] font-medium tracking-tight text-white/60"
-      >
+      <label htmlFor={id} className="lp-label mb-2">
         {label}
       </label>
       <div className="relative">
@@ -82,15 +76,19 @@ export function PasswordField({
           placeholder={placeholder}
           autoComplete={autoComplete}
           required
-          className="glass-input pr-12!"
+          className="lp-input pr-12!"
         />
         <button
           type="button"
           onClick={() => setVisible((value) => !value)}
           aria-label={visible ? "Hide password" : "Show password"}
-          className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-white/35 transition-colors hover:text-[var(--gold-light)]"
+          className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-white/35 transition-colors hover:text-white"
         >
-          {visible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          {visible ? (
+            <EyeOff className="h-4 w-4" strokeWidth={1.5} />
+          ) : (
+            <Eye className="h-4 w-4" strokeWidth={1.5} />
+          )}
         </button>
       </div>
       {hint && <p className="mt-2 text-[11.5px] text-white/30">{hint}</p>}
@@ -111,7 +109,7 @@ export function SubmitButton({
     <button
       type="submit"
       disabled={pending}
-      className={cn("btn-modern-light h-12 w-full text-[14.5px]", className)}
+      className={cn("lp-btn lp-btn-primary h-12 w-full text-[14.5px]", className)}
     >
       {pending && <Loader2 className="h-4 w-4 animate-spin" />}
       {children}
@@ -119,29 +117,30 @@ export function SubmitButton({
   );
 }
 
-/** Inline chybová hláška (zlé heslo, existujúci email…). */
+/** Inline chybová hláška (zlé heslo, existujúci email…).
+    Červená je signálová farba z dashboardu — jediná povolená výnimka. */
 export function ErrorMessage({ children }: { children: React.ReactNode }) {
   return (
     <p
       role="alert"
       aria-live="polite"
-      className="flex items-start gap-2 rounded-xl border border-[#7a2b23] bg-[#2a100d] px-3.5 py-3 text-[13px] leading-snug text-[#ffb3a7]"
+      className="flex items-start gap-2 rounded-[10px] border border-[rgba(248,113,113,0.32)] bg-[rgba(248,113,113,0.08)] px-3.5 py-3 text-[13px] leading-snug text-[#f87171]"
     >
-      <AlertCircle className="mt-px h-4 w-4 shrink-0" />
+      <AlertCircle className="mt-px h-4 w-4 shrink-0" strokeWidth={1.5} />
       {children}
     </p>
   );
 }
 
-/** Informačná hláška (odoslaný reset link…). */
+/** Informačná hláška (odoslaný reset link…) — neutrálne sklo, bez farby. */
 export function NoticeMessage({ children }: { children: React.ReactNode }) {
   return (
     <p
       role="status"
       aria-live="polite"
-      className="flex items-start gap-2 rounded-xl border border-[rgba(212,175,55,0.3)] bg-[rgba(212,175,55,0.08)] px-3.5 py-3 text-[13px] leading-snug text-[var(--gold-light)]"
+      className="flex items-start gap-2 rounded-[10px] border border-white/12 bg-white/[0.045] px-3.5 py-3 text-[13px] leading-snug text-white/75"
     >
-      <CheckCircle2 className="mt-px h-4 w-4 shrink-0" />
+      <CheckCircle2 className="mt-px h-4 w-4 shrink-0 text-white/50" strokeWidth={1.5} />
       {children}
     </p>
   );
