@@ -165,10 +165,15 @@ class TenantConfig:
     # Účty, ktorým sa odpovedá výhradne hlasovkou — na testovanie hlasu.
     voice_only_ids: frozenset = frozenset()
 
-    # Supabase schéma — v Telepipe spoločná pre všetky modely (multi-tenant
-    # dáta sa delia cez account_id/model_id, nie cez samostatné schémy), preto
-    # to nie je env premenná ako v predlohe, ale pevná hodnota.
-    supabase_schema: str = "tgai"
+    # POZOR: v predlohe `supabase_schema` nie je len názov DB schémy — čítajú
+    # ho aj den.block_at()/behavior.activity_wave() (userbot.py:391,397,711)
+    # ako SEED pre denný rozvrh a aktivitu, a userbot.py:1345 ako prefix
+    # storage cesty. V Telepipe je DB spoločná (public, žiadne per-tenant
+    # schémy), takže sem ide model_id — unikátne per tenant, deterministické
+    # naprieč reštartami, vďaka čomu má každý model iný rozvrh/aktivitu aj
+    # iný storage prefix. Konštanta ako "tgai" by spôsobila, že by všetci
+    # tenanti mali identický denný rozvrh — nechceme.
+    supabase_schema: str = ""
 
     # --- Zdedené globálne defaulty z Config (LLM, chovanie) ---
     llm_key: str = ""
@@ -215,7 +220,9 @@ class TenantConfig:
             owner_chat_id=int(row["owner_chat_id"]),
             owner_as_client=bool(row.get("owner_as_client", False)),
             voice_only_ids=frozenset(row.get("voice_only_ids") or ()),
-            supabase_schema="tgai",
+            # Seed pre denný rozvrh/aktivitu + prefix storage ciest (viď
+            # komentár pri poli vyššie) — NIE názov DB schémy.
+            supabase_schema=row["id"],
             # Zdedené z globálneho Config — predloha ich nastavuje z env,
             # tu ich model zatiaľ nemôže prepísať (bude riešiť behavior tabuľka).
             llm_key=g.llm_key,

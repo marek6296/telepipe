@@ -90,6 +90,11 @@ def test_tenant_config_covers_template_attrs(monkeypatch):
     t = TenantConfig.from_row(row, cfg)
     missing = [a for a in TEMPLATE_TENANT_ATTRS if not hasattr(t, a)]
     assert not missing, f"TenantConfig chýbajú atribúty z predlohy: {missing}"
+    # supabase_schema nie je názov DB schémy — v predlohe je to zároveň seed
+    # pre denný rozvrh/aktivitu (den.block_at/behavior.activity_wave) a
+    # prefix storage ciest. Musí byť per-tenant unikátne, inak majú všetci
+    # tenanti identický denný rozvrh.
+    assert t.supabase_schema == t.model_id
 
 
 def test_tenant_config_missing_enc_is_empty_string(monkeypatch):
