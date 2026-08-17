@@ -38,7 +38,7 @@ const STEPS: Step[] = [
 export default function HowItWorksPage() {
   return (
     <>
-      <section className="relative overflow-hidden px-6 pb-16 pt-36 sm:pt-44">
+      <section className="relative overflow-hidden px-6 pb-16 pt-[92px]">
         <div className="pointer-events-none absolute inset-0 lp-grid" />
         <div
           aria-hidden
