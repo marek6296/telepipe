@@ -120,7 +120,7 @@ export function ModelHeader({
                 type="button"
                 onClick={() => setEditing(true)}
                 aria-label="Rename model"
-                className="rounded-md p-1.5 text-[var(--app-text-4)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
+                className="app-tap rounded-md p-1.5 text-[var(--app-text-4)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
               >
                 <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
               </button>

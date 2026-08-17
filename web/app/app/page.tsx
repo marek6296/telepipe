@@ -11,8 +11,8 @@ import {
 } from "@/components/app/dashboard-charts";
 import { ModelCard } from "@/components/app/model-card";
 import { Card, CardHeader, EmptyState, PageHeader, StatTile } from "@/components/app/ui";
-import { compactNumber, isoDaysAgo, toNumber, usd, usdPrecise } from "@/lib/format";
-import { getAccount, getModelStats, listModels, type ModelRow } from "@/lib/models";
+import { compactNumber, isoDaysAgo, toNumber, usdPrecise } from "@/lib/format";
+import { getModelStats, listModels, type ModelRow } from "@/lib/models";
 import { getConnectedMap } from "@/lib/telegram";
 import { createClient } from "@/lib/supabase/server";
 
@@ -24,14 +24,13 @@ export const metadata: Metadata = {
 const WINDOW = 7;
 
 export default async function DashboardPage() {
-  const [account, models] = await Promise.all([getAccount(), listModels()]);
+  const models = await listModels();
   const [stats, connected, events] = await Promise.all([
     getModelStats(models.map((model) => model.id)),
     getConnectedMap(models),
     recentUsage(WINDOW * 2),
   ]);
 
-  const balance = toNumber(account?.credit_balance_usd);
   const totalChats = models.reduce((sum, model) => sum + (stats[model.id]?.chats ?? 0), 0);
   const totalConverted = models.reduce(
     (sum, model) => sum + (stats[model.id]?.converted ?? 0),
@@ -63,14 +62,7 @@ export default async function DashboardPage() {
       />
 
       {/* --- Dlaždice --------------------------------------------------------- */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatTile label="Credit balance" value={usd(balance)} hint={creditHint(balance)} />
-        <StatTile
-          label="Net spend"
-          value={usdPrecise(spendThis)}
-          delta={percentDelta(spendThis, spendPrev)}
-          hint="last 7 days"
-        />
+      <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <StatTile
           label="Replies sent"
           value={compactNumber(repliesThis)}
@@ -80,14 +72,25 @@ export default async function DashboardPage() {
         <StatTile
           label="Conversations"
           value={compactNumber(totalChats)}
-          hint={`${compactNumber(totalConverted)} converted`}
+          hint="all-time conversations"
+        />
+        <StatTile
+          label="Converted"
+          value={compactNumber(totalConverted)}
+          hint={conversionHint(totalConverted, totalChats)}
+        />
+        <StatTile
+          label="Usage spend"
+          value={usdPrecise(spendThis)}
+          delta={percentDelta(spendThis, spendPrev)}
+          hint="last 7 days"
         />
       </div>
 
       {/* --- Grafy ------------------------------------------------------------ */}
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <Card>
-          <CardHeader title="Net spend" description="Daily charged, last 7 days" />
+          <CardHeader title="Usage spend" description="Daily charged, last 7 days" />
           <SpendChart data={spendSeries} />
         </Card>
 
@@ -274,7 +277,7 @@ function dailyMessagesByModel(
   return { data, series };
 }
 
-function creditHint(balance: number): string {
-  if (balance <= 0) return "out of credits — models pause";
-  return `~${compactNumber(Math.max(0, Math.round(balance / 0.005)))} replies left`;
+function conversionHint(converted: number, conversations: number): string {
+  if (conversations <= 0) return "no conversations yet";
+  return `${((converted / conversations) * 100).toFixed(1)}% of conversations`;
 }

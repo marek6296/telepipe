@@ -40,7 +40,7 @@ export function ModelTabs({ modelId, needsSetup }: { modelId: string; needsSetup
             href={href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "relative flex shrink-0 items-center gap-2 px-3 py-2.5 text-[13px] transition-colors",
+              "app-tap relative flex shrink-0 items-center gap-2 px-3 py-2.5 text-[13px] transition-colors",
               active
                 ? "font-medium text-[var(--app-text)]"
                 : "text-[var(--app-text-3)] hover:text-[var(--app-text-2)]",
@@ -50,7 +50,7 @@ export function ModelTabs({ modelId, needsSetup }: { modelId: string; needsSetup
             {tab.label}
             {tab.slug === "telegram" && needsSetup && (
               <span
-                className="h-1.5 w-1.5 rounded-full bg-[#facc15]"
+                className="h-1.5 w-1.5 rounded-full bg-[var(--app-text-3)]"
                 title="Setup not finished"
               />
             )}

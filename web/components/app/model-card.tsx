@@ -54,7 +54,7 @@ export function ModelCard({
         </div>
       )}
 
-      <dl className="mt-5 grid grid-cols-3 gap-6">
+      <dl className="mt-5 grid grid-cols-2 gap-5 min-[420px]:grid-cols-3 min-[420px]:gap-6">
         <Metric label="Chats" value={compactNumber(stats.chats)} />
         <Metric label="Converted" value={compactNumber(stats.converted)} />
         <Metric label="Spent today" value={usdPrecise(stats.spentToday)} />
@@ -113,7 +113,7 @@ function QuickLink({
   return (
     <Link
       href={href}
-      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[12.5px] text-[var(--app-text-3)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
+      className="app-tap inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[12.5px] text-[var(--app-text-3)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
     >
       {icon}
       {children}

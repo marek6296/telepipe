@@ -33,7 +33,7 @@ export default async function AdminUsagePage() {
         description="What clients were charged against what Atlas cost us, day by day."
       />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <StatTile
           label="Charged 30d"
           value={usdPrecise(charged)}

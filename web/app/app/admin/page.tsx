@@ -51,7 +51,7 @@ export default async function AdminOverviewPage() {
         description="Everything running on Telepipe right now — accounts, bots, workers and what the platform earns."
       />
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <StatTile
           label="Users"
           value={compactNumber(accounts.length)}
@@ -74,7 +74,7 @@ export default async function AdminOverviewPage() {
         />
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mt-4 grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <StatTile
           label="Spend today"
           value={usdPrecise(spendToday)}

@@ -19,12 +19,12 @@ import { usdPrecise } from "@/lib/format";
  * majú vertikálny gradient biela→priehľadná, čiary sa líšia jasom a čiarkou.
  */
 
-const AXIS = { fill: "#52525b", fontSize: 11 };
+const AXIS = { fill: "#8a8a94", fontSize: 11 };
 const GRID = "#1a1a1a";
 
 /** Odtiene pre stepped line — poradie určuje, ktorá séria dostane ktorý. */
-const LINE_STROKE = ["#fafafa", "#a1a1aa", "#71717a", "#52525b"];
-const LINE_DASH: (string | undefined)[] = [undefined, undefined, "4 3", "2 3"];
+const LINE_STROKE = ["#fafafa", "#c4c4cc", "#9b9ba5", "#7d7d87"];
+const LINE_DASH: (string | undefined)[] = [undefined, "7 3", "4 3", "2 3"];
 
 export type SpendPoint = { label: string; value: number };
 
@@ -35,7 +35,11 @@ export function SpendChart({ data }: { data: SpendPoint[] }) {
   return (
     <div className="px-2 pb-4 pt-5">
       <ResponsiveContainer width="100%" height={196}>
-        <BarChart data={data} margin={{ top: 4, right: 12, bottom: 0, left: 4 }}>
+        <BarChart
+          accessibilityLayer
+          data={data}
+          margin={{ top: 4, right: 12, bottom: 0, left: 4 }}
+        >
           <defs>
             <linearGradient id="app-bar-mono" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#ffffff" stopOpacity={0.92} />
@@ -92,7 +96,11 @@ export function MessagesChart({
   return (
     <div className="px-2 pb-4 pt-5">
       <ResponsiveContainer width="100%" height={196}>
-        <LineChart data={data} margin={{ top: 4, right: 12, bottom: 0, left: 4 }}>
+        <LineChart
+          accessibilityLayer
+          data={data}
+          margin={{ top: 4, right: 12, bottom: 0, left: 4 }}
+        >
           <CartesianGrid stroke={GRID} vertical={false} />
           <XAxis
             dataKey="label"

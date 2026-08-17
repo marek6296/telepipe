@@ -27,7 +27,7 @@ export function PageHeader({
     <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
         {eyebrow && <p className="app-group-label mb-2">{eyebrow}</p>}
-        <h1 className="text-[24px] font-semibold tracking-[-0.02em] text-[var(--app-text)]">
+        <h1 className="sr-only text-[24px] font-semibold tracking-[-0.02em] text-[var(--app-text)] sm:not-sr-only">
           {title}
         </h1>
         {description && (
@@ -36,7 +36,7 @@ export function PageHeader({
           </p>
         )}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-2 sm:shrink-0">{actions}</div>}
     </div>
   );
 }
@@ -143,7 +143,10 @@ export function StatTile({
         {icon && <span className="text-[var(--app-text-4)]">{icon}</span>}
         {label}
       </div>
-      <p className="mt-2.5 text-[28px] font-semibold leading-none tracking-[-0.03em] tabular-nums text-[var(--app-text)]">
+      <p
+        className="mt-2.5 overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(1.45rem,5vw,1.75rem)] font-semibold leading-none tracking-[-0.03em] tabular-nums text-[var(--app-text)]"
+        title={typeof value === "string" || typeof value === "number" ? String(value) : undefined}
+      >
         {value}
       </p>
       <div className="mt-2.5 min-h-[17px]">

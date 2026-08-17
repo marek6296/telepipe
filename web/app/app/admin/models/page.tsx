@@ -30,7 +30,7 @@ export default async function AdminModelsPage() {
         description="Every bot on the platform with the worker that runs it. Metadata only — conversations stay private to the client."
       />
 
-      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <StatTile label="Models" value={compactNumber(models.length)} hint={`${active} active`} />
         <StatTile label="Claimed" value={compactNumber(claimed)} hint="held by a worker" />
         <StatTile label="Messages today" value={compactNumber(msgsToday)} />

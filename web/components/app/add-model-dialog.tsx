@@ -79,7 +79,7 @@ export function AddModelDialog({
                 type="button"
                 onClick={() => setOpen(false)}
                 aria-label="Close"
-                className="absolute right-3 top-3 rounded-md p-1.5 text-[var(--app-text-4)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
+                className="app-tap absolute right-3 top-3 rounded-md p-1.5 text-[var(--app-text-4)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
               >
                 <X className="h-4 w-4" strokeWidth={1.75} />
               </button>
