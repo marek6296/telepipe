@@ -250,16 +250,24 @@ function FolderRow({
             {open ? "Hide photos" : `Show ${photos.length} photos`}
           </button>
           {open && (
-            <div className="grid gap-3 px-4 pb-4 sm:grid-cols-2 xl:grid-cols-3">
-              {photos.map((item) => (
-                <MediaTile
-                  key={item.media_uuid}
-                  modelId={modelId}
-                  item={item}
-                  paid={paid}
-                />
-              ))}
-            </div>
+            <>
+              <p className="px-4 pb-3 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+                The caption is what she matches against the conversation, so write what is
+                actually in the photo. Nobody gets the same photo twice — Fanvue does not
+                remember that, we do. “Explicit” is a label for you: when she picks a photo
+                for a chat, the folder role decides.
+              </p>
+              <div className="grid gap-3 px-4 pb-4 sm:grid-cols-2 xl:grid-cols-3">
+                {photos.map((item) => (
+                  <MediaTile
+                    key={item.media_uuid}
+                    modelId={modelId}
+                    item={item}
+                    paid={paid}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </div>
       )}
