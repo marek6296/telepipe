@@ -241,3 +241,104 @@ def test_railway_spusta_main():
     root = pathlib.Path(__file__).resolve().parent.parent
     config = json.loads((root / "railway.json").read_text(encoding="utf-8"))
     assert config["deploy"]["startCommand"] == "python src/main.py"
+
+
+# ---------------------------------------------------------------------------
+# Typ agenta — pool spúšťa len to, pre čo má beh
+# ---------------------------------------------------------------------------
+#
+# Prvou obranou je `claim_models` (migrácia 018), ktorá filtruje na
+# `model_type = 'persona'`. Tieto testy sú o druhej: keby ten filter niekto pri
+# úprave RPC stratil, riadok firemného agenta sa dostane až sem — a tu sa musí
+# zastaviť, kým sa naň nespustí Telethon session s dievčenskou personou.
+
+PERSONA_ROW = {**ROW, "model_type": "persona"}
+BUSINESS_ROW = {**ROW, "model_type": "business"}
+PRIVATE_ROW = {**ROW, "model_type": "private"}
+
+
+async def test_persona_row_starts_runner():
+    FakeRunner.instances.clear()
+    reg = FakeReg(); reg.next_rows = [PERSONA_ROW]
+    pool = make_pool(reg)
+    await pool.tick()
+    assert len(FakeRunner.instances) == 1
+    assert "m-1" in pool._running
+
+
+async def test_business_row_never_starts_runner():
+    """Žiadny runner, žiadna session — a lease sa vráti, nech ho pool nedrží."""
+    FakeRunner.instances.clear()
+    reg = FakeReg(); reg.next_rows = [BUSINESS_ROW]
+    pool = make_pool(reg)
+    await pool.tick()
+    assert FakeRunner.instances == []
+    assert pool._running == {}
+    assert "m-1" in reg.released
+
+
+async def test_private_row_never_starts_runner():
+    FakeRunner.instances.clear()
+    reg = FakeReg(); reg.next_rows = [PRIVATE_ROW]
+    pool = make_pool(reg)
+    await pool.tick()
+    assert FakeRunner.instances == []
+    assert pool._running == {}
+
+
+async def test_unknown_type_never_starts_runner():
+    """Neznámy typ je tá istá situácia ako firemný — beh preň neexistuje."""
+    FakeRunner.instances.clear()
+    reg = FakeReg(); reg.next_rows = [{**ROW, "model_type": "kocur"}]
+    pool = make_pool(reg)
+    await pool.tick()
+    assert FakeRunner.instances == []
+
+
+async def test_row_without_model_type_still_runs():
+    """Riadok bez stĺpca je starý riadok, nie firemný agent.
+
+    Keby sa replika nasadila skôr než migrácia 018, opačná voľba by zastavila
+    všetko, čo práve beží — vrátane produkčných modeliek.
+    """
+    FakeRunner.instances.clear()
+    reg = FakeReg(); reg.next_rows = [ROW]        # ROW `model_type` nemá
+    pool = make_pool(reg)
+    await pool.tick()
+    assert len(FakeRunner.instances) == 1
+
+
+async def test_bad_type_does_not_eat_capacity():
+    """Odmietnutý riadok nesmie zabrať miesto — ďalší tick pýta plnú kapacitu."""
+    FakeRunner.instances.clear()
+    reg = FakeReg(); reg.next_rows = [BUSINESS_ROW]
+    pool = make_pool(reg)
+    await pool.tick()
+    reg.next_rows = []
+    await pool.tick()
+    assert reg.claims == [2, 2]
+
+
+async def test_running_tenant_stopped_when_type_stops_being_runnable():
+    """Typ sa nemá ako zmeniť (DB naň nedáva update grant), ale keby áno,
+    bežiaci runner nesmie prežiť jeden tick."""
+    FakeRunner.instances.clear()
+    reg = FakeReg(); reg.next_rows = [PERSONA_ROW]
+    pool = make_pool(reg)
+    await pool.tick()
+    assert "m-1" in pool._running
+
+    reg.next_rows = []
+    reg.rows_by_id["m-1"] = BUSINESS_ROW
+    await pool.tick()
+    assert "m-1" not in pool._running
+    assert FakeRunner.instances[0].stopped
+
+
+def test_runnable_types_are_only_persona():
+    """Kanárik: kým `claim_models` filtruje na `persona`, tento zoznam sa mu
+    musí rovnať. Rozšíriť ho bez migrácie znamená pustiť sem typ, ktorý DB
+    replike nikdy nepridelí — alebo horšie, spustiť naň dievčenský runner."""
+    from main import RUNNABLE_MODEL_TYPES
+
+    assert RUNNABLE_MODEL_TYPES == frozenset({"persona"})

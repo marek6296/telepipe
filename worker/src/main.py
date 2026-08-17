@@ -28,6 +28,28 @@ from datetime import datetime, timezone
 
 log = logging.getLogger("main")
 
+# Typy agentov, pre ktoré táto replika má beh (`TenantRunner` + Telethon).
+#
+# Prvou obranou je `claim_models` (migrácia 018) — RPC filtruje na
+# `model_type = 'persona'` a iný typ replike vôbec nepridelí. Toto je druhá:
+# keby sa filter niekedy stratil pri úprave RPC, riadok firemného agenta by tu
+# naštartoval dievčenský runner a ten by odpisoval firemným zákazníkom
+# personou. Radšej nech nebeží nič, než nesprávna vec.
+#
+# Keď pribudne firemný/osobný agent, dostane VLASTNÝ pool a vlastné napojenie
+# na claim (parameter typu do RPC alebo vlastná claim funkcia) — nie ďalšiu
+# vetvu tu. Jeden pool = jeden typ.
+RUNNABLE_MODEL_TYPES = frozenset({"persona"})
+
+# Riadok bez `model_type` je starý riadok, nie firemný agent. Chýbajúcu hodnotu
+# preto berieme ako `persona`: keby sa replika nasadila skôr než migrácia,
+# opačná voľba by zastavila všetko, čo beží.
+DEFAULT_MODEL_TYPE = "persona"
+
+
+def _model_type(row) -> str:
+    return (row.get("model_type") or DEFAULT_MODEL_TYPE) if row else DEFAULT_MODEL_TYPE
+
 
 def _setup_logging() -> None:
     logging.basicConfig(
@@ -88,7 +110,14 @@ class Pool:
         # 1. modely, ktoré prestali byť active (alebo zmizli), sa zastavia
         for mid in list(self._running):
             row = await self._reg.model_row(mid)
-            if not row or row.get("status") != "active":
+            # Typ sa po založení nemení (DB naň nedáva update grant), ale ak by
+            # sa raz zmenil pod bežiacim runnerom, platí to isté čo pri claime:
+            # cudzí typ nesmie ďalej bežať na tomto poole.
+            if (
+                not row
+                or row.get("status") != "active"
+                or _model_type(row) not in RUNNABLE_MODEL_TYPES
+            ):
                 runner, task = self._running.pop(mid)
                 log.info("model %s: lease/stav už nesedí — zastavujem", mid)
                 await runner.stop()
@@ -118,6 +147,17 @@ class Pool:
             rows = await self._reg.claim(self._g.replica_name, free)
             for row in rows:
                 mid = row["id"]
+                typ = _model_type(row)
+                if typ not in RUNNABLE_MODEL_TYPES:
+                    # Sem sa to nemá ako dostať, kým `claim_models` filtruje.
+                    # Ak sa dostalo, je rozbitá RPC — lease pustíme a runner
+                    # NEštartujeme (žiadna Telethon session na cudzom type).
+                    log.error(
+                        "model %s: typ %r nemá v tejto replike beh — nespúšťam, "
+                        "vraciam lease (claim_models by ho nemala dávať)", mid, typ,
+                    )
+                    await self._reg.release(mid)
+                    continue
                 try:
                     cfg = self._tenant_factory(row, self._g)
                 except Exception:
