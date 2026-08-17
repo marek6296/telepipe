@@ -4,7 +4,6 @@
 import { saveBehaviorAction } from "@/app/app/m/[id]/behavior/actions";
 import { AutoSaveForm } from "@/components/app/forms/auto-save";
 import {
-  LockedSection,
   NumberField,
   RangeRow,
   SelectField,
@@ -50,15 +49,8 @@ export type BehaviorRow = {
   max_replies_per_hour: number;
   max_links_per_hour: number;
   photo_cooldown_min: number;
-  voices_enabled: boolean;
   morning_enabled: boolean;
   morning_max_per_day: number;
-  eleven_voice_id: string;
-  voice_ambience: string;
-  voice_strength: string;
-  voice_chance: number | string;
-  voice_tempo: number | string;
-  voice_ambience_level: number | string;
 };
 
 /** Časové zóny, ktoré agentúry reálne používajú. Aktuálnu vždy doplníme. */
@@ -84,18 +76,6 @@ const TIME_ZONES = [
   "Asia/Manila",
   "Asia/Tokyo",
   "Australia/Sydney",
-];
-
-const AMBIENCE = [
-  { value: "home", label: "At home" },
-  { value: "bedroom", label: "Bedroom" },
-  { value: "kitchen", label: "Kitchen" },
-  { value: "bathroom", label: "Bathroom" },
-  { value: "car", label: "In the car" },
-  { value: "outside", label: "Outside" },
-  { value: "cafe", label: "Café" },
-  { value: "gym", label: "Gym" },
-  { value: "none", label: "Silent" },
 ];
 
 const num = (value: number | string): number =>
@@ -388,84 +368,6 @@ export function BehaviorForm({ behavior }: { behavior: BehaviorRow }) {
             suffix="msgs"
             help="How often she rewrites her rolling summary of a chat. Lower means sharper memory and slightly higher cost."
           />
-        </div>
-      </Card>
-
-      {/* --- Hlas -------------------------------------------------------------- */}
-      <Card>
-        <CardHeader
-          title="Voice messages"
-          description="Voice notes convert better than text — and they are the hardest thing to fake."
-        />
-        <div className="space-y-5 p-5">
-          <SwitchField
-            name="voices_enabled"
-            label="Send voice messages"
-            defaultValue={behavior.voices_enabled}
-            help="Turn off and she stays text-only."
-          />
-          <div className="grid gap-5 sm:grid-cols-2">
-            <SliderField
-              name="voice_chance"
-              label="How often she sends one"
-              defaultValue={num(behavior.voice_chance)}
-              format={percent}
-              help="Chance that a reply becomes a voice note instead of text."
-            />
-            <SliderField
-              name="voice_tempo"
-              label="Speaking tempo"
-              defaultValue={num(behavior.voice_tempo)}
-              min={0.5}
-              max={2}
-              step={0.01}
-              format={(value) => `${value.toFixed(2)}×`}
-              help="Above 1 she talks faster. Around 1.10 sounds natural on a phone recording."
-            />
-            <SelectField
-              name="voice_ambience"
-              label="Where she is recording"
-              defaultValue={behavior.voice_ambience}
-              options={AMBIENCE}
-              help="Default background. If the chat says she is at the gym, the recording follows the chat."
-            />
-            <SelectField
-              name="voice_strength"
-              label="Recording quality"
-              defaultValue={behavior.voice_strength}
-              options={[
-                { value: "soft", label: "Soft — clean studio" },
-                { value: "real", label: "Real — like a phone" },
-                { value: "rough", label: "Rough — noisy room" },
-              ]}
-              help="How much phone-microphone character gets mixed in."
-            />
-            <SliderField
-              name="voice_ambience_level"
-              label="Background volume"
-              defaultValue={num(behavior.voice_ambience_level)}
-              format={percent}
-              help="Too loud and it sounds staged. A few percent is plenty."
-            />
-          </div>
-
-          <LockedSection
-            title="Her own voice (ElevenLabs)"
-            description="Connect your ElevenLabs account and pick the voice she speaks with. Landing in the next release — until then she uses our default voice."
-          >
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div>
-                <p className="mb-2 text-[12.5px] font-medium text-[var(--app-text-3)]">ElevenLabs API key</p>
-                <div className="app-input select-none text-[var(--app-text-4)]">••••••••••••••••</div>
-              </div>
-              <div>
-                <p className="mb-2 text-[12.5px] font-medium text-[var(--app-text-3)]">Voice</p>
-                <div className="app-input select-none text-[var(--app-text-4)]">
-                  {behavior.eleven_voice_id || "Not selected"}
-                </div>
-              </div>
-            </div>
-          </LockedSection>
         </div>
       </Card>
 

@@ -12,6 +12,10 @@ export const metadata: Metadata = {
 /**
  * `eleven_key` v zozname chýba zámerne — `select('*')` by na tejto tabuľke
  * skončil chybou „permission denied", klient má len column grant (migrácia 007).
+ *
+ * Hlasové stĺpce (`voices_enabled`, `voice_*`, `eleven_voice_id`) tu tiež nie
+ * sú: presťahovali sa na kartu Voice. Je to tá istá tabuľka a to isté auto-save
+ * (`saveBehaviorAction`), len iná obrazovka.
  */
 const BEHAVIOR_COLUMNS =
   "model_id, mode, heat, slang, no_diacritics, activity_waves, active_tz, " +
@@ -21,9 +25,8 @@ const BEHAVIOR_COLUMNS =
   "seen_only_chance, seen_only_min_s, seen_only_max_s, long_pause_chance, " +
   "long_pause_min_s, long_pause_max_s, defer_reply_chance, defer_min_s, defer_max_s, " +
   "question_chance, gag_chance, greeting_gap_hours, summary_every, " +
-  "max_replies_per_hour, max_links_per_hour, photo_cooldown_min, voices_enabled, " +
-  "morning_enabled, morning_max_per_day, eleven_voice_id, voice_ambience, " +
-  "voice_strength, voice_chance, voice_tempo, voice_ambience_level";
+  "max_replies_per_hour, max_links_per_hour, photo_cooldown_min, " +
+  "morning_enabled, morning_max_per_day";
 
 export default async function BehaviorPage({ params }: PageProps<"/app/m/[id]/behavior">) {
   const { id } = await params;
@@ -52,7 +55,7 @@ export default async function BehaviorPage({ params }: PageProps<"/app/m/[id]/be
       <PageHeader
         eyebrow="Telegram agent"
         title="Behavior"
-        description="How she behaves in Telegram — timing, randomness, limits. Her Fanvue agent has its own set on the Fanvue tab; only the persona, the memory and the time zone below are shared."
+        description="How she behaves in Telegram — chat style, timing, randomness, limits. Voice notes have their own tab. Her Fanvue agent has its own set on the Fanvue tab; only the persona, the memory and the time zone below are shared."
       />
       <BehaviorForm behavior={data as unknown as BehaviorRow} />
     </>

@@ -1,13 +1,16 @@
 import type { Metadata } from "next";
+import { AudioLines } from "lucide-react";
 
 import {
   ChangePasswordForm,
+  ElevenLabsCard,
   SignOutEverywhereButton,
 } from "@/components/app/account-forms";
 import { Callout, Card, CardHeader, PageHeader } from "@/components/app/ui";
 import { RelativeTime } from "@/components/app/relative-time";
 import { toNumber, usd } from "@/lib/format";
 import { getAccount, requireUser } from "@/lib/models";
+import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
   title: "Account",
@@ -17,12 +20,17 @@ export default async function AccountPage() {
   const user = await requireUser();
   const account = await getAccount();
 
+  // Von z databázy ide jediný bit. `accounts.eleven_key_enc` si prihlásený
+  // používateľ prečítať nevie (migrácia 017) a ani nemá prečo.
+  const supabase = await createClient();
+  const { data: hasEleven } = await supabase.rpc("has_account_eleven_key");
+
   return (
     <>
       <PageHeader
         eyebrow="Settings"
         title="Account"
-        description="Your sign-in details and credit balance."
+        description="Your sign-in details, credit balance and the integrations shared by all your models."
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -58,6 +66,15 @@ export default async function AccountPage() {
               Contact us to top up
             </a>
           </div>
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader
+            title="ElevenLabs"
+            description="Her own voice. Connect the account once here — then pick a voice for each model on its Voice tab."
+            icon={<AudioLines className="h-4 w-4" strokeWidth={1.75} />}
+          />
+          <ElevenLabsCard connected={Boolean(hasEleven)} />
         </Card>
 
         <Card>

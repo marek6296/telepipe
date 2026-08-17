@@ -3,9 +3,14 @@
 import { createClient } from "@/lib/supabase/server";
 
 /**
- * Uloženie chovania. Stĺpce presne podľa migrácie 003 — `eleven_key` medzi nimi
- * chýba zámerne: rola `authenticated` naň nemá grant (fáza 3 ho bude plniť
- * server-side), takže by zápis aj tak skončil chybou.
+ * Uloženie chovania. Stĺpce presne podľa migrácie 003 (+ 010) — `eleven_key`
+ * ani `eleven_key_enc` medzi nimi nie sú a nikdy nebudú: rola `authenticated`
+ * na ne nemá grant a od migrácie 017 kľúč ani nesedí na modelke, ale na účte
+ * (`app/app/account/actions.ts`).
+ *
+ * Túto akciu volajú DVE karty — Behavior (štýl, časovanie, limity) a Voice
+ * (hlas a všetko okolo neho). Je to tá istá tabuľka a tie isté rozsahy, takže
+ * druhý validátor by bol len druhé miesto, kde sa dá zabudnúť.
  *
  * Rozsahy strážime aj tu, nielen v UI: číslo z konzoly nesmie modelke nastaviť
  * odpoveď za 0 sekúnd (a tým ju poslať rovno do Telegram banu).
@@ -36,6 +41,13 @@ const BOOLEANS = [
   "activity_waves",
   "voices_enabled",
   "morning_enabled",
+  // Výnimky z pravidiel hlasoviek (migrácia 010) — karta Voice.
+  "voice_when_asked",
+  "voice_when_doubted",
+  "voice_when_he_voices",
+  "voice_when_away",
+  "voice_on_goodnight",
+  "voice_when_hot",
 ] as const;
 
 /** stĺpec → [min, max] pre celé čísla. */
@@ -118,6 +130,18 @@ export async function saveBehaviorAction(
       if (!Number.isFinite(number)) return { error: `${key} must be a number.` };
       const [min, max] = DECIMALS[key];
       update[key] = clamp(number, min, max);
+      continue;
+    }
+    if (key === "eleven_voice_id") {
+      // Id hlasu z ElevenLabs — 20 znakov base62. Nevalidujeme, či ten hlas na
+      // účte naozaj je (to by znamenalo volať ElevenLabs pri každom uložení);
+      // strážime len tvar, aby sa do stĺpca nedostal odpad z konzoly. Prázdne
+      // je legitímne: „žiadny vlastný hlas".
+      const voice = String(value ?? "").trim();
+      if (voice && !/^[A-Za-z0-9]{16,40}$/.test(voice)) {
+        return { error: "That is not an ElevenLabs voice id." };
+      }
+      update.eleven_voice_id = voice;
       continue;
     }
     if (key === "active_tz") {
