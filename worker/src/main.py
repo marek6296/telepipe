@@ -78,13 +78,21 @@ class Pool:
                 task.cancel()
                 await self._reg.release(mid)
 
-        # 2. runnery, ktoré skončili samé (o release/set_status sa postarali
-        #    sami — pozri TenantRunner._park/_release), vypadnú z evidencie
+        # 2. runnery, ktoré skončili samé, vypadnú z evidencie a ich lease sa
+        #    pustí. Čistý návrat z `TenantRunner.run()` (disconnect) lease
+        #    NEPÚŠŤA — robí to len chybová/out_of_credits vetva. Keby ho pool
+        #    nepustil, heartbeat repliky by `claimed_until` ďalej obnovoval a
+        #    model by už nikto nedoklaimoval. Opakovaný release je neškodný,
+        #    RPC je idempotentné.
         for mid in list(self._running):
             _runner, task = self._running[mid]
             if task.done():
                 log.info("model %s: runner skončil sám — mažem z evidencie", mid)
                 self._running.pop(mid)
+                try:
+                    await self._reg.release(mid)
+                except Exception:  # noqa: BLE001 — zlyhaný release nesmie zhodiť tick
+                    log.exception("model %s: release po skončení runnera zlyhal", mid)
 
         # 3. doklaimni voľnú kapacitu a naštartuj nové runnery
         free = self._g.max_tenants - len(self._running)

@@ -78,6 +78,29 @@ async def test_dead_runner_leaves_registry(monkeypatch):
     await pool.tick()
     assert "m-1" not in pool._running            # von z evidencie
 
+async def test_finished_runner_releases_lease():
+    """Runner, ktorý sa vráti čisto, lease nepúšťa — musí to spraviť pool.
+
+    Inak by heartbeat repliky ďalej obnovoval `claimed_until` a model by už
+    nikto nikdy nedoklaimoval (osirený lease).
+    """
+    class DoneRunner(FakeRunner):
+        async def run(self): return          # skončí hneď, lease nepúšťa
+
+    reg = FakeReg(); reg.next_rows = [ROW]
+    pool = Pool(registry=reg, transport=None, global_cfg=_cfg(),
+                runner_factory=DoneRunner, tenant_factory=lambda row, g: row)
+    await pool.tick()
+    _mid, (_runner, task) = next(iter(pool._running.items()))
+    await asyncio.sleep(0)                   # nech runner dobehne
+    assert task.done()
+    reg.rows_by_id["m-1"] = ROW
+    reg.next_rows = []
+    await pool.tick()
+    assert "m-1" not in pool._running
+    assert "m-1" in reg.released
+
+
 async def test_bad_config_row_goes_error():
     FakeRunner.instances.clear()
     reg = FakeReg(); reg.next_rows = [ROW]
