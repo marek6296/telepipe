@@ -48,6 +48,18 @@ def test_config_from_env(monkeypatch):
     assert cfg.supabase_url == "https://x.supabase.co"
     assert cfg.max_tenants == 25          # default
     assert cfg.replica_name              # nikdy prázdne
+    assert cfg.pricing_sync_hours == 24           # default
+    assert cfg.atlas_balance_alert_usd == 50.0    # default
+
+
+def test_config_pricing_sync_env_overrides(monkeypatch):
+    for k, v in ENV.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("PRICING_SYNC_HOURS", "0")
+    monkeypatch.setenv("ATLAS_BALANCE_ALERT_USD", "12.5")
+    cfg = Config.from_env()
+    assert cfg.pricing_sync_hours == 0
+    assert cfg.atlas_balance_alert_usd == 12.5
 
 
 def test_config_missing_required(monkeypatch):

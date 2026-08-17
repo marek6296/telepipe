@@ -95,6 +95,13 @@ class Config:
     # Fallback cena za milión tokenov, keď LLM providera nepoznáme v cenníku
     fallback_price_per_mtok: float
 
+    # Denný auto-sync cien z Atlas Billing API — koľko hodín medzi behmi.
+    # 0 = vypnuté (žiadny background task v main.py run()).
+    pricing_sync_hours: int = 24
+    # Pod touto hranicou (USD) sa zostatok na Atlas účte považuje za nízky —
+    # sync_pricing/check_atlas_balance zaloguje log.error, nech si to Marek všimne.
+    atlas_balance_alert_usd: float = 50.0
+
     # Zvuk berie Gemini — vision model ani hlavný model ho neprijmú.
     audio_model: str = "google/gemini-3.5-flash"
     # Hlasovka na mieru z AI Modelka Web. Prázdne = vypnuté, posiela sa text.
@@ -136,6 +143,8 @@ class Config:
             or f"{socket.gethostname()}-{os.getpid()}",
             claim_interval_s=_int("CLAIM_INTERVAL_S", 30),
             fallback_price_per_mtok=float(os.getenv("FALLBACK_PRICE_PER_MTOK", "5.0")),
+            pricing_sync_hours=_int("PRICING_SYNC_HOURS", 24),
+            atlas_balance_alert_usd=float(os.getenv("ATLAS_BALANCE_ALERT_USD", "50")),
         )
 
 

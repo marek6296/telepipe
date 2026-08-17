@@ -141,6 +141,38 @@ class Pool:
         await self._reg.release_all(self._g.replica_name)
 
 
+async def _pricing_sync_loop(cfg, transport, registry, stop: asyncio.Event) -> None:
+    """Background task: denný sync cien z Atlas Billing API + stráženie zostatku.
+
+    Vypnuté (PRICING_SYNC_HOURS=0) alebo bez LLM kľúča → nič nerobí. Prvý beh
+    je ~60s po štarte (nech nespomaľuje boot), ďalej v intervale
+    `pricing_sync_hours`. Chyba v jednom cykle nesmie zhodiť pool — sync_pricing
+    aj check_atlas_balance sú samy o sebe fail-open, ale cyklus je obalený
+    ešte raz navyše pre istotu.
+    """
+    if cfg.pricing_sync_hours <= 0 or not cfg.llm_key:
+        return
+
+    from pricing_sync import check_atlas_balance, sync_pricing
+
+    try:
+        await asyncio.wait_for(stop.wait(), timeout=60)
+        return  # stop prišiel skôr než prvý beh — koniec
+    except asyncio.TimeoutError:
+        pass
+
+    while not stop.is_set():
+        try:
+            await sync_pricing(transport, registry, cfg.llm_key)
+            await check_atlas_balance(cfg.llm_key, cfg.atlas_balance_alert_usd)
+        except Exception:  # noqa: BLE001 — cyklus nesmie zhodiť pool
+            log.exception("pricing sync cyklus zlyhal — skúšam nabudúce")
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=cfg.pricing_sync_hours * 3600)
+        except asyncio.TimeoutError:
+            pass
+
+
 async def run() -> None:
     from config import Config
     from registry import Registry
@@ -163,6 +195,7 @@ async def run() -> None:
         "replika %s: štart, max_tenants=%d, claim_interval_s=%d",
         cfg.replica_name, cfg.max_tenants, cfg.claim_interval_s,
     )
+    pricing_task = asyncio.create_task(_pricing_sync_loop(cfg, transport, registry, stop))
     try:
         while not stop.is_set():
             try:
@@ -175,6 +208,8 @@ async def run() -> None:
                 pass
     finally:
         log.info("replika %s: shutdown", cfg.replica_name)
+        pricing_task.cancel()
+        await _reap(pricing_task)
         await pool.shutdown()
 
 
