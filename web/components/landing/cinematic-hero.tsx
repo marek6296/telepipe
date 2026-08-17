@@ -77,8 +77,10 @@ function CinematicScene() {
         gsap.utils.toArray<T>(scene.querySelectorAll<T>(sel));
 
       const intro = q("[data-intro]")!;
-      const introLines = qa("[data-intro-line]");
-      const introKicker = q("[data-intro-kicker]")!;
+      // Dva riadky nadpisu majú každý VLASTNÚ animáciu (predloha .text-track /
+      // .text-days): prvý sa zaostrí a nadvihne, druhý sa „píše" zľava doprava.
+      const introTrack = q("[data-intro-track]")!;
+      const introDays = q("[data-intro-days]")!;
       const introSub = q("[data-intro-sub]")!;
       const scrollHint = q("[data-scroll-hint]")!;
       const halo = q("[data-halo]")!;
@@ -125,11 +127,74 @@ function CinematicScene() {
       // Nav je skrytá až kým nedobehne intro text (reveal je na intro timeline).
       gsap.set(navGroups, { opacity: 0, y: -14, pointerEvents: "none" });
 
+      /* --- Intro reveal (beží na load, nezávisle od scrollu) ----------------
+         Presne dvojdielny reveal z predlohy:
+           1. riadok — autoAlpha + y + scale + blur + rotationX, expo.out 1.8 s
+           2. riadok — clip-path wipe zľava doprava, power4.inOut 1.4 s,
+              prekrytý o 1 s, takže sa „píše" ešte kým prvý riadok dosadá.
+         Počiatočné stavy sú cez `gsap.set` a tweeny sú `.to()` (teda
+         `immediateRender: false`) — nič ich nemôže prekresliť späť na štart. */
+      gsap.set(introTrack, {
+        autoAlpha: 0,
+        y: 60,
+        scale: 0.85,
+        filter: "blur(20px)",
+        rotationX: -20,
+      });
+      gsap.set(introDays, { autoAlpha: 1, clipPath: "inset(0 100% 0 0)" });
+      gsap.set(introSub, { autoAlpha: 0, y: 22, filter: "blur(10px)" });
+      gsap.set(scrollHint, { autoAlpha: 0, y: 12 });
+
+      const introTl = gsap.timeline({ delay: 0.3 });
+
+      introTl
+        .to(introTrack, {
+          duration: 1.8,
+          autoAlpha: 1,
+          y: 0,
+          scale: 1,
+          filter: "blur(0px)",
+          rotationX: 0,
+          ease: "expo.out",
+        })
+        .to(
+          introDays,
+          { duration: 1.4, clipPath: "inset(0 0% 0 0)", ease: "power4.inOut" },
+          "-=1.0",
+        )
+        // Od tohto miesta sú pozície absolútne, aby ich nič vyššie neposúvalo.
+        .to(
+          introSub,
+          { autoAlpha: 1, y: 0, filter: "blur(0px)", duration: 0.9, ease: "power3.out" },
+          1.5,
+        )
+        // Navigácia + Sign in / Get Started sa objavia až keď text dosadne.
+        .to(
+          navGroups,
+          { opacity: 1, y: 0, duration: 0.7, stagger: 0.09, ease: "power2.out" },
+          1.95,
+        )
+        .set(navGroups, { pointerEvents: "auto" })
+        .to(
+          scrollHint,
+          { autoAlpha: 1, y: 0, duration: 0.7, ease: "power2.out" },
+          2.35,
+        );
+
       /* --- Pinnutá scroll scéna (scrub) ------------------------------------
          Tempo: každý beat dostane scroll úmerný tomu, koľko sa v ňom vizuálne
          deje. Prázdne `.to({}, …)` držania sú zrezané na krátke nádychy
          (0,15–0,25 jednotky), aby scroll nikde „nezomrel".
-         Mapa beatov je v komentároch nižšie. */
+         Mapa beatov je v komentároch nižšie.
+
+         POZOR — prečo tu NIE JE `invalidateOnRefresh`:
+         ScrollTrigger refreshuje na load, pri načítaní fontu aj pri každom
+         resize (v Safari to spustí už len schovanie adresného riadku).
+         S `invalidateOnRefresh` sa timeline invaliduje a prekreslí na t=0,
+         čím prepíše `intro` naspäť na štartovacie hodnoty — a keďže intro
+         reveal v tej chvíli ešte beží, text viditeľne cukne dozadu.
+         Funkčné `end: () => …` sa pritom prepočíta pri každom refreshi aj bez
+         `invalidateOnRefresh`, takže responzívna dĺžka scény ostáva. */
       const counter = { value: 0 };
 
       const tl = gsap.timeline({
@@ -141,14 +206,34 @@ function CinematicScene() {
           pin: true,
           scrub: 0.8,
           anticipatePin: 1,
-          invalidateOnRefresh: true,
+          // Keby používateľ zascrolloval ešte počas intra, dobehne okamžite —
+          // takto sa scroll timeline a intro nikdy neprekrývajú.
+          // Prah je na `scroll()`, nie na `progress`: `start` vychádza aj -0.001,
+          // takže progress je hore nenulový (~3e-7) a `> 0` by intro zabilo hneď
+          // pri prvom update.
+          onUpdate: (self) => {
+            if (self.scroll() > 8 && introTl.progress() < 1) introTl.progress(1);
+          },
         },
       });
 
       tl
-        /* Beat 1 — intro odchádza (0.00 → 0.95) */
-        .to(intro, { opacity: 0, y: -84, filter: "blur(12px)", duration: 0.95 }, 0)
-        .to(scrollHint, { opacity: 0, duration: 0.3 }, 0)
+        /* Beat 1 — intro odchádza (0.00 → 0.95)
+           `immediateRender: false` na oboch tweenoch, ktoré sa dotýkajú intra:
+           vytvorenie/refresh scroll timeline nesmie zapísať ich štartovací
+           stav cez prebiehajúci intro reveal. */
+        .to(
+          intro,
+          {
+            opacity: 0,
+            y: -84,
+            filter: "blur(12px)",
+            duration: 0.95,
+            immediateRender: false,
+          },
+          0,
+        )
+        .to(scrollHint, { opacity: 0, duration: 0.3, immediateRender: false }, 0)
         .to(halo, { scale: 1.3, opacity: 0.8, duration: 2.2 }, 0)
 
         /* Beat 2 — karta priletí zdola (0.55 → 2.05) */
@@ -230,44 +315,6 @@ function CinematicScene() {
         /* Beat 9 — krátke doznenie, nech CTA nezmizne hneď s koncom pinu */
         .to({}, { duration: 0.25 }, 9.1);
 
-      /* --- Intro reveal (blur + scale + rotationX + clip-path wipe) ---------
-         Beží hneď po načítaní, nezávisle od scrollu. Na konci sa odhalí
-         navigácia aj jej dve auth tlačidlá. */
-      const introTl = gsap.timeline({ delay: 0.15 });
-
-      introTl
-        .from(introKicker, { opacity: 0, y: 16, duration: 0.7, ease: "power3.out" }, 0)
-        .from(
-          introLines,
-          {
-            opacity: 0,
-            yPercent: 55,
-            scale: 0.94,
-            rotationX: -32,
-            filter: "blur(14px)",
-            clipPath: "inset(105% 0% -5% 0%)",
-            transformOrigin: "50% 100%",
-            transformPerspective: 900,
-            duration: 1.35,
-            stagger: 0.18,
-            ease: "expo.out",
-          },
-          0.1,
-        )
-        .from(
-          introSub,
-          { opacity: 0, y: 22, filter: "blur(10px)", duration: 0.9, ease: "power3.out" },
-          0.75,
-        )
-        // Navigácia + Sign in / Get Started sa objavia až keď text dosadne.
-        .to(
-          navGroups,
-          { opacity: 1, y: 0, duration: 0.7, stagger: 0.09, ease: "power2.out" },
-          1.2,
-        )
-        .set(navGroups, { pointerEvents: "auto" }, 1.9)
-        .from(scrollHint, { opacity: 0, y: 12, duration: 0.7, ease: "power2.out" }, 1.55);
-
       /* --- Mouse paralaxa telefónu (rAF lerp, ±12°) ------------------------- */
       const target = { rx: 0, ry: 0 };
       const current = { rx: 0, ry: 0 };
@@ -329,20 +376,17 @@ function CinematicScene() {
           data-intro
           className="absolute inset-0 z-20 flex flex-col items-center justify-center px-6 text-center"
         >
-          <p
-            data-intro-kicker
-            className="lp-hairline mb-7 inline-flex items-center gap-2 rounded-full bg-white/[0.03] px-4 py-1.5 text-[11px] font-medium uppercase tracking-[0.22em] text-white/55"
-          >
-            <span className="h-1 w-1 rounded-full bg-white/60" />
-            AI chat agents for creators
-          </p>
-
-          <h1 className="max-w-[68rem] text-[clamp(1.95rem,5.4vw,4.4rem)] font-semibold leading-[1.04] lp-tight">
-            <span data-intro-line className="block lp-text-dim">
+          <h1 className="lp-intro-3d max-w-[68rem] text-[clamp(1.95rem,5.4vw,4.4rem)] font-semibold leading-[1.04] lp-tight">
+            <span data-intro-track className="block lp-text-dim">
               Your models never sleep.
             </span>
-            <span data-intro-line className="block lp-text-bright">
-              Chats become subscribers.
+            {/* Wipe sedí na obale (inline-block ⇒ box lícuje s textom), gradient
+                na vnútornom spane. V Safari sa `clip-path` a `background-clip:
+                text` na tom istom elemente bijú — takto sa nestretnú. */}
+            <span data-intro-days className="lp-wipe inline-block">
+              <span className="lp-text-bright inline-block">
+                Chats become subscribers.
+              </span>
             </span>
           </h1>
 
@@ -515,10 +559,6 @@ function StaticHero() {
       <div className="lp-halo pointer-events-none absolute left-1/2 top-40 h-[620px] w-[620px] -translate-x-1/2 opacity-40" />
 
       <div className="relative mx-auto max-w-5xl text-center">
-        <p className="lp-hairline mb-6 inline-flex items-center gap-2 rounded-full bg-white/[0.03] px-4 py-1.5 text-[11px] font-medium uppercase tracking-[0.22em] text-white/55">
-          <span className="h-1 w-1 rounded-full bg-white/60" />
-          AI chat agents for creators
-        </p>
         <h1 className="text-[clamp(2.2rem,6.4vw,4.6rem)] font-semibold leading-[1.05] lp-tight">
           <span className="block lp-text-dim">Your models never sleep.</span>
           <span className="block lp-text-bright">Chats become subscribers.</span>

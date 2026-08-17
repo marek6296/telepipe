@@ -67,6 +67,22 @@
   letter-spacing: -0.03em;
 }
 
+/* Perspektíva pre `rotationX` na prvom riadku hero nadpisu. Bez nej by GSAP
+   otočenie vykreslil ortograficky (len sploštenie), nie priestorovo. */
+.lp-intro-3d {
+  perspective: 800px;
+}
+
+/* Nosič clip-path wipe-u druhého riadku. `translateZ(0)` mu dá vlastnú
+   kompozitnú vrstvu — bez toho WebKit clip-path animáciu trhá. Gradient textu
+   je zámerne až na vnorenom spane, nie tu (Safari nezvláda `clip-path`
+   a `background-clip: text` na jednom elemente). */
+.lp-wipe {
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+  will-change: clip-path;
+}
+
 .lp-eyebrow {
   font-size: 11px;
   font-weight: 600;
