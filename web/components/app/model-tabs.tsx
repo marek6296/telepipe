@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Images, MessageSquare, Send, SlidersHorizontal, UserRound } from "lucide-react";
+import { Heart, Images, MessageSquare, Send, SlidersHorizontal, UserRound } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 const TABS = [
   { slug: "telegram", label: "Telegram", icon: Send },
+  { slug: "fanvue", label: "Fanvue", icon: Heart },
   { slug: "persona", label: "Persona", icon: UserRound },
   { slug: "behavior", label: "Behavior", icon: SlidersHorizontal },
   { slug: "photos", label: "Photos", icon: Images },

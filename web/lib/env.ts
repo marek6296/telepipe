@@ -42,5 +42,19 @@ export function siteUrl(): string {
   return process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
 }
 
+/**
+ * Signing secret webhookov z Fanvue — SERVER ONLY. Prázdne = webhook nemá čím
+ * overiť podpis, takže každé doručenie odmietne (401). Radšej ticho odmietať
+ * než ticho dôverovať komukoľvek, kto nájde našu adresu.
+ */
+export function fanvueWebhookSecret(): string {
+  return process.env.FANVUE_WEBHOOK_SECRET ?? "";
+}
+
+/** Je Fanvue appka nakonfigurovaná? (UI podľa toho skrýva „Connect“.) */
+export function fanvueConfigured(): boolean {
+  return Boolean(process.env.FANVUE_CLIENT_ID && process.env.FANVUE_CLIENT_SECRET);
+}
+
 // Feature flagy žijú v `lib/flags.ts` (client-safe) — tu ich len reexportujeme
 export { googleAuthEnabled } from "@/lib/flags";

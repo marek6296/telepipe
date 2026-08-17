@@ -83,6 +83,13 @@ export function isoDaysAgo(days: number): string {
   return new Date(Date.now() - days * DAY).toISOString();
 }
 
+/** Je časová značka už za nami? (obal nad `Date.now()` — viď `isoDaysAgo`) */
+export function isPast(input: string | null | undefined): boolean {
+  if (!input) return false;
+  const ms = new Date(input).getTime();
+  return Number.isFinite(ms) && ms < Date.now();
+}
+
 /** Je časová značka mladšia než `maxAgeMs`? */
 export function isRecent(input: string | null | undefined, maxAgeMs: number): boolean {
   if (!input) return false;
