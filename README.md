@@ -82,7 +82,7 @@ Run the test suite:
 
 ```bash
 cd worker
-.venv/bin/pytest -q                 # default suite (mocks, no network) — 1203 passed
+.venv/bin/pytest -q                 # default suite (mocks, no network) — 1212 passed
 .venv/bin/pytest -q -m integration  # + integration tests against a real Supabase project
 ```
 
