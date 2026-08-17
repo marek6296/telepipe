@@ -1,0 +1,256 @@
+"""TenantRunner — jeden tenant (modelka) v spoločnom event loope.
+
+V predlohe (`/Users/marek/telegram/src/main.py:run`) bol jeden proces = jeden
+model: config z env, klienti, handlery, `run_until_disconnected()`. V Telepipe
+beží desiatky modeliek jeden worker, takže to isté wiring-om zabalíme do triedy,
+ktorú pool (Task 11) spustí ako `asyncio.Task` per tenant.
+
+Čo pribudlo oproti predlohe:
+  * retry s backoffom — pád jednej modelky nesmie zhodiť ostatné,
+  * `stop()` na čisté ukončenie (SIGTERM / odobratý lease),
+  * mapovanie pádov na stav v `models`: neplatná session → `session_revoked`,
+    5× pád po sebe → `crashed_repeatedly`, došli kredity → len pustený lease
+    (stav `paused` už nastavila `MeteredLlm`, runner ho neprepisuje).
+
+Importy `userbot`/`control_bot` sú vnútri `_run_once` zámerne: konštruktor aj
+`run()` musia byť použiteľné bez nich (testy si `_run_once` podvrhnú).
+"""
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import logging
+
+from telethon import TelegramClient
+from telethon.errors import AuthKeyUnregisteredError
+from telethon.sessions import StringSession
+
+log = logging.getLogger("runner")
+
+# Backoff medzi pokusmi. Piaty pokus už nečaká — vtedy sa model odstavuje.
+BACKOFF_S = [30, 60, 300, 900]
+MAX_TRIES = 5
+
+
+class TenantRunner:
+    """Beh jednej modelky: klienti, handlery, sweeper, catch-up, dozor."""
+
+    def __init__(self, tenant_cfg, global_cfg, registry, transport) -> None:
+        # Závislosti sa smú odovzdať aj ako None — všetko ťažké sa stavia až
+        # v `_run_once`, aby sa dal životný cyklus testovať bez Telegramu.
+        self._cfg = tenant_cfg
+        self._g = global_cfg
+        self._reg = registry
+        self._transport = transport
+        self._stopping = asyncio.Event()
+        self._once_task: asyncio.Task | None = None
+        # Čo treba po sebe upratať — asyncio úlohy a Telethon klienti.
+        self._cleanup: list = []
+
+    @property
+    def model_id(self) -> str:
+        return getattr(self._cfg, "model_id", "?")
+
+    # ---------- životný cyklus ----------
+
+    @staticmethod
+    async def _sleep(seconds: float) -> None:
+        # Samostatná metóda, nech testy nemusia čakať reálne minúty.
+        await asyncio.sleep(seconds)
+
+    async def run(self) -> None:
+        """Drží modelku hore, kým to má zmysel. Nikdy nehádže (okrem zrušenia)."""
+        tries = 0
+        while tries < MAX_TRIES and not self._stopping.is_set():
+            tries += 1
+            try:
+                await self._guarded_once()
+                return  # skončilo čisto (disconnect alebo stop)
+            except asyncio.CancelledError:
+                if self._stopping.is_set():
+                    return  # riadené ukončenie, nie chyba
+                raise
+            except AuthKeyUnregisteredError:
+                # Odhlásená session sa opakovaním nespraví platnou — nový login
+                # musí spraviť majiteľ (`scripts/login.py`).
+                log.error("model %s: session odvolaná — treba nový login", self.model_id)
+                await self._park("session_revoked")
+                return
+            except Exception as exc:  # noqa: BLE001 — pád jednej modelky nezhodí worker
+                from credits import OutOfCredits
+
+                if isinstance(exc, OutOfCredits):
+                    # `MeteredLlm` už nastavila stav `paused`; runner len pustí
+                    # lease, nech ho pool nedrží zbytočne.
+                    log.info("model %s: došli kredity — končím", self.model_id)
+                    await self._release()
+                    return
+                log.exception("model %s: pád (pokus %d/%d)", self.model_id, tries, MAX_TRIES)
+                if tries < MAX_TRIES and not self._stopping.is_set():
+                    await self._sleep(BACKOFF_S[min(tries - 1, len(BACKOFF_S) - 1)])
+
+        if tries >= MAX_TRIES and not self._stopping.is_set():
+            log.error("model %s: %d pádov po sebe — odstavujem", self.model_id, MAX_TRIES)
+            await self._park("crashed_repeatedly")
+
+    async def stop(self) -> None:
+        """Požiada beh o koniec a počká, kým sa upratovanie dokončí."""
+        self._stopping.set()
+        task, self._once_task = self._once_task, None
+        if task is not None and not task.done():
+            # `_run_once` má vlastný `finally` — zrušenie ho spustí, takže
+            # klienti sa odpoja aj vtedy, keď beh visí na sieti.
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                try:
+                    await task
+                except Exception:  # noqa: BLE001 — pri stopovaní už je jedno prečo
+                    log.exception("model %s: chyba pri ukončovaní", self.model_id)
+        await self._drain_cleanup()
+
+    async def _guarded_once(self) -> None:
+        """Spustí `_run_once` ako úlohu, nech ju vie `stop()` zrušiť."""
+        task = asyncio.create_task(self._run_once())
+        self._once_task = task
+        try:
+            await task
+        except asyncio.CancelledError:
+            # Zrušili nás zvonku (nie cez `stop()`) — beh nesmie ostať bežať.
+            if not task.done():
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+            raise
+        finally:
+            if self._once_task is task:
+                self._once_task = None
+
+    # ---------- pomocné ----------
+
+    async def _park(self, reason: str) -> None:
+        """Odstaví model: zapíše dôvod do `models` a pustí lease."""
+        with contextlib.suppress(Exception):
+            await self._reg.set_status(self.model_id, "error", reason)
+        await self._release()
+
+    async def _release(self) -> None:
+        with contextlib.suppress(Exception):
+            await self._reg.release(self.model_id)
+
+    async def _drain_cleanup(self) -> None:
+        """Zruší úlohy a odpojí klientov z `_cleanup`. Voláva sa aj dvakrát."""
+        items, self._cleanup = self._cleanup, []
+        for item in items:
+            with contextlib.suppress(Exception):
+                if isinstance(item, asyncio.Task):
+                    item.cancel()
+                elif hasattr(item, "is_connected"):
+                    if item.is_connected():
+                        await item.disconnect()
+                elif hasattr(item, "close"):
+                    await item.close()
+
+    # ---------- skutočný beh ----------
+
+    async def _run_once(self) -> None:
+        """Wiring podľa predlohy `main.run()`, ale pre jedného tenanta.
+
+        Importy sú lokálne: `userbot`/`control_bot` sa portujú v Task 12 a
+        runner musí byť importovateľný aj bez nich.
+        """
+        from control_bot import ControlBot
+        from credits import MeteredLlm
+        from db import TenantDb
+        from llm import Llm
+        from userbot import Reconciler, UserBot
+
+        cfg, g = self._cfg, self._g
+        db = TenantDb(self._transport, cfg.model_id)
+        raw_llm = Llm(
+            g.llm_key, g.model, g.summary_model, g.llm_base_url, g.reasoning_effort,
+            g.vision_model, g.audio_model,
+        )
+        # Každé LLM volanie ide cez merač — bez kreditu sa neodpisuje.
+        llm = MeteredLlm(raw_llm, self._reg, cfg.model_id, g.model, g.fallback_price_per_mtok)
+
+        user_client = TelegramClient(
+            StringSession(cfg.tg_session), cfg.tg_api_id, cfg.tg_api_hash
+        )
+        bot_client = TelegramClient(StringSession(), cfg.tg_api_id, cfg.tg_api_hash)
+        self._cleanup.extend((user_client, bot_client))
+
+        try:
+            # Kontrolný bot je len diaľkové ovládanie. Keď sa neprihlási (typicky
+            # FloodWait po viacerých deployoch za sebou), NESMIE to zhodiť
+            # odpisovanie — to beží na účte modelky a s botom nemá nič spoločné.
+            # Bez tohto crash-loop opakoval prihlásenie a Telegram blokádu predlžoval.
+            bot_ready = True
+            try:
+                await bot_client.start(bot_token=cfg.control_bot_token)
+            except Exception as exc:  # noqa: BLE001 - odpisovanie musí bežať aj tak
+                bot_ready = False
+                log.error(
+                    "model %s: kontrolný bot sa neprihlásil (%s) — beží len odpisovanie",
+                    cfg.model_id, exc,
+                )
+            await user_client.connect()
+            if not await user_client.is_user_authorized():
+                # Predloha tu hádzala RuntimeError s návodom; tu musí ísť von
+                # typ, ktorý `run()` rozpozná ako „netreba skúšať znova".
+                log.error(
+                    "model %s: TG_SESSION nie je platná — vygeneruj novú "
+                    "(python scripts/login.py) a nahraj ju modelu",
+                    cfg.model_id,
+                )
+                raise AuthKeyUnregisteredError(request=None)
+
+            control = ControlBot(cfg, db, bot_client)
+            if bot_ready:
+                control.register()
+
+            userbot = UserBot(cfg, db, llm, user_client, control.notify)
+            userbot.register()
+            sweeper = userbot.start_sweeper()
+            voice_jobs = userbot.start_voice_jobs()
+            self._cleanup.extend(t for t in (sweeper, voice_jobs) if t)
+
+            # Po výpadku dotiahni, čo ušlo — nikomu sa nepíše, len sa doplní
+            # kontext a rozhodne, na čo sa ešte oplatí odpovedať.
+            reconciler = Reconciler(userbot, cfg, db, user_client)
+            caught_up = await reconciler.run()
+
+            me = await user_client.get_me()
+            handle = f"@{me.username}" if me.username else me.first_name
+            log.info("model %s: beží na účte %s, LLM %s", cfg.model_id, handle, g.model)
+            summary = ""
+            if caught_up.get("dotiahnutych"):
+                summary = (
+                    f"\n\nPo výpadku: {caught_up['dotiahnutych']} zmeškaných správ, "
+                    f"{caught_up['na_odpoved']} na odpoveď"
+                )
+                if caught_up.get("prestarnutych"):
+                    summary += f", {caught_up['prestarnutych']} príliš starých (neodpisujem)"
+            if bot_ready:
+                await control.notify(
+                    f"🚀 AI odpisovanie beží\nÚčet: {handle}\nModel: `{g.model}`{summary}"
+                )
+
+            # Predloha čakala `asyncio.gather(run_until_disconnected...)`. Tu
+            # musí beh skončiť aj na `stop()` (odobratý lease, SIGTERM), preto
+            # sa čaká na PRVÚ z: odpojený klient / požiadavka na koniec.
+            watchers = [asyncio.create_task(user_client.run_until_disconnected())]
+            if bot_ready:
+                watchers.append(asyncio.create_task(bot_client.run_until_disconnected()))
+            watchers.append(asyncio.create_task(self._stopping.wait()))
+            try:
+                await asyncio.wait(watchers, return_when=asyncio.FIRST_COMPLETED)
+            finally:
+                for w in watchers:
+                    w.cancel()
+                await asyncio.gather(*watchers, return_exceptions=True)
+        finally:
+            # `transport` ani `db` sa tu nezatvárajú — spojenie je spoločné pre
+            # všetkých tenantov a patrí poolu (main.py).
+            await self._drain_cleanup()
+            with contextlib.suppress(Exception):
+                await raw_llm.close()
