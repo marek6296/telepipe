@@ -173,6 +173,31 @@ async def _pricing_sync_loop(cfg, transport, registry, stop: asyncio.Event) -> N
             pass
 
 
+async def _login_jobs_loop(cfg, transport, stop: asyncio.Event) -> None:
+    """Background task: fronta Telegram loginov z webu (`tg_login_jobs`).
+
+    Web (Next.js) MTProto nevie, takže wizard odloží prácu do DB a spraví ju
+    tento poller. Interval je v sekundách — používateľ pri wizarde čaká na
+    „kód odoslaný"/„prihlásené". LOGIN_JOBS_POLL_S=0 poller vypne.
+    `poll_once` si chyby jednotlivých jobov rieši sama; obal je pre prípad, že
+    padne samotný výber z fronty (výpadok Supabase) — pool to nesmie zhodiť.
+    """
+    if cfg.login_jobs_poll_s <= 0:
+        return
+
+    import login_jobs
+
+    while not stop.is_set():
+        try:
+            await login_jobs.poll_once(transport, cfg.encryption_key)
+        except Exception:  # noqa: BLE001 — cyklus nesmie zhodiť pool
+            log.exception("login jobs poll zlyhal — skúšam nabudúce")
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=cfg.login_jobs_poll_s)
+        except asyncio.TimeoutError:
+            pass
+
+
 async def run() -> None:
     from config import Config
     from registry import Registry
@@ -196,6 +221,7 @@ async def run() -> None:
         cfg.replica_name, cfg.max_tenants, cfg.claim_interval_s,
     )
     pricing_task = asyncio.create_task(_pricing_sync_loop(cfg, transport, registry, stop))
+    login_task = asyncio.create_task(_login_jobs_loop(cfg, transport, stop))
     try:
         while not stop.is_set():
             try:
@@ -209,7 +235,9 @@ async def run() -> None:
     finally:
         log.info("replika %s: shutdown", cfg.replica_name)
         pricing_task.cancel()
+        login_task.cancel()
         await _reap(pricing_task)
+        await _reap(login_task)
         await pool.shutdown()
 
 

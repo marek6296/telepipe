@@ -102,6 +102,10 @@ class Config:
     # sync_pricing/check_atlas_balance zaloguje log.error, nech si to Marek všimne.
     atlas_balance_alert_usd: float = 50.0
 
+    # Ako často sa pozerá do fronty `tg_login_jobs` (Telegram login z webu).
+    # Wizard čaká na odpoveď naživo, preto sekundy, nie minúty. 0 = vypnuté.
+    login_jobs_poll_s: int = 2
+
     # Zvuk berie Gemini — vision model ani hlavný model ho neprijmú.
     audio_model: str = "google/gemini-3.5-flash"
     # Hlasovka na mieru z AI Modelka Web. Prázdne = vypnuté, posiela sa text.
@@ -145,6 +149,7 @@ class Config:
             fallback_price_per_mtok=float(os.getenv("FALLBACK_PRICE_PER_MTOK", "5.0")),
             pricing_sync_hours=_int("PRICING_SYNC_HOURS", 24),
             atlas_balance_alert_usd=float(os.getenv("ATLAS_BALANCE_ALERT_USD", "50")),
+            login_jobs_poll_s=_int("LOGIN_JOBS_POLL_S", 2),
         )
 
 
