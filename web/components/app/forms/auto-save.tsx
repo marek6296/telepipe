@@ -46,9 +46,12 @@ export function useAutoSaveField(): AutoSaveApi {
 export function AutoSaveForm({
   save,
   children,
+  sticky = true,
 }: {
   save: SaveFn;
   children: ReactNode;
+  /** V modáli sa indikátor nelepí na vrch stránky, ale plynie s obsahom. */
+  sticky?: boolean;
 }) {
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -118,12 +121,21 @@ export function AutoSaveForm({
 
   return (
     <AutoSaveContext.Provider value={{ set, flush }}>
-      <div className="relative">
-        <div className="pointer-events-none sticky top-[76px] z-20 flex justify-end">
-          <SaveIndicator status={status} error={error} />
+      {sticky ? (
+        <div className="relative">
+          <div className="pointer-events-none sticky top-[76px] z-20 flex justify-end">
+            <SaveIndicator status={status} error={error} />
+          </div>
+          <div className="-mt-8 space-y-5">{children}</div>
         </div>
-        <div className="-mt-8 space-y-5">{children}</div>
-      </div>
+      ) : (
+        <div className="space-y-4">
+          {children}
+          <div className="flex justify-end">
+            <SaveIndicator status={status} error={error} />
+          </div>
+        </div>
+      )}
     </AutoSaveContext.Provider>
   );
 }
