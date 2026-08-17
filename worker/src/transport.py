@@ -1,8 +1,8 @@
 """Async prístup k Supabase cez REST API (žiadny sync klient v event loope).
 
-Všetky tabuľky žijú vo verejnej (`public`) scméme spoločného projektu — na
+Všetky tabuľky žijú vo verejnej (`public`) schéme spoločného projektu — na
 rozdiel od šablóny (`telegram`) tu nepotrebujeme Accept-Profile/Content-Profile
-hlavičky, lebo nič nie je v neverejnej scméme.
+hlavičky, lebo nič nie je v neverejnej schéme.
 """
 from __future__ import annotations
 
