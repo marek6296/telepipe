@@ -27,6 +27,22 @@ async def test_record_usage_returns_balance():
     balance = await reg.record_usage("m-1", "chat", 100, 50, 0, 0.01, 0.02)
     assert balance == 9.98
 
+async def test_credit_balance_null_is_zero():
+    """Chýbajúci účet → RPC vráti null. Musí z toho byť 0.0, nie TypeError
+    v MeteredLlm (`None <= 0`)."""
+    def handler(req):
+        return httpx.Response(200, json=None)
+    reg = Registry(_mock(handler))
+    assert await reg.credit_balance("m-1") == 0.0
+
+
+async def test_credit_balance_returns_float():
+    def handler(req):
+        return httpx.Response(200, json="12.5")
+    reg = Registry(_mock(handler))
+    assert await reg.credit_balance("m-1") == 12.5
+
+
 async def test_pricing_cached():
     calls = {"n": 0}
     def handler(req):

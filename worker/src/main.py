@@ -37,6 +37,17 @@ def _setup_logging() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
+async def _reap(task: asyncio.Task) -> None:
+    """Počká na zrušenú úlohu, nech nekričí „Task exception was never retrieved".
+
+    Zrušenie samo o sebe nestačí — kým sa výsledok neprevezme, asyncio pri
+    zbere pamäte vypíše varovanie o neprevzatej výnimke. Dôvod pádu tu už
+    nikoho nezaujíma, runner si ho zalogoval sám.
+    """
+    with contextlib.suppress(asyncio.CancelledError, Exception):
+        await task
+
+
 class Pool:
     """Drží bežiace `TenantRunner` úlohy jednej repliky a stará sa o lease."""
 
@@ -76,6 +87,7 @@ class Pool:
                 log.info("model %s: lease/stav už nesedí — zastavujem", mid)
                 await runner.stop()
                 task.cancel()
+                await _reap(task)
                 await self._reg.release(mid)
 
         # 2. runnery, ktoré skončili samé, vypadnú z evidencie a ich lease sa
@@ -124,6 +136,7 @@ class Pool:
             log.info("model %s: shutdown — zastavujem", mid)
             await runner.stop()
             task.cancel()
+            await _reap(task)
         self._running.clear()
         await self._reg.release_all(self._g.replica_name)
 

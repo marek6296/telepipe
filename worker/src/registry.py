@@ -49,7 +49,10 @@ class Registry:
     # ---------- ledger ----------
 
     async def credit_balance(self, model_id: str) -> float:
-        return await self._t._rpc("credit_balance", {"p_model": model_id})
+        # RPC vráti null, keď účet neexistuje — von musí ísť 0.0, inak by
+        # MeteredLlm padol na `None <= 0`. Numeric chodí aj ako string.
+        raw = await self._t._rpc("credit_balance", {"p_model": model_id})
+        return float(raw or 0)
 
     async def record_usage(
         self,
