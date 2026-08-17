@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from transport import SupabaseTransport
 
 MODELS = "/models"
 PRICING = "/pricing"
+WORKER_REPLICAS = "/worker_replicas"
 
 PRICING_TTL_SECONDS = 300
 
@@ -34,6 +36,28 @@ class Registry:
 
     async def release(self, model_id: str) -> None:
         await self._t._rpc("release_model", {"p_model": model_id})
+
+    # ---------- monitoring replík ----------
+
+    async def upsert_replica(
+        self, replica: str, tenant_count: int, started_at: Optional[str] = None
+    ) -> None:
+        """Zapíše živý stav repliky do `worker_replicas` (admin monitor).
+
+        `last_seen` posielame explicitne — server default `now()` platí len pri
+        inserte a upsert existujúci riadok len updatuje. `started_at` ide do
+        tela LEN pri prvom ticku po štarte procesu: PostgREST updatuje výhradne
+        stĺpce, ktoré v tele sú, takže ďalšie ticky pôvodný čas štartu nechajú
+        tak (admin tak vidí, kedy sa replika naposledy reštartovala).
+        """
+        row: Dict[str, Any] = {
+            "replica_name": replica,
+            "tenant_count": tenant_count,
+            "last_seen": datetime.now(timezone.utc).isoformat(),
+        }
+        if started_at is not None:
+            row["started_at"] = started_at
+        await self._t._post(WORKER_REPLICAS, row, upsert=True)
 
     # ---------- modely ----------
 

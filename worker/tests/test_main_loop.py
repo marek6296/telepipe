@@ -7,6 +7,7 @@ class FakeReg:
         self.claims = []; self.released = []; self.hb = 0
         self.next_rows = []
         self.rows_by_id = {}
+        self.replicas = []
     async def claim(self, replica, capacity):
         self.claims.append(capacity); return self.next_rows
     async def heartbeat(self, replica): self.hb += 1
@@ -14,6 +15,8 @@ class FakeReg:
     async def model_row(self, mid): return self.rows_by_id.get(mid)
     async def release(self, mid): self.released.append(mid)
     async def set_status(self, *a, **kw): pass
+    async def upsert_replica(self, replica, tenant_count, started_at=None):
+        self.replicas.append((replica, tenant_count, started_at))
 
 class FakeRunner:
     instances = []
@@ -110,6 +113,35 @@ async def test_bad_config_row_goes_error():
     await pool.tick()
     assert not FakeRunner.instances
     assert "m-1" in reg.released
+
+async def test_tick_upserts_replica_state():
+    """Admin monitor: každý tick zapíše stav repliky, štart len raz.
+
+    `started_at` sa posiela iba pri prvom ticku — inak by upsert pri každom
+    cykle prepísal čas štartu na „teraz" a reštart repliky by nebolo vidieť.
+    """
+    FakeRunner.instances.clear()
+    reg = FakeReg(); reg.next_rows = [ROW]
+    pool = make_pool(reg)
+    await pool.tick()
+    reg.rows_by_id["m-1"] = ROW
+    reg.next_rows = []
+    await pool.tick()
+    assert [r[:2] for r in reg.replicas] == [("r-1", 1), ("r-1", 1)]
+    assert reg.replicas[0][2] == pool._started_at   # prvý tick: čas štartu
+    assert reg.replicas[1][2] is None               # ďalšie ticky ho neposielajú
+
+async def test_replica_upsert_failure_does_not_break_tick():
+    """Monitoring je vedľajšia cesta — jeho výpadok nesmie zastaviť claim slučku."""
+    FakeRunner.instances.clear()
+    reg = FakeReg(); reg.next_rows = [ROW]
+    async def boom(*a, **kw): raise RuntimeError("supabase down")
+    reg.upsert_replica = boom
+    pool = make_pool(reg)
+    await pool.tick()                                # nesmie vyhodiť
+    assert reg.hb == 1
+    assert len(FakeRunner.instances) == 1
+    assert not pool._replica_registered              # pri ďalšom pokuse zopakuje started_at
 
 async def test_shutdown_releases_all():
     FakeRunner.instances.clear()

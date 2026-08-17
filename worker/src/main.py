@@ -23,6 +23,7 @@ import logging
 import os
 import signal
 import sys
+from datetime import datetime, timezone
 
 log = logging.getLogger("main")
 
@@ -76,6 +77,10 @@ class Pool:
         self._tenant_factory = tenant_factory
         # model_id -> (runner, task)
         self._running: dict = {}
+        # Monitoring repliky: čas štartu procesu sa posiela len pri prvom
+        # úspešnom upserte (viď `Registry.upsert_replica`).
+        self._started_at = datetime.now(timezone.utc).isoformat()
+        self._replica_registered = False
 
     async def tick(self) -> None:
         """Jeden cyklus claim slučky. Nikdy nehádže ďalej — chyby sa logujú."""
@@ -129,6 +134,19 @@ class Pool:
 
         # 4. heartbeat — Supabase nech vie, že replika žije
         await self._reg.heartbeat(self._g.replica_name)
+
+        # 5. stav repliky pre admin monitor (worker_replicas). Zlyhanie
+        #    monitoringu nesmie zhodiť tick — replika beží aj bez neho, len ju
+        #    admin uvidí ako stale.
+        try:
+            await self._reg.upsert_replica(
+                self._g.replica_name,
+                len(self._running),
+                started_at=None if self._replica_registered else self._started_at,
+            )
+            self._replica_registered = True
+        except Exception:  # noqa: BLE001 — monitoring nie je kritická cesta
+            log.exception("upsert do worker_replicas zlyhal")
 
     async def shutdown(self) -> None:
         """Zastaví všetky runnery a pustí celý lease repliky."""
