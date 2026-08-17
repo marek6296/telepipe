@@ -5,6 +5,7 @@
     worker/.venv/bin/python scripts/migrate_model.py --source-schema tgai --name Simona
     worker/.venv/bin/python scripts/migrate_model.py --source-schema tgai --name Simona --execute
     worker/.venv/bin/python scripts/migrate_model.py --source-schema tgai --name Simona --delta --execute
+    worker/.venv/bin/python scripts/migrate_model.py --source-schema tgai --name Simona --only-fanvue --execute
 
 Bez `--execute` beží DRY-RUN: nič nezapíše, len vypíše čo by spravil.
 
@@ -231,6 +232,25 @@ TABLES: list[dict[str, Any]] = [
      "storage": "voices", "nat": ("tg_id", "text", "created_at")},
     {"name": "voice_jobs", "kind": "append", "order": "id", "ts": "created_at",
      "nat": ("text", "created_at")},
+    # --- Fanvue (migrácia 012) --------------------------------------------
+    # Poradie je dané cudzími kľúčmi: fanúšik a médium musia existovať skôr,
+    # než sa naň odvolá správa alebo záznam o poslaní.
+    #
+    # Samotný riadok `fanvue` (OAuth tokeny) sa NEmigruje zámerne: v starej DB
+    # je v čistom texte, tu je šifrovaný naším kľúčom a vydaný pre inú appku.
+    # Účet sa v telepipe pripája nanovo cez OAuth v dashboarde.
+    {"name": "fv_users", "kind": "upsert", "conflict": "model_id,fan_uuid",
+     "order": "fan_uuid"},
+    {"name": "fv_messages", "kind": "append", "order": "id", "ts": "created_at",
+     "nat": ("fan_uuid", "role", "content", "created_at")},
+    {"name": "fv_folders", "kind": "upsert", "conflict": "model_id,name", "order": "name"},
+    {"name": "fv_media", "kind": "upsert", "conflict": "model_id,media_uuid",
+     "order": "media_uuid"},
+    # V starej schéme mala táto tabuľka `id bigserial` a mohla obsahovať tú istú
+    # dvojicu viackrát; v 012 je PK prirodzený, takže upsert prípadné duplicity
+    # zlúči do jedného riadku (číta sa z nej len množina `media_uuid`).
+    {"name": "fv_media_sends", "kind": "upsert", "conflict": "model_id,media_uuid,fan_uuid",
+     "order": "id"},
 ]
 
 
@@ -345,10 +365,23 @@ class Storage:
 # ---------------------------------------------------------------------------
 
 def find_or_create_model(new: Supa, schema: str, name: str, old_env: dict[str, str],
-                         enc_key: str, account_id: str, execute: bool) -> tuple[str | None, dict]:
+                         enc_key: str, account_id: str, execute: bool,
+                         touch_model: bool = True) -> tuple[str | None, dict]:
     _, rows = new.rest("GET", "models", params={
         "select": "*", "migration_source": f"eq.{schema}"})
     existing = (rows or [None])[0]
+
+    # `--only-fanvue` dobehá fv_* tabuľky k modelke, ktorá už môže byť ostrá.
+    # Nesiaha na riadok `models` ani na Telegram creds, takže dôvod pre kontrolu
+    # `paused` (dve sessions nad jedným účtom) tu neplatí — a bez zápisu do
+    # `models` ho ani nemá ako porušiť.
+    if not touch_model:
+        if not existing:
+            raise SystemExit(f"STOP: modelka pre migration_source={schema!r} v telepipe "
+                             f"neexistuje. Najprv bežná migrácia, potom --only-fanvue.")
+        print(f"  models: {existing['id']} (status={existing['status']}) — nedotknuté "
+              f"(--only-fanvue)")
+        return existing["id"], {}
 
     if existing and existing["status"] != "paused":
         raise SystemExit(
@@ -610,6 +643,9 @@ def main() -> int:
     ap.add_argument("--execute", action="store_true", help="Reálne zapíše (inak DRY-RUN)")
     ap.add_argument("--delta", action="store_true",
                     help="Doťahuje len novšie riadky append-only tabuliek (cutover)")
+    ap.add_argument("--only-fanvue", action="store_true",
+                    help="Len fv_* tabuľky; riadok models a Telegram creds nechá tak "
+                         "(preto nevyžaduje status=paused)")
     args = ap.parse_args()
 
     schema = args.source_schema
@@ -640,12 +676,14 @@ def main() -> int:
 
     target_cols = new.openapi_columns()
     model_id, _ = find_or_create_model(new, schema, args.name, old_env,
-                                       new_env["ENCRYPTION_KEY"], account_id, args.execute)
+                                       new_env["ENCRYPTION_KEY"], account_id, args.execute,
+                                       touch_model=not args.only_fanvue)
     storage = Storage(old, new, model_id, args.execute)
     id_maps: dict[str, dict[int, int]] = {}
 
+    tables = [t for t in TABLES if t["name"].startswith("fv_")] if args.only_fanvue else TABLES
     stats = []
-    for spec in TABLES:
+    for spec in tables:
         stat = migrate_table(spec, old, new, model_id, target_cols, storage,
                              id_maps, args.execute, args.delta)
         stats.append(stat)
@@ -659,7 +697,13 @@ def main() -> int:
           f"externé (nechané) {storage.external}"
           + (f", na skopírovanie {storage.planned}" if not args.execute else ""))
 
-    if args.execute and model_id:
+    if args.execute and model_id and args.only_fanvue:
+        for spec in tables:
+            src = old.count(spec["name"])
+            tgt = new.count(spec["name"], {"model_id": f"eq.{model_id}"})
+            print(f"  vzorka: {spec['name']:<15} zdroj {src} / cieľ {tgt} — "
+                  f"{'ZHODA' if tgt >= src else 'NEZHODA'}")
+    elif args.execute and model_id:
         _, rows = new.rest("GET", "models", params={
             "select": "id,name,status,status_reason,migration_source",
             "id": f"eq.{model_id}"})
