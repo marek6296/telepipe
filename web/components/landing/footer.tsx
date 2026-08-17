@@ -1,6 +1,12 @@
 import Image from "next/image";
 import Link from "next/link";
 
+const PRODUCT_LINKS = [
+  { href: "/features", label: "Features" },
+  { href: "/how-it-works", label: "How it works" },
+  { href: "/pricing", label: "Pricing" },
+];
+
 export function LandingFooter() {
   return (
     <footer className="relative border-t border-white/[0.07] px-6 py-14">
@@ -23,30 +29,16 @@ export function LandingFooter() {
           <div>
             <p className="lp-eyebrow text-[10.5px]">Product</p>
             <ul className="mt-4 space-y-2.5 text-[13.5px]">
-              <li>
-                <a
-                  href="#features"
-                  className="text-white/50 transition-colors hover:text-white"
-                >
-                  Features
-                </a>
-              </li>
-              <li>
-                <a
-                  href="#how-it-works"
-                  className="text-white/50 transition-colors hover:text-white"
-                >
-                  How it works
-                </a>
-              </li>
-              <li>
-                <a
-                  href="#pricing"
-                  className="text-white/50 transition-colors hover:text-white"
-                >
-                  Pricing
-                </a>
-              </li>
+              {PRODUCT_LINKS.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    className="text-white/50 transition-colors hover:text-white"
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
 

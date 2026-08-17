@@ -5,6 +5,11 @@ import { supabaseAnonKey, supabaseUrl } from "@/lib/env";
 
 /** Cesty prístupné bez prihlásenia. */
 const PUBLIC_PREFIXES = [
+  // Marketing — `/` rieši `isPublicPath` zvlášť (presná zhoda)
+  "/features",
+  "/how-it-works",
+  "/pricing",
+  // Auth
   "/login",
   "/register",
   "/reset-password",

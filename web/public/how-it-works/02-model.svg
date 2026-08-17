@@ -1,0 +1,102 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 600" width="600" height="600" role="img" aria-label="Placeholder mockup: the model setup screen with persona fields, sliders and a photo grid">
+  <defs>
+    <linearGradient id="m-bg" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3a3a3a"/>
+      <stop offset="0.5" stop-color="#2b2b2b"/>
+      <stop offset="1" stop-color="#1a1a1a"/>
+    </linearGradient>
+    <radialGradient id="m-glow" cx="0.78" cy="0.12" r="0.8">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.14"/>
+      <stop offset="0.6" stop-color="#ffffff" stop-opacity="0.025"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <rect width="600" height="600" fill="url(#m-bg)"/>
+  <rect width="600" height="600" fill="url(#m-glow)"/>
+
+  <g stroke="#ffffff" stroke-opacity="0.04" stroke-width="1">
+    <path d="M75 0V600M150 0V600M225 0V600M300 0V600M375 0V600M450 0V600M525 0V600"/>
+    <path d="M0 75H600M0 150H600M0 225H600M0 300H600M0 375H600M0 450H600M0 525H600"/>
+  </g>
+
+  <!-- app window -->
+  <g transform="translate(48 62)">
+    <rect x="0" y="0" width="504" height="476" rx="22" fill="#2b2b2b" stroke="#4e4e4e" stroke-width="1.5"/>
+
+    <!-- title bar -->
+    <path d="M0 22a22 22 0 0 1 22-22h460a22 22 0 0 1 22 22v28H0z" fill="#333333"/>
+    <g fill="#ffffff" fill-opacity="0.16">
+      <circle cx="24" cy="25" r="4.5"/>
+      <circle cx="40" cy="25" r="4.5"/>
+      <circle cx="56" cy="25" r="4.5"/>
+    </g>
+    <rect x="82" y="20" width="96" height="9" rx="4.5" fill="#ffffff" fill-opacity="0.3"/>
+    <line x1="0" y1="50" x2="504" y2="50" stroke="#474747"/>
+
+    <!-- sidebar -->
+    <line x1="140" y1="50" x2="140" y2="476" stroke="#3f3f3f"/>
+    <g>
+      <rect x="16" y="70" width="108" height="30" rx="8" fill="#ffffff" fill-opacity="0.06"/>
+      <rect x="28" y="81" width="60" height="8" rx="4" fill="#ffffff" fill-opacity="0.6"/>
+      <rect x="28" y="117" width="72" height="8" rx="4" fill="#ffffff" fill-opacity="0.2"/>
+      <rect x="28" y="147" width="52" height="8" rx="4" fill="#ffffff" fill-opacity="0.2"/>
+      <rect x="28" y="177" width="66" height="8" rx="4" fill="#ffffff" fill-opacity="0.2"/>
+      <rect x="28" y="207" width="44" height="8" rx="4" fill="#ffffff" fill-opacity="0.2"/>
+      <rect x="28" y="237" width="58" height="8" rx="4" fill="#ffffff" fill-opacity="0.2"/>
+    </g>
+
+    <!-- form -->
+    <g transform="translate(168 76)">
+      <rect x="0" y="0" width="120" height="11" rx="5.5" fill="#eaeaea" fill-opacity="0.85"/>
+
+      <!-- two fields -->
+      <rect x="0" y="32" width="148" height="40" rx="10" fill="#ffffff" fill-opacity="0.035" stroke="#505050"/>
+      <rect x="14" y="48" width="70" height="8" rx="4" fill="#ffffff" fill-opacity="0.35"/>
+      <rect x="164" y="32" width="148" height="40" rx="10" fill="#ffffff" fill-opacity="0.035" stroke="#505050"/>
+      <rect x="178" y="48" width="52" height="8" rx="4" fill="#ffffff" fill-opacity="0.35"/>
+
+      <!-- textarea -->
+      <rect x="0" y="86" width="312" height="86" rx="10" fill="#ffffff" fill-opacity="0.035" stroke="#505050"/>
+      <g fill="#ffffff" fill-opacity="0.22">
+        <rect x="14" y="102" width="272" height="7" rx="3.5"/>
+        <rect x="14" y="118" width="240" height="7" rx="3.5"/>
+        <rect x="14" y="134" width="264" height="7" rx="3.5"/>
+        <rect x="14" y="150" width="150" height="7" rx="3.5"/>
+      </g>
+
+      <!-- sliders -->
+      <g transform="translate(0 190)">
+        <rect x="0" y="0" width="64" height="8" rx="4" fill="#ffffff" fill-opacity="0.3"/>
+        <rect x="0" y="20" width="312" height="4" rx="2" fill="#ffffff" fill-opacity="0.1"/>
+        <rect x="0" y="20" width="196" height="4" rx="2" fill="#f0f0f0" fill-opacity="0.8"/>
+        <circle cx="196" cy="22" r="8" fill="#fafafa"/>
+
+        <rect x="0" y="48" width="88" height="8" rx="4" fill="#ffffff" fill-opacity="0.3"/>
+        <rect x="0" y="68" width="312" height="4" rx="2" fill="#ffffff" fill-opacity="0.1"/>
+        <rect x="0" y="68" width="104" height="4" rx="2" fill="#f0f0f0" fill-opacity="0.8"/>
+        <circle cx="104" cy="70" r="8" fill="#fafafa"/>
+      </g>
+
+      <!-- photo grid -->
+      <g transform="translate(0 288)" fill="#ffffff" fill-opacity="0.07" stroke="#4c4c4c">
+        <rect x="0" y="0" width="72" height="56" rx="9"/>
+        <rect x="80" y="0" width="72" height="56" rx="9"/>
+        <rect x="160" y="0" width="72" height="56" rx="9"/>
+        <rect x="240" y="0" width="72" height="56" rx="9"/>
+      </g>
+      <g transform="translate(0 288)" fill="#ffffff" fill-opacity="0.16" stroke="none">
+        <circle cx="24" cy="26" r="7"/>
+        <circle cx="104" cy="26" r="7"/>
+        <circle cx="184" cy="26" r="7"/>
+        <circle cx="264" cy="26" r="7"/>
+      </g>
+    </g>
+  </g>
+
+  <!-- saved chip -->
+  <rect x="392" y="474" width="164" height="52" rx="14" fill="#353535" fill-opacity="0.95" stroke="#545454"/>
+  <circle cx="418" cy="500" r="7" fill="#ffffff" fill-opacity="0.8"/>
+  <rect x="436" y="490" width="90" height="8" rx="4" fill="#ffffff" fill-opacity="0.5"/>
+  <rect x="436" y="504" width="58" height="6" rx="3" fill="#ffffff" fill-opacity="0.2"/>
+</svg>

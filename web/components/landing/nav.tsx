@@ -3,25 +3,34 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { Menu, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 const LINKS = [
-  { href: "#features", label: "Features" },
-  { href: "#how-it-works", label: "How it works" },
-  { href: "#pricing", label: "Pricing" },
+  { href: "/features", label: "Features" },
+  { href: "/how-it-works", label: "How it works" },
+  { href: "/pricing", label: "Pricing" },
 ];
 
 /**
  * Fixná blur navigácia v štýle dashboardu — monochróm, zlatá len v logu.
  *
- * Reveal: prvky s `data-nav-reveal` štartujú skryté a odhalí ich intro timeline
- * v `CinematicScene` (nie scroll timeline — objaví sa teda hneď po načítaní,
- * až keď dosadne intro text). Pri `prefers-reduced-motion` GSAP nebeží vôbec
- * a `.lp-nav-reveal` si viditeľnosť vynúti cez CSS v `landing.css`.
+ * Dva varianty, jeden komponent (markup sa neduplikuje):
+ *
+ * - **cinematic** (`/`): prvky s `data-nav-reveal` štartujú skryté a odhalí ich
+ *   intro timeline v `CinematicScene` (nie scroll timeline — objaví sa teda
+ *   hneď po načítaní, až keď dosadne intro text). Pozadie je priehľadné, kým
+ *   používateľ nezascrolluje. Pri `prefers-reduced-motion` GSAP nebeží vôbec
+ *   a `.lp-nav-reveal` si viditeľnosť vynúti cez CSS v `landing.css`.
+ * - **sticky** (podstránky): bežná hlavička — vždy viditeľná, vždy s hairline
+ *   borderom a blurom, žiadny GSAP. Aktívna položka je zvýraznená.
  */
 export function LandingNav() {
+  const pathname = usePathname();
+  const cinematic = pathname === "/";
+
   const [scrolled, setScrolled] = useState(false);
   const [open, setOpen] = useState(false);
 
@@ -32,6 +41,9 @@ export function LandingNav() {
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
+  // Mobilné menu zatvára každá jeho položka vo svojom `onClick` — netreba naň
+  // efekt na `pathname` (a ten by len spustil kaskádový render navyše).
+
   // Zamknúť scroll pod otvoreným mobilným menu
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";
@@ -40,11 +52,18 @@ export function LandingNav() {
     };
   }, [open]);
 
+  // Na `/` sú tieto atribúty háčik pre GSAP intro reveal; inde nesmú byť vôbec,
+  // aby nav ostal viditeľný (a aby ho scéna po SPA prechode nehľadala).
+  const revealAttr = cinematic ? { "data-nav-reveal": "" } : {};
+  const revealClass = cinematic ? "lp-nav-reveal" : "";
+
+  const solid = scrolled || !cinematic;
+
   return (
     <header
       className={cn(
         "fixed inset-x-0 top-0 z-[80] transition-colors duration-300",
-        scrolled
+        solid
           ? "border-b border-white/[0.07] bg-black/60 backdrop-blur-xl supports-[backdrop-filter]:bg-black/45"
           : "border-b border-transparent bg-transparent",
       )}
@@ -52,8 +71,8 @@ export function LandingNav() {
       <nav className="mx-auto flex h-[68px] max-w-7xl items-center justify-between px-5 sm:px-8">
         <Link
           href="/"
-          data-nav-reveal
-          className="lp-nav-reveal flex items-center"
+          {...revealAttr}
+          className={cn("flex items-center", revealClass)}
           aria-label="Telepipe home"
         >
           <Image
@@ -66,22 +85,38 @@ export function LandingNav() {
           />
         </Link>
 
-        <ul data-nav-reveal className="lp-nav-reveal hidden items-center gap-8 md:flex">
-          {LINKS.map((link) => (
-            <li key={link.href}>
-              <a
-                href={link.href}
-                className="text-[13.5px] font-medium text-white/55 transition-colors hover:text-white"
-              >
-                {link.label}
-              </a>
-            </li>
-          ))}
+        <ul
+          {...revealAttr}
+          className={cn("hidden items-center gap-8 md:flex", revealClass)}
+        >
+          {LINKS.map((link) => {
+            const active = pathname === link.href;
+            return (
+              <li key={link.href}>
+                <Link
+                  href={link.href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "relative text-[13.5px] font-medium transition-colors",
+                    active ? "text-white" : "text-white/55 hover:text-white",
+                  )}
+                >
+                  {link.label}
+                  {active && (
+                    <span
+                      aria-hidden
+                      className="absolute -bottom-1.5 left-0 h-px w-full bg-white/45"
+                    />
+                  )}
+                </Link>
+              </li>
+            );
+          })}
         </ul>
 
         <div
-          data-nav-reveal
-          className="lp-nav-reveal hidden items-center gap-2.5 md:flex"
+          {...revealAttr}
+          className={cn("hidden items-center gap-2.5 md:flex", revealClass)}
         >
           <Link href="/login" className="lp-btn lp-btn-quiet h-9 px-3.5 text-[13.5px]">
             Sign in
@@ -93,11 +128,14 @@ export function LandingNav() {
 
         <button
           type="button"
-          data-nav-reveal
+          {...revealAttr}
           onClick={() => setOpen((value) => !value)}
           aria-label={open ? "Close menu" : "Open menu"}
           aria-expanded={open}
-          className="lp-nav-reveal lp-hairline flex h-9 w-9 items-center justify-center rounded-lg text-white/75 transition-colors hover:text-white md:hidden"
+          className={cn(
+            "lp-hairline flex h-9 w-9 items-center justify-center rounded-lg text-white/75 transition-colors hover:text-white md:hidden",
+            revealClass,
+          )}
         >
           {open ? (
             <X className="h-4.5 w-4.5" strokeWidth={1.5} />
@@ -115,17 +153,24 @@ export function LandingNav() {
         )}
       >
         <ul className="space-y-1 px-5 py-5">
-          {LINKS.map((link) => (
-            <li key={link.href}>
-              <a
-                href={link.href}
-                onClick={() => setOpen(false)}
-                className="block rounded-lg px-3 py-3 text-[15px] font-medium text-white/70 transition-colors hover:bg-white/[0.04] hover:text-white"
-              >
-                {link.label}
-              </a>
-            </li>
-          ))}
+          {LINKS.map((link) => {
+            const active = pathname === link.href;
+            return (
+              <li key={link.href}>
+                <Link
+                  href={link.href}
+                  aria-current={active ? "page" : undefined}
+                  onClick={() => setOpen(false)}
+                  className={cn(
+                    "block rounded-lg px-3 py-3 text-[15px] font-medium transition-colors hover:bg-white/[0.04] hover:text-white",
+                    active ? "bg-white/[0.05] text-white" : "text-white/70",
+                  )}
+                >
+                  {link.label}
+                </Link>
+              </li>
+            );
+          })}
           <li className="flex flex-col gap-2.5 pt-4">
             <Link
               href="/login"

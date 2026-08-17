@@ -237,6 +237,43 @@
 }
 
 /* ---------------------------------------------------------------------------
+   Marketing podstránky (/features, /how-it-works, /pricing)
+--------------------------------------------------------------------------- */
+
+/* Prepínač mesačne/ročne — dráha pre kĺzavú pilulku (framer `layoutId`). */
+.lp-switch {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--lp-border-strong);
+}
+
+/* Zvýraznený balík. Nie farbou — svetlejším povrchom a silnejším hairlinom,
+   presne ako `.app-*` karty v dashboarde. */
+.lp-plan-featured {
+  background-image:
+    radial-gradient(120% 80% at 50% 0%, rgba(255, 255, 255, 0.07) 0%, transparent 60%),
+    linear-gradient(170deg, #171717 0%, #0d0d0d 62%, #080808 100%);
+  border: 1px solid #3a3a3a;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 28px 70px rgba(0, 0, 0, 0.7);
+}
+
+/* Karta so shaderom — shader vypĺňa celú kartu, obsah sedí na vnorenom
+   tmavom paneli. Rám je hairline, aby sa karta neroztiekla do pozadia. */
+.lp-shader-card {
+  background: #060606;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
+}
+
+.lp-shader-panel {
+  background: rgba(8, 8, 8, 0.74);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(14px) saturate(0);
+  -webkit-backdrop-filter: blur(14px) saturate(0);
+}
+
+/* ---------------------------------------------------------------------------
    Formuláre — sklenené inputy s bielym focusom (zlatý ring je preč)
 --------------------------------------------------------------------------- */
 

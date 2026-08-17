@@ -351,6 +351,10 @@ function CinematicScene() {
         window.removeEventListener("mousemove", onMove);
         pointerQuery.removeEventListener("change", onPointerChange);
         if (rafId) cancelAnimationFrame(rafId);
+        // Nav prežije odchod z `/` (žije v marketing layoute), takže po SPA
+        // prechode na /features jej treba explicitne zmazať inline štýly —
+        // inak by ostala na `opacity: 0` z intro revealu.
+        gsap.set(navGroups, { clearProps: "all" });
       };
     }, sceneRef);
 
