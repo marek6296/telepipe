@@ -232,7 +232,17 @@ export async function saveControlBotAction(input: {
   if (!model) return { error: "Model not found." };
 
   const token = input.token.trim();
-  if (!BOT_TOKEN_RE.test(token)) {
+
+  // Prázdny token znamená „nechaj ten, čo tam je, mením len chat id".
+  // Bez tejto vetvy sa owner_chat_id nedal opraviť inak než opätovným
+  // vylepením tokenu — a ten sa do políčka nikdy nepredvyplní (je šifrovaný,
+  // von už nikdy nejde), takže oprava jedného čísla znamenala výlet do
+  // @BotFathera po token, ktorý sa vôbec nemenil.
+  const keepExistingToken = token === "";
+  if (keepExistingToken && !(await controlBotConfigured(model.id))) {
+    return { error: "Paste the bot token from @BotFather first." };
+  }
+  if (!keepExistingToken && !BOT_TOKEN_RE.test(token)) {
     return {
       error: "That does not look like a bot token. It looks like 123456789:AA-long-string.",
     };
@@ -244,7 +254,9 @@ export async function saveControlBotAction(input: {
   }
 
   // Overenie u Telegramu — lepšie zistiť preklep tu než mlčaním bota.
-  const check = await verifyBotToken(token);
+  const check: { username?: string; error?: string } = keepExistingToken
+    ? {}
+    : await verifyBotToken(token);
   if (check.error) return { error: check.error };
 
   const supabase = await createClient();
@@ -254,19 +266,21 @@ export async function saveControlBotAction(input: {
     .eq("id", model.id);
   if (ownerError) return { error: ownerError.message };
 
-  // `control_bot_token_enc` klient zapísať nevie (žiadny column grant) — ide to
-  // service kľúčom, ktorý RLS obchádza, preto to `eq("account_id")` tu musí byť.
-  const admin = createServiceClient();
-  const { error } = await admin
-    .from("models")
-    .update({
-      control_bot_token_enc: await encrypt(token, encryptionKey()),
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", model.id)
-    .eq("account_id", user.id);
+  if (!keepExistingToken) {
+    // `control_bot_token_enc` klient zapísať nevie (žiadny column grant) — ide to
+    // service kľúčom, ktorý RLS obchádza, preto to `eq("account_id")` tu musí byť.
+    const admin = createServiceClient();
+    const { error } = await admin
+      .from("models")
+      .update({
+        control_bot_token_enc: await encrypt(token, encryptionKey()),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", model.id)
+      .eq("account_id", user.id);
 
-  if (error) return { error: error.message };
+    if (error) return { error: error.message };
+  }
 
   revalidatePath(`/app/m/${model.id}/telegram`);
   return { ok: true, detail: check.username ? `@${check.username}` : undefined };
