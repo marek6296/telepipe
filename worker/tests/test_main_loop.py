@@ -1,5 +1,7 @@
 """Claim slučka — spúšťanie/zastavovanie runnerov podľa lease."""
 import asyncio
+import json
+import pathlib
 from main import Pool
 
 class FakeReg:
@@ -151,3 +153,15 @@ async def test_shutdown_releases_all():
     await pool.shutdown()
     assert FakeRunner.instances[0].stopped
     assert "ALL" in reg.released
+
+
+def test_railway_spusta_main():
+    """Railway štartuje jediný entrypoint — `src/main.py` s claim slučkou.
+
+    Fanvue agent beží in-process cez runner (TenantRunner._start_fanvue), nie
+    ako samostatná služba, takže žiadna iná predloha štartovacieho príkazu
+    neexistuje.
+    """
+    root = pathlib.Path(__file__).resolve().parent.parent
+    config = json.loads((root / "railway.json").read_text(encoding="utf-8"))
+    assert config["deploy"]["startCommand"] == "python src/main.py"
