@@ -1,0 +1,5 @@
+# ffmpeg je tu kvôli hlasovkám: Telegram prehrá ako hlasovku (s vlnkou) len
+# OGG/Opus, ale nahrávky z generátorov chodia bežne ako mp3. Worker si ich
+# preto pred odoslaním prevedie sám.
+[phases.setup]
+nixPkgs = ["...", "ffmpeg"]
