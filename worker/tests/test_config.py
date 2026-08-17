@@ -97,6 +97,38 @@ def test_tenant_config_covers_template_attrs(monkeypatch):
     assert t.supabase_schema == t.model_id
 
 
+def test_tenant_config_reads_model_flags(monkeypatch):
+    """owner_as_client + voice_only_ids sú stĺpce v `models` (migrácia 006) —
+    from_row ich musí prebrať, nie ostať na defaultoch."""
+    for k, v in ENV.items():
+        monkeypatch.setenv(k, v)
+    cfg = Config.from_env()
+    row = {
+        "id": "m-3", "account_id": "a-1", "name": "Lola",
+        "tg_api_id": 1, "tg_api_hash": "hash", "owner_chat_id": 777,
+        "owner_as_client": True,
+        "voice_only_ids": [1, 2],           # bigint[] z PostgREST príde ako list
+    }
+    t = TenantConfig.from_row(row, cfg)
+    assert t.owner_as_client is True
+    assert t.voice_only_ids == frozenset({1, 2})
+
+
+def test_tenant_config_model_flags_default_when_null(monkeypatch):
+    """Chýbajúce/NULL hodnoty (starý riadok) = vypnuté, nie pád."""
+    for k, v in ENV.items():
+        monkeypatch.setenv(k, v)
+    cfg = Config.from_env()
+    row = {
+        "id": "m-4", "account_id": "a-1", "name": "Lola",
+        "tg_api_id": 1, "tg_api_hash": "hash", "owner_chat_id": 777,
+        "owner_as_client": None, "voice_only_ids": None,
+    }
+    t = TenantConfig.from_row(row, cfg)
+    assert t.owner_as_client is False
+    assert t.voice_only_ids == frozenset()
+
+
 def test_tenant_config_missing_enc_is_empty_string(monkeypatch):
     """Model v draft stave nemusí mať ešte session/token — nesmie to spadnúť."""
     for k, v in ENV.items():
