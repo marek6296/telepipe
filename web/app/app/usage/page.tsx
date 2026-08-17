@@ -82,7 +82,7 @@ export default async function UsagePage({ searchParams }: PageProps<"/app/usage"
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <StatTile label="Balance" value={usd(balance)} hint="credit left" />
         <StatTile label="Today" value={usdPrecise(total1)} hint="since midnight UTC" />
         <StatTile label="Last 7 days" value={usdPrecise(total7)} />

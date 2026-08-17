@@ -93,7 +93,7 @@ export default async function ChatDetailPage({
         {FUNNEL_HINT[chat.funnel_stage] ?? ""}
       </p>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <StatTile label="Messages" value={compactNumber(chat.msg_count)} />
         <StatTile
           label="Last message"
@@ -194,7 +194,7 @@ export default async function ChatDetailPage({
                   <p
                     className={cn(
                       "mt-1 text-[10.5px]",
-                      message.role === "assistant" ? "text-[#f7e9c4]/45" : "text-[var(--app-text-4)]",
+                      message.role === "assistant" ? "text-[var(--app-text-3)]" : "text-[var(--app-text-4)]",
                     )}
                   >
                     <RelativeTime iso={message.created_at} />

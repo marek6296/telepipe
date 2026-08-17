@@ -163,7 +163,7 @@ export function AppShell({
                 type="button"
                 onClick={() => setMenuOpen(false)}
                 aria-label="Close menu"
-                className="absolute right-3 top-3.5 rounded-md p-2 text-[var(--app-text-3)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
+                className="app-tap absolute right-3 top-3.5 rounded-md p-2 text-[var(--app-text-3)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
               >
                 <X className="h-4 w-4" strokeWidth={1.75} />
               </button>
@@ -181,13 +181,14 @@ export function AppShell({
               type="button"
               onClick={() => setMenuOpen(true)}
               aria-label="Open menu"
-              className="-ml-1 rounded-md p-2 text-[var(--app-text-2)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)] lg:hidden"
+              className="app-tap -ml-1 rounded-md p-2 text-[var(--app-text-2)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)] lg:hidden"
             >
               <Menu className="h-4 w-4" strokeWidth={1.75} />
             </button>
-            <p className="truncate text-[13.5px] font-medium text-[var(--app-text)]">
+            <p className="truncate text-[13.5px] font-medium text-[var(--app-text)] sm:hidden">
               {pageTitle(pathname, models)}
             </p>
+            <p className="app-group-label hidden sm:block">Workspace</p>
           </div>
 
           <Link
@@ -258,7 +259,7 @@ function SidebarContent({
                   onClick={onNavigate}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "flex items-center gap-2.5 rounded-md py-1.5 pl-[26px] pr-2.5 text-[13px] transition-colors",
+                    "app-tap flex items-center gap-2.5 rounded-md py-1.5 pl-[26px] pr-2.5 text-[13px] transition-colors",
                     active
                       ? "bg-[var(--app-active)] text-[var(--app-text)]"
                       : "text-[var(--app-text-3)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text-2)]",
@@ -279,7 +280,7 @@ function SidebarContent({
             <Link
               href="/app/models"
               onClick={onNavigate}
-              className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-[var(--app-text-4)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text-2)]"
+              className="app-tap flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-[var(--app-text-4)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text-2)]"
             >
               <Plus className="h-4 w-4 shrink-0" strokeWidth={1.75} />
               Add model
@@ -340,7 +341,7 @@ function NavLink({
         onClick={onNavigate}
         aria-current={active ? "page" : undefined}
         className={cn(
-          "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
+          "app-tap flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
           active
             ? "bg-[var(--app-active)] font-medium text-[var(--app-text)]"
             : "text-[var(--app-text-2)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]",
@@ -366,7 +367,7 @@ function UserMenu({ email, onNavigate }: { email: string; onNavigate: () => void
       <DropdownMenu.Trigger asChild>
         <button
           type="button"
-          className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-[var(--app-surface-hover)]"
+          className="app-tap flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-[var(--app-surface-hover)]"
         >
           <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--app-border-strong)] bg-[var(--app-surface)] text-[11px] font-medium text-[var(--app-text-2)]">
             {email.slice(0, 1).toUpperCase()}
