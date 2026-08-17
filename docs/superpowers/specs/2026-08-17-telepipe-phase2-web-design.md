@@ -51,7 +51,14 @@ Adaptácia CinematicHero template na Telepipe — rovnaká mechanika, naše farb
 ## Auth
 
 - Supabase Auth: email+heslo (s email confirm) + Google OAuth.
-- `/login`, `/register` — čierne karty v štýle landing, tactile buttony.
+- **Google zatiaľ NEfunkčný zámerne** — button v UI je (disabled + „Available soon"
+  tooltip), kód na Google flow pripravený, aktivuje sa na konci keď Marek nastaví
+  Google provider v Supabase. Email+heslo funguje plne od začiatku.
+- `/login`, `/register` — **SignInPage glass template** (Marekova referencia):
+  dvojstĺpcový layout, glass inputy (blur, focus ring — vo fialovej v template →
+  u nás ZLATÁ), show/hide heslo, testimonials karty na hero obrázku vpravo
+  (u nás: screenshot/render appky alebo abstraktný čierno-zlatý vizuál),
+  animate-element stagger animácie. Register = rovnaký štýl s confirm heslom.
 - **Prepojenie na accounts:** migrácia 007 — `accounts.id` = `auth.users.id`
   (FK na auth.users, default gen_random_uuid preč) + DB trigger `on auth.users
   insert → insert into accounts (id, email)`. Google aj email flow tak automaticky
@@ -109,8 +116,11 @@ Nová tabuľka `tg_login_jobs` (migrácia 007):
 
 ## Klientská app (`/app`)
 
-Layout: bočný sidebar (blur, biele logo hore), obsah karty na čiernom pozadí,
-Framer Motion transitions. Všetko server components + server actions
+Layout: **AppShell v štýle „Efferd Dashboard"** (Marekova referencia) — bočný
+sidebar s ikonkami (lucide-react), sekcie menu, biele logo hore, user menu dole;
+obsah = karty na čiernom pozadí so zlatými akcentmi, Framer Motion transitions.
+Rovnaké ikonky/menu vzory ako referencia, obsah navrhnutý pre náš biznis
+(modelky, konverzácie, kredity). Všetko server components + server actions
 (vzor simona-dashboard, ale multi-account).
 
 - **`/app`** — zoznam modeliek (karty so statusom: draft/active/paused/error
