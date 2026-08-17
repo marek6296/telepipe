@@ -8,6 +8,14 @@ filter = únik dát medzi modelkami, nie „len" zlý výsledok.
 
 Spojenie vlastní `main` (jeden transport na proces); `TenantDb` je tenká vrstva
 nad ním, takže sa dá pre každú modelku vyrobiť a zahodiť bez nákladov.
+
+ŠIFROVACÍ SEAM (ElevenLabs)
+---------------------------
+Rovnaký nápad ako pri Fanvue tokenoch (`fanvue_tenant.py`): portované moduly
+(`userbot`, `speech`, `voices`, `livevoice`, `fvvoice`) čítajú
+`behavior["eleven_key"]` ako čistý text a nesmú sa kvôli šifrovaniu meniť.
+Dešifruje sa preto presne na hranici čítania — v `get_behavior()`. Von ide
+`eleven_key`, `eleven_key_enc` sa do výsledku nedostane vôbec.
 """
 from __future__ import annotations
 
@@ -57,10 +65,62 @@ def _ts(value: Optional[str]) -> Optional[datetime]:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
+def unseal_eleven_key(
+    row: Dict[str, Any], encryption_key: str, model_id: str = ""
+) -> Dict[str, Any]:
+    """Riadok `behavior` s ElevenLabs kľúčom v čistom texte.
+
+    Vstup je surový riadok z DB (`eleven_key_enc` + zastaraný `eleven_key`),
+    výstup je to isté, len s jediným kľúčom, ktorý zvyšok workera pozná —
+    `eleven_key`. `eleven_key_enc` sa z výsledku VŽDY odstráni, aj keď sa
+    nepodarilo dešifrovať: šifrovaný text nie je použiteľná hodnota a nikto ho
+    nemá omylom poslať do ElevenLabs ako kľúč.
+
+    Poradie zdrojov:
+      1. `eleven_key_enc` (a máme čím dešifrovať) — nová cesta, píše ju
+         `set_eleven_key()` z dashboardu;
+      2. inak `eleven_key` — čistý text z jednomodelkovej éry (Simona), platí
+         kým ho backfill nenahradí šifrovaným dvojníkom.
+
+    Fail-open: pokazená šifra alebo zlý kľúč znamená prázdny `eleven_key`, teda
+    „hlasovky dnes nie sú" — nie pád tenanta. Hlas je bonus, nie podmienka
+    (rovnaký sľub má hlavička `eleven.py`).
+    """
+    out = dict(row)
+    sealed = str(out.pop("eleven_key_enc", "") or "")
+    if not sealed:
+        return out
+    if not encryption_key:
+        # Šifrovaný kľúč v DB a worker bez ENCRYPTION_KEY — to je chyba
+        # nasadenia, nie dát. Fallback na starý stĺpec je aj tak lepší než nič.
+        log.warning(
+            "model %s: eleven_key_enc je v DB, ale worker nemá ENCRYPTION_KEY", model_id
+        )
+        return out
+    from crypto import decrypt
+
+    try:
+        out["eleven_key"] = decrypt(sealed, encryption_key)
+    except Exception:  # noqa: BLE001 - zlý kľúč nesmie zhodiť tenanta
+        log.warning(
+            "model %s: eleven_key_enc sa nedá dešifrovať — hlasovky vypnuté", model_id
+        )
+        # Pád na starý čistý text by tu bol tichý downgrade: keď má modelka
+        # `_enc`, je to jej platný kľúč a poškodenú šifru treba vidieť v logu,
+        # nie obísť starou hodnotou, ktorú medzitým mohla zmeniť.
+        out["eleven_key"] = ""
+    return out
+
+
 class TenantDb:
-    def __init__(self, transport: SupabaseTransport, model_id: str) -> None:
+    def __init__(
+        self, transport: SupabaseTransport, model_id: str, encryption_key: str = ""
+    ) -> None:
         self._t = transport
         self.model_id = model_id
+        # Prázdny kľúč je legitímny stav (testy, staré volania): vtedy sa nič
+        # nedešifruje a platí zastaraný `eleven_key`.
+        self._key = encryption_key
 
     @property
     def _mine(self) -> str:
@@ -96,8 +156,16 @@ class TenantDb:
     # ---------- chovanie ----------
 
     async def get_behavior(self) -> Dict[str, Any]:
+        """Riadok `behavior` s DEŠIFROVANÝM `eleven_key` (viď hlavičku súboru).
+
+        Jediné miesto, kde sa riadok `behavior` v tomto súbore číta — takže
+        seam netreba opakovať nikde inde. `Behavior.from_row()` aj kontrolný
+        bot dostanú presne to, čo čakali pred šifrovaním.
+        """
         rows = await self._get(BEHAVIOR, {"model_id": self._mine, "select": "*"})
-        return rows[0] if rows else {}
+        if not rows:
+            return {}
+        return unseal_eleven_key(rows[0], self._key, self.model_id)
 
     async def set_behavior_field(self, field: str, value: Any) -> None:
         await self._patch(

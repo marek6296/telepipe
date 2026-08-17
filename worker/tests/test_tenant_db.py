@@ -235,6 +235,153 @@ async def test_singleton_tables_keyed_by_model_id_not_id():
         assert f"model_id=eq.{MODEL}" in call["url"]
 
 
+# ---------------------------------------------------------------------------
+# ElevenLabs seam (migrácia 014)
+#
+# `behavior.eleven_key_enc` je šifrovaný AES-256-GCM; portované moduly
+# (userbot/speech/voices/fvvoice) čítajú `behavior["eleven_key"]` ako čistý
+# text a nesmú o šifrovaní vedieť. Rozhranie medzi tými dvoma svetmi je
+# `get_behavior()` — a presne to sa tu overuje.
+# ---------------------------------------------------------------------------
+
+from crypto import encrypt  # noqa: E402  (patrí k sekcii nižšie)
+
+KEY = "3q2+796tvu/erb7v3q2+796tvu/erb7v3q2+796tvu8="  # 32 B base64, len pre testy
+PLAIN_KEY = "sk_eleven_tajny_kluc"
+
+# Riadok `behavior`, ako ho vráti PostgREST. Okrem kľúča sú tu bežné polia —
+# test nižšie stráži, že sa seam nedotkne ničoho iného.
+BEHAVIOR_ROW = {
+    "model_id": MODEL,
+    "mode": "ai",
+    "heat": "medium",
+    "voices_enabled": True,
+    "eleven_voice_id": "voice-123",
+    "voice_ambience": "bedroom",
+    "voice_tempo": 1.05,
+    "eleven_key": "",
+    "eleven_key_enc": "",
+}
+
+
+def _behavior_transport(row):
+    """Transport, ktorý na `/behavior` vráti presne zadaný riadok."""
+    def handler(req):
+        if "/behavior" in str(req.url):
+            return httpx.Response(200, json=[row])
+        return httpx.Response(200, json=[])
+    t = SupabaseTransport("https://x.supabase.co", "sk")
+    t._client = httpx.AsyncClient(transport=httpx.MockTransport(handler),
+                                  base_url="https://x.supabase.co/rest/v1")
+    return t
+
+
+async def test_behavior_decrypts_eleven_key():
+    """Šifrovaný kľúč príde von ako čistý text pod menom `eleven_key`."""
+    row = {**BEHAVIOR_ROW, "eleven_key_enc": encrypt(PLAIN_KEY, KEY)}
+    db = TenantDb(_behavior_transport(row), MODEL, KEY)
+
+    out = await db.get_behavior()
+
+    assert out["eleven_key"] == PLAIN_KEY
+
+
+async def test_behavior_never_leaks_ciphertext():
+    """`eleven_key_enc` sa do výsledku nedostane — ani keď sa dešifrovať dá."""
+    sealed = encrypt(PLAIN_KEY, KEY)
+    row = {**BEHAVIOR_ROW, "eleven_key_enc": sealed}
+    db = TenantDb(_behavior_transport(row), MODEL, KEY)
+
+    out = await db.get_behavior()
+
+    assert "eleven_key_enc" not in out
+    assert sealed not in out.values()
+
+
+async def test_behavior_keeps_every_other_field_untouched():
+    """Seam mení výhradne dvojicu eleven_key/_enc, zvyšok riadku je nedotknutý."""
+    row = {**BEHAVIOR_ROW, "eleven_key_enc": encrypt(PLAIN_KEY, KEY)}
+    db = TenantDb(_behavior_transport(row), MODEL, KEY)
+
+    out = await db.get_behavior()
+
+    assert {k: v for k, v in out.items() if k != "eleven_key"} == {
+        k: v for k, v in BEHAVIOR_ROW.items() if k not in ("eleven_key", "eleven_key_enc")
+    }
+
+
+async def test_behavior_falls_back_to_legacy_plaintext():
+    """Prázdny `_enc` = stará cesta (Simona pred backfillom) a musí fungovať."""
+    row = {**BEHAVIOR_ROW, "eleven_key": PLAIN_KEY, "eleven_key_enc": ""}
+    db = TenantDb(_behavior_transport(row), MODEL, KEY)
+
+    out = await db.get_behavior()
+
+    assert out["eleven_key"] == PLAIN_KEY
+    assert "eleven_key_enc" not in out
+
+
+async def test_behavior_legacy_works_without_encryption_key():
+    """Bez ENCRYPTION_KEY (staré volania, testy) sa nič nedešifruje a nepadá."""
+    row = {**BEHAVIOR_ROW, "eleven_key": PLAIN_KEY}
+    db = TenantDb(_behavior_transport(row), MODEL)
+
+    assert (await db.get_behavior())["eleven_key"] == PLAIN_KEY
+
+
+async def test_behavior_bad_ciphertext_fails_open(caplog):
+    """Poškodená šifra = žiadne hlasovky, ale tenant beží ďalej."""
+    row = {**BEHAVIOR_ROW, "eleven_key_enc": "toto:nie:je-sifra"}
+    db = TenantDb(_behavior_transport(row), MODEL, KEY)
+
+    out = await db.get_behavior()
+
+    assert out["eleven_key"] == ""
+    assert out["eleven_voice_id"] == "voice-123"  # zvyšok chovania platí ďalej
+    assert any("nedá dešifrovať" in r.getMessage() for r in caplog.records)
+
+
+async def test_behavior_wrong_key_does_not_fall_back_to_legacy():
+    """Keď má modelka `_enc`, starý čistý text sa už nepoužije.
+
+    Inak by sa zlým kľúčom dal ticho oživiť kľúč, ktorý klient v dashboarde
+    práve prepísal — a účtovalo by sa cudziemu účtu.
+    """
+    other = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+    row = {
+        **BEHAVIOR_ROW,
+        "eleven_key": "sk_stary_kluc",
+        "eleven_key_enc": encrypt(PLAIN_KEY, other),
+    }
+    db = TenantDb(_behavior_transport(row), MODEL, KEY)
+
+    assert (await db.get_behavior())["eleven_key"] == ""
+
+
+async def test_behavior_missing_row_stays_empty_dict():
+    """Modelka bez riadku `behavior` — seam nesmie vyrobiť poloprázdny dict."""
+    def handler(req):
+        return httpx.Response(200, json=[])
+    t = SupabaseTransport("https://x.supabase.co", "sk")
+    t._client = httpx.AsyncClient(transport=httpx.MockTransport(handler),
+                                  base_url="https://x.supabase.co/rest/v1")
+
+    assert await TenantDb(t, MODEL, KEY).get_behavior() == {}
+
+
+async def test_fanvue_behavior_shares_the_same_seam():
+    """`fvvoice.make()` číta ten istý `eleven_key` — cez TenantFanvueDb."""
+    from fanvue_tenant import TenantFanvueDb
+
+    row = {**BEHAVIOR_ROW, "eleven_key_enc": encrypt(PLAIN_KEY, KEY)}
+    db = TenantFanvueDb(_behavior_transport(row), MODEL, KEY)
+
+    out = await db.behavior()
+
+    assert out["eleven_key"] == PLAIN_KEY
+    assert "eleven_key_enc" not in out
+
+
 async def test_upload_voice_path_has_no_model_prefix():
     """Cestu stavia volajúci (schema == model_id), db.py ju nesmie prepisovať."""
     seen = []

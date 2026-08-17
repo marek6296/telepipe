@@ -180,7 +180,9 @@ class TenantRunner:
         from userbot import Reconciler, UserBot
 
         cfg, g = self._cfg, self._g
-        db = TenantDb(self._transport, cfg.model_id)
+        # Kľúč je globálny (env), nie tenantov — `TenantDb` ho potrebuje len na
+        # dešifrovanie `behavior.eleven_key_enc`, viď hlavičku `db.py`.
+        db = TenantDb(self._transport, cfg.model_id, g.encryption_key)
         raw_llm = Llm(
             g.llm_key, g.model, g.summary_model, g.llm_base_url, g.reasoning_effort,
             g.vision_model, g.audio_model,

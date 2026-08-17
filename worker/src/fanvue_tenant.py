@@ -47,6 +47,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from crypto import decrypt, encrypt
+from db import unseal_eleven_key
 
 log = logging.getLogger(__name__)
 
@@ -179,9 +180,15 @@ class TenantFanvueDb:
 
         Fanvue má vlastné časy odpisovania, ale zóna je vlastnosť tej osoby,
         nie platformy: keď je v Los Angeles noc, je noc na oboch miestach.
+
+        Riadok ide cez ten istý ElevenLabs seam ako `TenantDb.get_behavior()` —
+        `fvvoice.make()` z neho číta `eleven_key` ako čistý text a hlasovky na
+        Fanvue nemajú dôvod fungovať inak než na Telegrame.
         """
         rows = await self._get(BEHAVIOR, {"model_id": self._mine, "select": "*"})
-        return rows[0] if rows else {}
+        if not rows:
+            return {}
+        return unseal_eleven_key(rows[0], self._key, self.model_id)
 
     async def linked_tg_ids(self) -> set:
         """Telegram id, ktoré už patria nejakému fanúšikovi. Jeden človek
