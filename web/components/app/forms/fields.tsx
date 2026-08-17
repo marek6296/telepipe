@@ -168,7 +168,7 @@ export function NumberField({
             if (Number.isFinite(parsed)) set(name, clamp(parsed, min, max));
           }}
           onBlur={flush}
-          className={cn("glass-input", suffix && "pr-16")}
+          className={cn("glass-input", suffix && "pr-16!")}
         />
         {suffix && (
           <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[12px] text-white/30">
@@ -321,7 +321,7 @@ export function SelectField({
           set(name, event.target.value);
           flush();
         }}
-        className="glass-input cursor-pointer appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 fill=%22none%22 stroke=%22%23d4af37%22 stroke-width=%222%22><path d=%22M2 4l4 4 4-4%22/></svg>')] bg-[length:12px] bg-[right_1rem_center] bg-no-repeat pr-10"
+        className="glass-input cursor-pointer appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 fill=%22none%22 stroke=%22%23d4af37%22 stroke-width=%222%22><path d=%22M2 4l4 4 4-4%22/></svg>')] bg-[length:12px] bg-[right_1rem_center] bg-no-repeat pr-10!"
       >
         {options.map((option) => (
           <option key={option.value} value={option.value} className="bg-[#0d0d0d]">

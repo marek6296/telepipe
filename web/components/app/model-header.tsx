@@ -83,7 +83,7 @@ export function ModelHeader({
                 maxLength={60}
                 autoFocus
                 aria-label="Model name"
-                className="glass-input h-11 max-w-xs !py-2 text-[20px] font-semibold"
+                className="glass-input h-11 max-w-xs py-2! text-[20px] font-semibold"
               />
               <button
                 type="button"
