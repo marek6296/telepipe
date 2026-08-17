@@ -148,3 +148,33 @@ $$;
 
 revoke execute on function clear_eleven_key(uuid) from public, anon;
 grant execute on function clear_eleven_key(uuid) to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- (e) has_eleven_key — „mám pripojený účet?" bez toho, aby kľúč opustil DB
+-- ---------------------------------------------------------------------------
+--
+-- Dashboard musí vedieť, či má modelka kľúč (inak nemá čo ponúkať výber hlasu),
+-- ale `select` na tie stĺpce nedostane ani majiteľ. Von preto ide jediný bit.
+-- Fallback na zastaraný `eleven_key` je tu zámerne: kým beží backfill a stará
+-- cesta, „kľúč mám" je pravda aj vtedy, keď je len v čistom texte.
+
+create or replace function has_eleven_key(p_model uuid)
+returns boolean language plpgsql stable security definer
+set search_path = public, pg_temp as $$
+declare v_has boolean;
+begin
+  if not exists (
+    select 1 from models m where m.id = p_model and m.account_id = (select auth.uid())
+  ) then
+    raise exception 'forbidden' using errcode = '42501';
+  end if;
+
+  select b.eleven_key_enc <> '' or b.eleven_key <> '' into v_has
+  from behavior b where b.model_id = p_model;
+
+  return coalesce(v_has, false);
+end;
+$$;
+
+revoke execute on function has_eleven_key(uuid) from public, anon;
+grant execute on function has_eleven_key(uuid) to authenticated;
