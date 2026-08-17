@@ -16,10 +16,25 @@ Rovnaký nápad ako pri Fanvue tokenoch (`fanvue_tenant.py`): portované moduly
 `behavior["eleven_key"]` ako čistý text a nesmú sa kvôli šifrovaniu meniť.
 Dešifruje sa preto presne na hranici čítania — v `get_behavior()`. Von ide
 `eleven_key`, `eleven_key_enc` sa do výsledku nedostane vôbec.
+
+KDE TEN KĽÚČ ODTERAZ JE (migrácia 017)
+--------------------------------------
+Na ÚČTE (`accounts.eleven_key_enc`), nie na modelke. Účet ElevenLabs je jeden
+a fakturácia je jedna, takže ho majiteľ pripája raz v nastaveniach účtu; na
+karte modelky sa vyberá už len hlas. `behavior.eleven_key_enc` a zastaraný
+čistý text `behavior.eleven_key` ostávajú ako FALLBACK — vďaka tomu prežije
+tento worker aj databázu, v ktorej presun ešte nebežal.
+
+Kľúč účtu sa NEČÍTA pri každej odpovedi. `get_behavior()` beží pri každej
+správe; ďalší dotaz do DB na hodnotu, ktorá sa mení raz za mesiace, by bol
+čistá réžia. Drží ho `AccountKeyCache` s krátkym TTL (5 min): pripojenie
+alebo prekľúčovanie v dashboarde sa prejaví do piatich minút a bez reštartu
+tenanta — rovnaký sľub, aký má dozor nad Fanvue vypínačom.
 """
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -45,6 +60,12 @@ JUDGE_LOG = "/judge_log"
 BEHAVIOR = "/behavior"
 VOICE_CLIPS = "/voice_clips"
 VOICE_JOBS = "/voice_jobs"
+ACCOUNTS = "/accounts"
+
+# Ako dlho platí raz načítaný kľúč účtu. Päť minút je kompromis: v dashboarde
+# to pôsobí okamžite (kým si človek otvorí kartu hlasu a klikne, je to vonku),
+# a pri stovke tenantov je to dvadsať dotazov za hodinu, nie na každú správu.
+ACCOUNT_KEY_TTL_S = 300.0
 
 # Vyrobené hlasovky si necháme. Dnes preto, aby si ich majiteľ vedel v dashboarde
 # vypočuť, a raz preto, že z nich bude zásoba, z ktorej sa dá siahnuť po
@@ -66,35 +87,49 @@ def _ts(value: Optional[str]) -> Optional[datetime]:
 
 
 def unseal_eleven_key(
-    row: Dict[str, Any], encryption_key: str, model_id: str = ""
+    row: Dict[str, Any],
+    encryption_key: str,
+    model_id: str = "",
+    account_sealed: str = "",
 ) -> Dict[str, Any]:
     """Riadok `behavior` s ElevenLabs kľúčom v čistom texte.
 
-    Vstup je surový riadok z DB (`eleven_key_enc` + zastaraný `eleven_key`),
-    výstup je to isté, len s jediným kľúčom, ktorý zvyšok workera pozná —
-    `eleven_key`. `eleven_key_enc` sa z výsledku VŽDY odstráni, aj keď sa
-    nepodarilo dešifrovať: šifrovaný text nie je použiteľná hodnota a nikto ho
-    nemá omylom poslať do ElevenLabs ako kľúč.
+    Vstup je surový riadok z DB (`eleven_key_enc` + zastaraný `eleven_key`) plus
+    šifrovaný kľúč ÚČTU; výstup je ten istý riadok, len s jediným kľúčom, ktorý
+    zvyšok workera pozná — `eleven_key`. `eleven_key_enc` sa z výsledku VŽDY
+    odstráni, aj keď sa nepodarilo dešifrovať: šifrovaný text nie je použiteľná
+    hodnota a nikto ho nemá omylom poslať do ElevenLabs ako kľúč.
 
     Poradie zdrojov:
-      1. `eleven_key_enc` (a máme čím dešifrovať) — nová cesta, píše ju
-         `set_eleven_key()` z dashboardu;
-      2. inak `eleven_key` — čistý text z jednomodelkovej éry (Simona), platí
-         kým ho backfill nenahradí šifrovaným dvojníkom.
+      1. `account_sealed` (`accounts.eleven_key_enc`, migrácia 017) — kľúč
+         pripojený v nastaveniach účtu, platí pre všetky jeho modelky;
+      2. `eleven_key_enc` na modelke — cesta z 014, dnes už len fallback pre
+         databázu, v ktorej presun na účet ešte nebežal;
+      3. `eleven_key` — čistý text z jednomodelkovej éry (Simona).
+
+    PREČO ÚČET VYHRÁVA A NIE MODELKA. Keby vyhrávala modelka, prepojenie
+    v dashboarde by u Simony a Mio nespravilo nič (obe majú starú per-model
+    hodnotu z 014) a Marek by hľadal, prečo prekľúčovanie nezabralo. Účet je
+    to, čo dnes UI spravuje; per-model stĺpce sú pozostatok, nie override.
 
     Fail-open: pokazená šifra alebo zlý kľúč znamená prázdny `eleven_key`, teda
     „hlasovky dnes nie sú" — nie pád tenanta. Hlas je bonus, nie podmienka
     (rovnaký sľub má hlavička `eleven.py`).
     """
     out = dict(row)
-    sealed = str(out.pop("eleven_key_enc", "") or "")
+    model_sealed = str(out.pop("eleven_key_enc", "") or "")
+
+    sealed, kde = (account_sealed, "účtu") if account_sealed else (model_sealed, "modelky")
     if not sealed:
+        # Ani jedna šifra — platí zastaraný čistý text (alebo nič).
         return out
+
     if not encryption_key:
         # Šifrovaný kľúč v DB a worker bez ENCRYPTION_KEY — to je chyba
         # nasadenia, nie dát. Fallback na starý stĺpec je aj tak lepší než nič.
         log.warning(
-            "model %s: eleven_key_enc je v DB, ale worker nemá ENCRYPTION_KEY", model_id
+            "model %s: eleven_key_enc (%s) je v DB, ale worker nemá ENCRYPTION_KEY",
+            model_id, kde,
         )
         return out
     from crypto import decrypt
@@ -103,24 +138,72 @@ def unseal_eleven_key(
         out["eleven_key"] = decrypt(sealed, encryption_key)
     except Exception:  # noqa: BLE001 - zlý kľúč nesmie zhodiť tenanta
         log.warning(
-            "model %s: eleven_key_enc sa nedá dešifrovať — hlasovky vypnuté", model_id
+            "model %s: eleven_key_enc (%s) sa nedá dešifrovať — hlasovky vypnuté",
+            model_id, kde,
         )
-        # Pád na starý čistý text by tu bol tichý downgrade: keď má modelka
-        # `_enc`, je to jej platný kľúč a poškodenú šifru treba vidieť v logu,
-        # nie obísť starou hodnotou, ktorú medzitým mohla zmeniť.
+        # Pád na nižší zdroj by tu bol tichý downgrade: keď šifra existuje, je
+        # to platný kľúč a poškodenú treba vidieť v logu, nie obísť staršou
+        # hodnotou, ktorú medzitým mohol majiteľ zmeniť.
         out["eleven_key"] = ""
     return out
 
 
+class AccountKeyCache:
+    """`accounts.eleven_key_enc` jedného účtu — načítaný raz, osviežený po TTL.
+
+    Šifra sa tu nedešifruje; von ide presne to, čo je v DB, a rozbaľuje to až
+    `unseal_eleven_key()`. Dôvod je nudný, ale praktický: cache tak nemusí
+    poznať `ENCRYPTION_KEY` a v pamäti procesu neleží čistý API kľúč dlhšie,
+    než trvá jedno zloženie odpovede.
+
+    Chyba siete NIE JE dôvod vypnúť hlasovky: vtedy platí posledná známa
+    hodnota a čas sa neposunie, takže ďalšie volanie to skúsi znova.
+    """
+
+    def __init__(self, transport, account_id: str, ttl_s: float = ACCOUNT_KEY_TTL_S) -> None:
+        self._t = transport
+        self.account_id = account_id or ""
+        self._ttl = ttl_s
+        self._sealed = ""
+        self._at = 0.0
+
+    async def sealed(self) -> str:
+        if not self.account_id or self._t is None:
+            return ""
+        now = time.monotonic()
+        if self._at and now - self._at < self._ttl:
+            return self._sealed
+        try:
+            rows = await self._t._get(
+                ACCOUNTS, {"id": f"eq.{self.account_id}", "select": "eleven_key_enc"}
+            )
+        except Exception as exc:  # noqa: BLE001 - výpadok DB nesmie zhodiť odpoveď
+            log.warning(
+                "účet %s: kľúč ElevenLabs sa nepodarilo načítať (%s) — platí posledný známy",
+                self.account_id, exc,
+            )
+            return self._sealed
+        self._sealed = str((rows[0].get("eleven_key_enc") if rows else "") or "")
+        self._at = now
+        return self._sealed
+
+
 class TenantDb:
     def __init__(
-        self, transport: SupabaseTransport, model_id: str, encryption_key: str = ""
+        self,
+        transport: SupabaseTransport,
+        model_id: str,
+        encryption_key: str = "",
+        account_id: str = "",
     ) -> None:
         self._t = transport
         self.model_id = model_id
         # Prázdny kľúč je legitímny stav (testy, staré volania): vtedy sa nič
         # nedešifruje a platí zastaraný `eleven_key`.
         self._key = encryption_key
+        # Prázdne `account_id` = cache mlčí a platí per-model kľúč. Staré
+        # volania (testy) tak fungujú presne ako pred 017.
+        self._account_key = AccountKeyCache(transport, account_id)
 
     @property
     def _mine(self) -> str:
@@ -161,11 +244,16 @@ class TenantDb:
         Jediné miesto, kde sa riadok `behavior` v tomto súbore číta — takže
         seam netreba opakovať nikde inde. `Behavior.from_row()` aj kontrolný
         bot dostanú presne to, čo čakali pred šifrovaním.
+
+        Kľúč účtu ide z cache, takže druhý dotaz do DB tu padne nanajvýš raz za
+        `ACCOUNT_KEY_TTL_S`, nie pri každej správe.
         """
         rows = await self._get(BEHAVIOR, {"model_id": self._mine, "select": "*"})
         if not rows:
             return {}
-        return unseal_eleven_key(rows[0], self._key, self.model_id)
+        return unseal_eleven_key(
+            rows[0], self._key, self.model_id, await self._account_key.sealed()
+        )
 
     async def set_behavior_field(self, field: str, value: Any) -> None:
         await self._patch(

@@ -48,7 +48,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from crypto import decrypt, encrypt
-from db import unseal_eleven_key
+from db import AccountKeyCache, unseal_eleven_key
 
 log = logging.getLogger(__name__)
 
@@ -76,10 +76,15 @@ EVENT_SELECT = "id,type:event_type,payload,created_at"
 class TenantFanvueDb:
     """Fanvue tabuľky jednej modelky. Rozhranie kopíruje `fanvue_api.FanvueDb`."""
 
-    def __init__(self, transport, model_id: str, encryption_key: str) -> None:
+    def __init__(
+        self, transport, model_id: str, encryption_key: str, account_id: str = ""
+    ) -> None:
         self._t = transport
         self.model_id = model_id
         self._key = encryption_key
+        # Vlastná cache (nie zdieľaná s `TenantDb`): jeden dotaz za päť minút
+        # navyše je lacnejší než previazať dve vrstvy, ktoré sa dnes nepoznajú.
+        self._account_key = AccountKeyCache(transport, account_id)
 
     @property
     def _mine(self) -> str:
@@ -193,7 +198,9 @@ class TenantFanvueDb:
         rows = await self._get(BEHAVIOR, {"model_id": self._mine, "select": "*"})
         if not rows:
             return {}
-        return unseal_eleven_key(rows[0], self._key, self.model_id)
+        return unseal_eleven_key(
+            rows[0], self._key, self.model_id, await self._account_key.sealed()
+        )
 
     async def linked_tg_ids(self) -> set:
         """Telegram id, ktoré už patria nejakému fanúšikovi. Jeden človek
@@ -511,7 +518,9 @@ class FanvueSupervisor:
         self._transport = transport
         self._llm = llm
         self._poll_s = poll_s
-        self._db = TenantFanvueDb(transport, cfg.model_id, g.encryption_key)
+        self._db = TenantFanvueDb(
+            transport, cfg.model_id, g.encryption_key, getattr(cfg, "account_id", "")
+        )
         self._api = None
         self.vault_task: Optional[asyncio.Task] = None
         self.agent_task: Optional[asyncio.Task] = None

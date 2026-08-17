@@ -382,6 +382,169 @@ async def test_fanvue_behavior_shares_the_same_seam():
     assert "eleven_key_enc" not in out
 
 
+# ---------------------------------------------------------------------------
+# ElevenLabs kľúč na ÚČTE (migrácia 017)
+#
+# Kľúč sa presunul z modelky na účet: jeden účet ElevenLabs, jedna faktúra,
+# jedno miesto, kde sa pripája. Per-model stĺpce ostali ako fallback, aby
+# nasadenie prežilo databázu, v ktorej presun ešte nebežal.
+# ---------------------------------------------------------------------------
+
+ACCOUNT = "acc-0001"
+ACCOUNT_KEY = "sk_eleven_kluc_uctu"
+
+
+def _account_transport(row, account_sealed, hits=None, fail_accounts=False):
+    """Transport, ktorý obslúži `/behavior` aj `/accounts`.
+
+    `hits` (list) zbiera cesty — testy cache podľa neho počítajú dotazy.
+    """
+    def handler(req):
+        path = str(req.url)
+        if hits is not None:
+            hits.append("accounts" if "/accounts" in path else "behavior")
+        if "/accounts" in path:
+            if fail_accounts:
+                return httpx.Response(500, json={"message": "nope"})
+            return httpx.Response(200, json=[{"eleven_key_enc": account_sealed}])
+        if "/behavior" in path:
+            return httpx.Response(200, json=[row])
+        return httpx.Response(200, json=[])
+
+    t = SupabaseTransport("https://x.supabase.co", "sk")
+    t._client = httpx.AsyncClient(transport=httpx.MockTransport(handler),
+                                  base_url="https://x.supabase.co/rest/v1")
+    return t
+
+
+async def test_account_key_wins_over_model_key():
+    """Kľúč účtu prebíja per-model hodnotu z 014.
+
+    Naopak by to znamenalo, že prepojenie v dashboarde u Simony a Mio nespraví
+    nič — obe majú starú per-model hodnotu — a nikto by nevedel prečo.
+    """
+    row = {**BEHAVIOR_ROW, "eleven_key_enc": encrypt(PLAIN_KEY, KEY)}
+    db = TenantDb(_account_transport(row, encrypt(ACCOUNT_KEY, KEY)), MODEL, KEY, ACCOUNT)
+
+    out = await db.get_behavior()
+
+    assert out["eleven_key"] == ACCOUNT_KEY
+    assert "eleven_key_enc" not in out
+
+
+async def test_model_key_still_works_without_account_key():
+    """Účet bez kľúča (presun ešte nebežal) — platí per-model hodnota."""
+    row = {**BEHAVIOR_ROW, "eleven_key_enc": encrypt(PLAIN_KEY, KEY)}
+    db = TenantDb(_account_transport(row, ""), MODEL, KEY, ACCOUNT)
+
+    assert (await db.get_behavior())["eleven_key"] == PLAIN_KEY
+
+
+async def test_account_key_falls_through_to_legacy_plaintext():
+    """Ani účet, ani `_enc` — zastaraný čistý text je stále platná cesta."""
+    row = {**BEHAVIOR_ROW, "eleven_key": PLAIN_KEY, "eleven_key_enc": ""}
+    db = TenantDb(_account_transport(row, ""), MODEL, KEY, ACCOUNT)
+
+    assert (await db.get_behavior())["eleven_key"] == PLAIN_KEY
+
+
+async def test_no_key_anywhere_is_silence_not_a_crash():
+    """Nikde žiadny kľúč = hlasovky ticho nie sú. Zvyšok chovania platí."""
+    db = TenantDb(_account_transport(dict(BEHAVIOR_ROW), ""), MODEL, KEY, ACCOUNT)
+
+    out = await db.get_behavior()
+
+    assert out["eleven_key"] == ""
+    assert out["eleven_voice_id"] == "voice-123"
+
+
+async def test_bad_account_ciphertext_fails_open(caplog):
+    """Poškodená šifra účtu = žiadne hlasovky, žiadny pád — a NEPADÁ na modelku.
+
+    Tichý downgrade na starší kľúč by znamenal účtovanie cudziemu účtu ElevenLabs
+    presne vtedy, keď si majiteľ myslí, že prekľúčoval.
+    """
+    row = {**BEHAVIOR_ROW, "eleven_key_enc": encrypt(PLAIN_KEY, KEY)}
+    db = TenantDb(_account_transport(row, "toto:nie:je-sifra"), MODEL, KEY, ACCOUNT)
+
+    out = await db.get_behavior()
+
+    assert out["eleven_key"] == ""
+    assert any("nedá dešifrovať" in r.getMessage() for r in caplog.records)
+
+
+async def test_account_key_is_read_once_not_per_reply():
+    """Kľúč účtu sa nesmie ťahať pri každej odpovedi — na to je cache."""
+    hits: list = []
+    row = dict(BEHAVIOR_ROW)
+    db = TenantDb(
+        _account_transport(row, encrypt(ACCOUNT_KEY, KEY), hits), MODEL, KEY, ACCOUNT
+    )
+
+    for _ in range(5):
+        assert (await db.get_behavior())["eleven_key"] == ACCOUNT_KEY
+
+    assert hits.count("behavior") == 5
+    assert hits.count("accounts") == 1
+
+
+async def test_account_key_refreshes_after_ttl():
+    """Prekľúčovanie v dashboarde sa prejaví bez reštartu tenanta."""
+    from db import AccountKeyCache
+
+    hits: list = []
+    row = dict(BEHAVIOR_ROW)
+    db = TenantDb(
+        _account_transport(row, encrypt(ACCOUNT_KEY, KEY), hits), MODEL, KEY, ACCOUNT
+    )
+    db._account_key = AccountKeyCache(db._t, ACCOUNT, ttl_s=0.0)
+
+    await db.get_behavior()
+    await db.get_behavior()
+
+    assert hits.count("accounts") == 2
+
+
+async def test_account_key_survives_a_database_blip(caplog):
+    """Výpadok pri čítaní účtu neznamená „kľúč zmizol"."""
+    from db import AccountKeyCache
+
+    cache = AccountKeyCache(
+        _account_transport(dict(BEHAVIOR_ROW), "", fail_accounts=True), ACCOUNT
+    )
+    cache._sealed = "posledny:znamy:kluc="
+    cache._at = 0.0  # TTL vypršané, takže sa naozaj skúsi načítať
+
+    assert await cache.sealed() == "posledny:znamy:kluc="
+    assert cache._at == 0.0  # čas sa neposunul → ďalšie volanie to skúsi znova
+    assert any("posledný známy" in r.getMessage() for r in caplog.records)
+
+
+async def test_account_without_id_never_touches_the_database():
+    """Bez `account_id` (staré volania, testy) sa `/accounts` vôbec nečíta."""
+    hits: list = []
+    db = TenantDb(_account_transport(dict(BEHAVIOR_ROW), "x", hits), MODEL, KEY)
+
+    await db.get_behavior()
+
+    assert hits == ["behavior"]
+
+
+async def test_fanvue_behavior_uses_the_account_key_too():
+    """Hlasovky na Fanvue nemajú dôvod fungovať inak než na Telegrame."""
+    from fanvue_tenant import TenantFanvueDb
+
+    row = {**BEHAVIOR_ROW, "eleven_key_enc": encrypt(PLAIN_KEY, KEY)}
+    db = TenantFanvueDb(
+        _account_transport(row, encrypt(ACCOUNT_KEY, KEY)), MODEL, KEY, ACCOUNT
+    )
+
+    out = await db.behavior()
+
+    assert out["eleven_key"] == ACCOUNT_KEY
+    assert "eleven_key_enc" not in out
+
+
 async def test_upload_voice_path_has_no_model_prefix():
     """Cestu stavia volajúci (schema == model_id), db.py ju nesmie prepisovať."""
     seen = []

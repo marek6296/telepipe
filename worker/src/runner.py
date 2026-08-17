@@ -188,8 +188,12 @@ class TenantRunner:
 
         cfg, g = self._cfg, self._g
         # Kľúč je globálny (env), nie tenantov — `TenantDb` ho potrebuje len na
-        # dešifrovanie `behavior.eleven_key_enc`, viď hlavičku `db.py`.
-        db = TenantDb(self._transport, cfg.model_id, g.encryption_key)
+        # dešifrovanie ElevenLabs kľúča, viď hlavičku `db.py`. `account_id` je
+        # to, čím si ten kľúč nájde: od migrácie 017 sedí na účte a `TenantDb`
+        # ho drží v cache s krátkym TTL, nie v `TenantConfig` — inak by sa
+        # prekľúčovanie v dashboarde prejavilo až reštartom modelky, a reštart
+        # znamená odpojenie Telethon session.
+        db = TenantDb(self._transport, cfg.model_id, g.encryption_key, cfg.account_id)
         raw_llm = Llm(
             g.llm_key, g.model, g.summary_model, g.llm_base_url, g.reasoning_effort,
             g.vision_model, g.audio_model,
