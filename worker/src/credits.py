@@ -16,6 +16,10 @@ OUT_OF_CREDITS_MSG = (
     "Out of credits — replies are paused. Top up your balance to resume."
 )
 
+# Chýbajúci cenník je konfiguračná chyba, nie udalosť — warning stačí raz za
+# proces a slug, inak by log zaplavila každá jedna odpoveď každého tenanta.
+_MISSING_PRICE_WARNED: set = set()
+
 
 class OutOfCredits(RuntimeError):
     pass
@@ -59,7 +63,11 @@ class MeteredLlm:
             atlas = i / 1e6 * float(price["input_usd_per_mtok"]) \
                   + o / 1e6 * float(price["output_usd_per_mtok"])
         else:
-            log.warning("Chýba cenník pre %s — fallback %.2f/Mtok", self._slug, self._fallback)
+            if self._slug in _MISSING_PRICE_WARNED:
+                log.debug("Chýba cenník pre %s — fallback %.2f/Mtok", self._slug, self._fallback)
+            else:
+                _MISSING_PRICE_WARNED.add(self._slug)
+                log.warning("Chýba cenník pre %s — fallback %.2f/Mtok", self._slug, self._fallback)
             atlas = (i + o) / 1e6 * self._fallback
         charged = atlas * float(price.get("multiplier", 2.0))
         try:

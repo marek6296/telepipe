@@ -153,5 +153,37 @@ command, restart-on-failure).
 4. Railway's replica identifier (`RAILWAY_REPLICA_ID`) is picked up
    automatically as the lease owner name; no extra config required.
 
+### ⚠️ Before activating any tenant: seed the `pricing` table
+
+Billing reads per-model token prices from `pricing`. The table ships with a
+single `_default` row that carries the multiplier only (`2.0`) and **no real
+prices**, so every call for a model that is not in the table is billed with
+the conservative fallback `FALLBACK_PRICE_PER_MTOK × multiplier` (default
+`5.00 USD/Mtok × 2`) — usually far more than the model actually costs. The
+worker logs `Chýba cenník pre <slug>` once per model slug per process when
+this happens.
+
+Insert the real Atlas Cloud prices for every model slug in use (the slugs
+from `LLM_MODEL`, `LLM_SUMMARY_MODEL`, `LLM_VISION_MODEL`, `LLM_AUDIO_MODEL`)
+before flipping any tenant to `status='active'`:
+
+```sql
+-- Replace every <FILL_IN> with the current Atlas Cloud price in USD per
+-- million tokens for that model. Do NOT guess — copy them from the provider.
+insert into pricing (model_slug, input_usd_per_mtok, output_usd_per_mtok, multiplier)
+values
+  ('xai/grok-4.5',                        <FILL_IN>, <FILL_IN>, 2.0),
+  ('qwen/qwen3-vl-235b-a22b-thinking',    <FILL_IN>, <FILL_IN>, 2.0),
+  ('google/gemini-3.5-flash',             <FILL_IN>, <FILL_IN>, 2.0)
+on conflict (model_slug) do update
+  set input_usd_per_mtok  = excluded.input_usd_per_mtok,
+      output_usd_per_mtok = excluded.output_usd_per_mtok,
+      multiplier          = excluded.multiplier;
+```
+
+`multiplier` is the client-facing markup (billed = atlas cost × multiplier);
+`_default` keeps `2.0` and is used for any slug not listed. Prices are cached
+in the worker for 5 minutes, so updates take effect without a redeploy.
+
 No real keys are committed anywhere in this repo — `.env` is gitignored,
 only `worker/.env.example` (placeholders) is tracked.

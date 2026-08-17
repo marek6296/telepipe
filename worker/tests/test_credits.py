@@ -1,5 +1,8 @@
 """Kreditový wrapper — check pred volaním, zápis po ňom, pauza pri nule."""
+import logging
+
 import pytest
+import credits
 from credits import MeteredLlm, OutOfCredits
 
 class FakeLlm:
@@ -90,6 +93,19 @@ async def test_missing_pricing_uses_fallback():
     _, _, _, atlas, charged = reg.usage_rows[0]
     assert atlas == pytest.approx(1500 / 1e6 * 5.0)
     assert charged == pytest.approx(2 * atlas)  # multiplier default 2 pri fallbacku
+
+async def test_missing_pricing_warns_once_per_slug(caplog):
+    """Chýbajúci cenník je konfiguračná chyba — warning raz, nie pri každej správe."""
+    credits._MISSING_PRICE_WARNED.discard("bez-ceny")
+    reg = FakeRegistry()
+    async def no_price(slug): return {}
+    reg.pricing = no_price
+    m = MeteredLlm(FakeLlm(), reg, model_id="m-1", model_slug="bez-ceny")
+    with caplog.at_level(logging.WARNING, logger="credits"):
+        await m.reply("sys", [])
+        await m.reply("sys", [])
+    assert len([r for r in caplog.records if "Chýba cenník" in r.getMessage()]) == 1
+
 
 async def test_record_usage_failure_does_not_break_reply():
     reg = FakeRegistry(); llm = FakeLlm()
