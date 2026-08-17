@@ -240,5 +240,5 @@ async def test_upload_voice_path_has_no_model_prefix():
     seen = []
     db = TenantDb(_capture(seen), MODEL)
     url = await db.upload_voice("abc/x.ogg", b"zvuk")
-    assert seen[-1]["url"].endswith("/storage/v1/object/model-voices/abc/x.ogg")
-    assert url == "https://x.supabase.co/storage/v1/object/public/model-voices/abc/x.ogg"
+    assert seen[-1]["url"].endswith("/storage/v1/object/voices/abc/x.ogg")
+    assert url == "https://x.supabase.co/storage/v1/object/public/voices/abc/x.ogg"

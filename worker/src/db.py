@@ -41,7 +41,9 @@ VOICE_JOBS = "/voice_jobs"
 # Vyrobené hlasovky si necháme. Dnes preto, aby si ich majiteľ vedel v dashboarde
 # vypočuť, a raz preto, že z nich bude zásoba, z ktorej sa dá siahnuť po
 # hotovej, keď sadne do kontextu.
-VOICE_BUCKET = "model-voices"
+# Názov musí sedieť s bucketom v Supabase Storage (`voices`, public read) —
+# v predlohe sa volal `model-voices`, v Telepipe je to `voices`.
+VOICE_BUCKET = "voices"
 
 
 def _ts(value: Optional[str]) -> Optional[datetime]:
