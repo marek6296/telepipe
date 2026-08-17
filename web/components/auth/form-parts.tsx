@@ -82,7 +82,7 @@ export function PasswordField({
           placeholder={placeholder}
           autoComplete={autoComplete}
           required
-          className="glass-input pr-12"
+          className="glass-input pr-12!"
         />
         <button
           type="button"
