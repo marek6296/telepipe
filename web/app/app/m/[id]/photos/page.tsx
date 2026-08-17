@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { PhotoLibrary } from "@/components/app/photos/photo-library";
-import { requireModel } from "@/lib/models";
+import { requireModelTab } from "@/lib/models";
 import { PHOTO_COLUMNS, type PhotoRow } from "@/lib/photos";
 import { createClient } from "@/lib/supabase/server";
 
@@ -11,7 +11,7 @@ export const metadata: Metadata = {
 
 export default async function PhotosPage({ params }: PageProps<"/app/m/[id]/photos">) {
   const { id } = await params;
-  const model = await requireModel(id);
+  const model = await requireModelTab(id, "photos");
 
   const supabase = await createClient();
   const { data } = await supabase

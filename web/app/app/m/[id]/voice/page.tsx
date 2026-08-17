@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { VoiceForm, type VoiceRow } from "@/components/app/voice-form";
 import { Callout, PageHeader } from "@/components/app/ui";
 import { loadVoiceCatalog } from "@/lib/eleven";
-import { getAccount, requireModel } from "@/lib/models";
+import { getAccount, requireModelTab } from "@/lib/models";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
@@ -23,7 +23,7 @@ const VOICE_COLUMNS =
 
 export default async function VoicePage({ params }: PageProps<"/app/m/[id]/voice">) {
   const { id } = await params;
-  const model = await requireModel(id);
+  const model = await requireModelTab(id, "voice");
   const account = await getAccount();
 
   const supabase = await createClient();

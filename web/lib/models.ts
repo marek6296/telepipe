@@ -3,6 +3,7 @@ import type { User } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/server";
 import { toNumber } from "@/lib/format";
+import { modelTypeHasTab, type ModelTabSlug } from "@/lib/model-types";
 
 /**
  * Serverové čítanie klientských dát. VŽDY user-scoped klientom — RLS z migrácie
@@ -14,7 +15,7 @@ import { toNumber } from "@/lib/format";
  */
 
 export const MODEL_COLUMNS =
-  "id, account_id, name, status, status_reason, claimed_by, heartbeat_at, " +
+  "id, account_id, name, model_type, status, status_reason, claimed_by, heartbeat_at, " +
   "tg_api_id, tg_api_hash, owner_chat_id, owner_as_client, voice_only_ids, " +
   "created_at, updated_at";
 
@@ -22,6 +23,8 @@ export type ModelRow = {
   id: string;
   account_id: string;
   name: string;
+  /** Typ agenta (migrácia 018). Význam a mapa na taby: `lib/model-types.ts`. */
+  model_type: string;
   status: string;
   status_reason: string;
   claimed_by: string | null;
@@ -98,6 +101,66 @@ export async function requireModel(id: string): Promise<ModelRow> {
   const model = await getModel(id);
   if (!model) notFound();
   return model;
+}
+
+/**
+ * `requireModel` + kontrola, že tá karta k typu agenta vôbec patrí.
+ *
+ * Tab bar karty, ktoré typ nemá, nevykreslí — ale ručne zadaná URL by ich
+ * otvorila a mapa `MODEL_TYPE_TABS` by bola len kozmetika. 404 je správna
+ * odpoveď: tá stránka pre túto modelku neexistuje.
+ */
+export async function requireModelTab(
+  id: string,
+  slug: ModelTabSlug,
+): Promise<ModelRow> {
+  const model = await requireModel(id);
+  if (!modelTypeHasTab(model.model_type, slug)) notFound();
+  return model;
+}
+
+/* --------------------------------------------------------------------------
+   settings.ai_paused — „beží, ale mlčí"
+--------------------------------------------------------------------------- */
+/**
+ * `settings.ai_paused` je globálna pauza odpovedania. Nastavuje ju worker sám
+ * pri `PeerFloodError` (`userbot.py`) a Telegram control bot — teda dve miesta
+ * MIMO dashboardu. Bez tohto čítania klient pozerá na zelené „Active" a diví
+ * sa, prečo modelka nikomu neodpisuje.
+ *
+ * ZÁMERNE ODDELENÉ OD `models.status`: status hovorí, či agent vôbec beží
+ * (power button), `ai_paused` hovorí, či beží a mlčí. Zlúčiť ich by znamenalo,
+ * že „Resume replies" po flood warningu reštartne Telethon session — presne to,
+ * čo sa po flood warningu robiť nemá.
+ */
+export async function getPausedMap(
+  modelIds: string[],
+): Promise<Record<string, boolean>> {
+  const paused: Record<string, boolean> = {};
+  for (const id of modelIds) paused[id] = false;
+  if (modelIds.length === 0) return paused;
+
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("settings")
+    .select("model_id, ai_paused")
+    .in("model_id", modelIds);
+
+  for (const row of data ?? []) {
+    paused[row.model_id as string] = Boolean(row.ai_paused);
+  }
+  return paused;
+}
+
+/** Ako `getPausedMap`, ale pre jednu modelku. Chýbajúci riadok = nie je pauza. */
+export async function isAiPaused(modelId: string): Promise<boolean> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("settings")
+    .select("ai_paused")
+    .eq("model_id", modelId)
+    .maybeSingle();
+  return Boolean(data?.ai_paused);
 }
 
 /** Polnoc UTC — spotreba „za dnes" musí byť rovnaká pre server aj klienta. */

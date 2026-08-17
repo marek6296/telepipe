@@ -12,7 +12,7 @@ import {
 import { ModelCard } from "@/components/app/model-card";
 import { Card, CardHeader, EmptyState, PageHeader, StatTile } from "@/components/app/ui";
 import { compactNumber, isoDaysAgo, toNumber, usdPrecise } from "@/lib/format";
-import { getModelStats, listModels, type ModelRow } from "@/lib/models";
+import { getModelStats, getPausedMap, listModels, type ModelRow } from "@/lib/models";
 import { getConnectedMap } from "@/lib/telegram";
 import { createClient } from "@/lib/supabase/server";
 
@@ -25,9 +25,10 @@ const WINDOW = 7;
 
 export default async function DashboardPage() {
   const models = await listModels();
-  const [stats, connected, events] = await Promise.all([
+  const [stats, connected, paused, events] = await Promise.all([
     getModelStats(models.map((model) => model.id)),
     getConnectedMap(models),
+    getPausedMap(models.map((model) => model.id)),
     recentUsage(WINDOW * 2),
   ]);
 
@@ -133,6 +134,7 @@ export default async function DashboardPage() {
                   model={model}
                   stats={stats[model.id] ?? { chats: 0, converted: 0, spentToday: 0 }}
                   connected={connected[model.id] ?? false}
+                  aiPaused={paused[model.id] ?? false}
                 />
               ))}
             </div>

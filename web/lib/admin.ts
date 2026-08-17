@@ -66,6 +66,8 @@ export type AdminModel = {
   accountId: string;
   accountEmail: string;
   name: string;
+  /** Typ agenta (migrácia 018) — štítok v tabuľke, nie filter. */
+  modelType: string;
   status: string;
   statusReason: string;
   claimedBy: string | null;
@@ -127,6 +129,7 @@ type ModelRowRaw = {
   account_id: string;
   account_email: string | null;
   name: string | null;
+  model_type: string | null;
   status: string;
   status_reason: string | null;
   claimed_by: string | null;
@@ -142,6 +145,7 @@ export async function listAdminModels(): Promise<AdminModel[]> {
     accountId: row.account_id,
     accountEmail: row.account_email ?? "",
     name: row.name ?? "",
+    modelType: row.model_type ?? "persona",
     status: row.status,
     statusReason: row.status_reason ?? "",
     claimedBy: row.claimed_by,

@@ -2,8 +2,10 @@ import Link from "next/link";
 import { Images, MessageSquare, Send, Settings2 } from "lucide-react";
 
 import { ModelPowerButton } from "@/components/app/model-power-button";
+import { RepliesPausedChip } from "@/components/app/replies-paused-chip";
 import { Callout, StatusBadge } from "@/components/app/ui";
 import { compactNumber, usdPrecise } from "@/lib/format";
+import { modelTypeInfo } from "@/lib/model-types";
 import type { ModelRow, ModelStats } from "@/lib/models";
 import { asStatus, statusHint, statusReasonText } from "@/lib/status";
 
@@ -12,13 +14,17 @@ export function ModelCard({
   model,
   stats,
   connected,
+  aiPaused = false,
 }: {
   model: ModelRow;
   stats: ModelStats;
   connected: boolean;
+  /** `settings.ai_paused` — beží, ale mlčí. Viď `RepliesPausedChip`. */
+  aiPaused?: boolean;
 }) {
   const status = asStatus(model.status);
   const reason = statusReasonText(model.status_reason);
+  const type = modelTypeInfo(model.model_type);
 
   return (
     <div className="app-card p-5 transition-colors hover:border-[var(--app-border-strong)]">
@@ -33,10 +39,13 @@ export function ModelCard({
           <div className="mt-1.5 flex items-center gap-2.5">
             <StatusBadge status={model.status} />
             <span className="text-[var(--app-text-4)]">·</span>
+            <span className="text-[12px] text-[var(--app-text-4)]">{type.shortLabel}</span>
+            <span className="text-[var(--app-text-4)]">·</span>
             <span className="truncate text-[12px] text-[var(--app-text-3)]">
               {connected ? statusHint(status) : "Telegram not connected yet."}
             </span>
           </div>
+          {aiPaused && <RepliesPausedChip modelId={model.id} className="mt-2.5" />}
         </div>
 
         <ModelPowerButton

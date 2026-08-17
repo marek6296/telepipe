@@ -7,25 +7,35 @@ import { Check, ChevronLeft, Loader2, Pencil, Trash2, X } from "lucide-react";
 
 import { deleteModelAction, renameModelAction } from "@/app/app/actions";
 import { ModelPowerButton } from "@/components/app/model-power-button";
+import { RepliesPausedChip } from "@/components/app/replies-paused-chip";
 import { StatusBadge } from "@/components/app/ui";
+import { modelTypeInfo } from "@/lib/model-types";
 import { statusReasonText } from "@/lib/status";
 
 /**
  * Hlavička detailu modelky — meno sa dá premenovať priamo tu, vpravo je
  * prepínač stavu. Zmazanie je za potvrdením (kaskáda zmaže aj konverzácie).
+ *
+ * Vedľa stavu žijú dva nezávislé signály: typ agenta (tichý štítok, nemenný) a
+ * „Replies paused" (`settings.ai_paused`) — viď `RepliesPausedChip`, prečo to
+ * nie je to isté, čo prepínač stavu.
  */
 export function ModelHeader({
   modelId,
   name,
+  modelType,
   status,
   statusReason,
   connected,
+  aiPaused,
 }: {
   modelId: string;
   name: string;
+  modelType: string;
   status: string;
   statusReason: string;
   connected: boolean;
+  aiPaused: boolean;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -116,6 +126,10 @@ export function ModelHeader({
                 {name || "Untitled model"}
               </h1>
               <StatusBadge status={status} />
+              <span className="text-[12px] text-[var(--app-text-4)]">
+                {modelTypeInfo(modelType).shortLabel}
+              </span>
+              {aiPaused && <RepliesPausedChip modelId={modelId} withAction />}
               <button
                 type="button"
                 onClick={() => setEditing(true)}

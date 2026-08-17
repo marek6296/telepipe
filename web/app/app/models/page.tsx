@@ -4,7 +4,7 @@ import { Bot } from "lucide-react";
 import { AddModelDialog } from "@/components/app/add-model-dialog";
 import { ModelCard } from "@/components/app/model-card";
 import { EmptyState, PageHeader } from "@/components/app/ui";
-import { getModelStats, listModels } from "@/lib/models";
+import { getModelStats, getPausedMap, listModels } from "@/lib/models";
 import { getConnectedMap } from "@/lib/telegram";
 
 export const metadata: Metadata = {
@@ -13,9 +13,10 @@ export const metadata: Metadata = {
 
 export default async function ModelsPage() {
   const models = await listModels();
-  const [stats, connected] = await Promise.all([
+  const [stats, connected, paused] = await Promise.all([
     getModelStats(models.map((model) => model.id)),
     getConnectedMap(models),
+    getPausedMap(models.map((model) => model.id)),
   ]);
 
   return (
@@ -42,6 +43,7 @@ export default async function ModelsPage() {
               model={model}
               stats={stats[model.id] ?? { chats: 0, converted: 0, spentToday: 0 }}
               connected={connected[model.id] ?? false}
+              aiPaused={paused[model.id] ?? false}
             />
           ))}
         </div>

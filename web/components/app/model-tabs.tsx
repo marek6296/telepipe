@@ -10,33 +10,50 @@ import {
   Send,
   SlidersHorizontal,
   UserRound,
+  type LucideIcon,
 } from "lucide-react";
 
+import { MODEL_TYPE_TABS, asModelType, type ModelTabSlug } from "@/lib/model-types";
 import { cn } from "@/lib/utils";
 
-const TABS = [
-  { slug: "telegram", label: "Telegram", icon: Send },
-  { slug: "fanvue", label: "Fanvue", icon: Heart },
-  { slug: "persona", label: "Persona", icon: UserRound },
-  { slug: "behavior", label: "Behavior", icon: SlidersHorizontal },
-  { slug: "voice", label: "Voice", icon: AudioLines },
-  { slug: "photos", label: "Photos", icon: Images },
-  { slug: "chats", label: "Chats", icon: MessageSquare },
-];
+/**
+ * Vzhľad jednej karty. Ktoré karty modelka má, hovorí `MODEL_TYPE_TABS` —
+ * tu je len ich podoba. Rozdelené zámerne: pridať typ agenta má znamenať jeden
+ * riadok v `lib/model-types.ts`, nie hľadanie `if`-ov po komponentoch.
+ */
+const TAB_META: Record<ModelTabSlug, { label: string; icon: LucideIcon }> = {
+  telegram: { label: "Telegram", icon: Send },
+  fanvue: { label: "Fanvue", icon: Heart },
+  persona: { label: "Persona", icon: UserRound },
+  behavior: { label: "Behavior", icon: SlidersHorizontal },
+  voice: { label: "Voice", icon: AudioLines },
+  photos: { label: "Photos", icon: Images },
+  chats: { label: "Chats", icon: MessageSquare },
+};
 
 /** Podmenu jednej modelky — vodorovné taby, na mobile scrollovateľné. */
-export function ModelTabs({ modelId, needsSetup }: { modelId: string; needsSetup: boolean }) {
+export function ModelTabs({
+  modelId,
+  modelType,
+  needsSetup,
+}: {
+  modelId: string;
+  modelType: string;
+  needsSetup: boolean;
+}) {
   const pathname = usePathname();
+  const tabs = MODEL_TYPE_TABS[asModelType(modelType)];
 
   return (
     <nav className="-mx-1 mb-8 flex gap-1 overflow-x-auto border-b border-[var(--app-border)] pb-px">
-      {TABS.map((tab) => {
-        const href = `/app/m/${modelId}/${tab.slug}`;
+      {tabs.map((slug) => {
+        const meta = TAB_META[slug];
+        const href = `/app/m/${modelId}/${slug}`;
         const active = pathname === href || pathname.startsWith(`${href}/`);
-        const Icon = tab.icon;
+        const Icon = meta.icon;
         return (
           <Link
-            key={tab.slug}
+            key={slug}
             href={href}
             aria-current={active ? "page" : undefined}
             className={cn(
@@ -47,8 +64,8 @@ export function ModelTabs({ modelId, needsSetup }: { modelId: string; needsSetup
             )}
           >
             <Icon className="h-4 w-4" strokeWidth={1.75} />
-            {tab.label}
-            {tab.slug === "telegram" && needsSetup && (
+            {meta.label}
+            {slug === "telegram" && needsSetup && (
               <span
                 className="h-1.5 w-1.5 rounded-full bg-[var(--app-text-3)]"
                 title="Setup not finished"

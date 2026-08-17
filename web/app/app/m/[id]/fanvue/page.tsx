@@ -12,7 +12,7 @@ import {
   listFvFolders,
   listFvMedia,
 } from "@/lib/fanvue";
-import { requireModel } from "@/lib/models";
+import { requireModelTab } from "@/lib/models";
 
 export const metadata: Metadata = {
   title: "Fanvue",
@@ -27,6 +27,10 @@ export const metadata: Metadata = {
  * priečinky a médiá zapisuje tou istou cestou (migrácia 015).
  *
  * `?error=` sem posiela `/api/fanvue/callback`, keď prihlásenie neprejde.
+ *
+ * Fanvue je vec `persona` agenta — firemný ani osobný ho mať nebudú. Tab sa im
+ * nevykreslí (`MODEL_TYPE_TABS`), ale ručne zadaná URL musí skončiť rovnako,
+ * inak by tá mapa bola len kozmetika.
  */
 export default async function FanvuePage({
   params,
@@ -34,7 +38,7 @@ export default async function FanvuePage({
 }: PageProps<"/app/m/[id]/fanvue">) {
   const { id } = await params;
   const { error } = await searchParams;
-  const model = await requireModel(id);
+  const model = await requireModelTab(id, "fanvue");
 
   const fanvue = await getFanvueConnection(model.id);
   const [settings, folders, media, lastSync] = await Promise.all([

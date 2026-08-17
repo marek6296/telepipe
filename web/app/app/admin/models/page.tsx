@@ -7,6 +7,7 @@ import { Card, EmptyState, PageHeader, StatTile, StatusBadge } from "@/component
 import { listAdminModels, requireAdmin } from "@/lib/admin";
 import { shortId } from "@/lib/admin-ui";
 import { compactNumber, usdPrecise } from "@/lib/format";
+import { modelTypeInfo } from "@/lib/model-types";
 import { statusReasonText } from "@/lib/status";
 
 export const metadata: Metadata = {
@@ -46,11 +47,12 @@ export default async function AdminModelsPage() {
       ) : (
         <Card>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[58rem] text-left text-[13px]">
+            <table className="w-full min-w-[62rem] text-left text-[13px]">
               <thead>
                 <tr className="border-b border-[var(--app-border)] text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
                   <th className="px-5 py-2.5 font-medium">Model</th>
                   <th className="px-5 py-2.5 font-medium">Account</th>
+                  <th className="px-5 py-2.5 font-medium">Type</th>
                   <th className="px-5 py-2.5 font-medium">Status</th>
                   <th className="px-5 py-2.5 font-medium">Heartbeat</th>
                   <th className="px-5 py-2.5 font-medium">Worker</th>
@@ -76,6 +78,11 @@ export default async function AdminModelsPage() {
                       <td className="px-5 py-3">
                         <span className="truncate text-[var(--app-text-2)]" title={model.accountId}>
                           {model.accountEmail || "—"}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3">
+                        <span className="text-[12px] text-[var(--app-text-4)]">
+                          {modelTypeInfo(model.modelType).shortLabel}
                         </span>
                       </td>
                       <td className="px-5 py-3">
