@@ -29,7 +29,7 @@ export default async function ModelsPage() {
 
       {models.length === 0 ? (
         <EmptyState
-          icon={<Bot className="h-6 w-6" />}
+          icon={<Bot className="h-[18px] w-[18px]" strokeWidth={1.5} />}
           title="Your roster is empty"
           description="Add a model to get started. You will need her Telegram account and a phone that can receive the login code."
           action={<AddModelDialog label="Add your first model" />}

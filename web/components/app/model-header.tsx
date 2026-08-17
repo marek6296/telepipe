@@ -57,12 +57,12 @@ export function ModelHeader({
   };
 
   return (
-    <div className="mb-6">
+    <div className="mb-7">
       <Link
         href="/app/models"
-        className="inline-flex items-center gap-1 text-[12.5px] text-white/35 transition-colors hover:text-[var(--gold-light)]"
+        className="inline-flex items-center gap-1 text-[12.5px] text-[var(--app-text-3)] transition-colors hover:text-[var(--app-text)]"
       >
-        <ChevronLeft className="h-3.5 w-3.5" />
+        <ChevronLeft className="h-3.5 w-3.5" strokeWidth={1.75} />
         All models
       </Link>
 
@@ -83,19 +83,19 @@ export function ModelHeader({
                 maxLength={60}
                 autoFocus
                 aria-label="Model name"
-                className="glass-input h-11 max-w-xs py-2! text-[20px] font-semibold"
+                className="app-input h-10 max-w-xs text-[18px] font-medium"
               />
               <button
                 type="button"
                 onClick={save}
                 disabled={pending}
                 aria-label="Save name"
-                className="rounded-xl border border-[rgba(212,175,55,0.3)] bg-[rgba(212,175,55,0.08)] p-2.5 text-[var(--gold-light)]"
+                className="app-btn app-btn-ghost h-10 w-10 shrink-0"
               >
                 {pending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />
                 ) : (
-                  <Check className="h-4 w-4" />
+                  <Check className="h-4 w-4" strokeWidth={1.75} />
                 )}
               </button>
               <button
@@ -105,14 +105,14 @@ export function ModelHeader({
                   setEditing(false);
                 }}
                 aria-label="Cancel"
-                className="rounded-xl border border-white/[0.08] p-2.5 text-white/45"
+                className="app-btn app-btn-quiet h-10 w-10 shrink-0"
               >
-                <X className="h-4 w-4" />
+                <X className="h-4 w-4" strokeWidth={1.75} />
               </button>
             </div>
           ) : (
             <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-balance-tight text-[26px] font-semibold text-white sm:text-[30px]">
+              <h1 className="text-[24px] font-semibold tracking-[-0.02em] text-[var(--app-text)]">
                 {name || "Untitled model"}
               </h1>
               <StatusBadge status={status} />
@@ -120,15 +120,15 @@ export function ModelHeader({
                 type="button"
                 onClick={() => setEditing(true)}
                 aria-label="Rename model"
-                className="rounded-lg p-1.5 text-white/25 transition-colors hover:text-[var(--gold-light)]"
+                className="rounded-md p-1.5 text-[var(--app-text-4)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
               >
-                <Pencil className="h-3.5 w-3.5" />
+                <Pencil className="h-3.5 w-3.5" strokeWidth={1.75} />
               </button>
             </div>
           )}
 
-          {reason && <p className="mt-2 max-w-xl text-[12.5px] text-[#ffb3a7]">{reason}</p>}
-          {error && <p className="mt-2 text-[12.5px] text-[#ffb3a7]">{error}</p>}
+          {reason && <p className="mt-2 max-w-xl text-[12.5px] text-[#fca5a5]">{reason}</p>}
+          {error && <p className="mt-2 text-[12.5px] text-[#fca5a5]">{error}</p>}
         </div>
 
         <div className="flex items-center gap-2">
@@ -142,9 +142,9 @@ export function ModelHeader({
             type="button"
             onClick={() => setConfirmDelete(true)}
             aria-label="Delete model"
-            className="rounded-full border border-white/[0.08] p-2.5 text-white/30 transition-colors hover:border-[#7a2b23] hover:text-[#ffb3a7]"
+            className="app-btn app-btn-quiet h-10 w-10 shrink-0 hover:text-[#fca5a5]"
           >
-            <Trash2 className="h-4 w-4" />
+            <Trash2 className="h-4 w-4" strokeWidth={1.75} />
           </button>
         </div>
       </div>
@@ -152,14 +152,14 @@ export function ModelHeader({
       {confirmDelete && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center p-4">
           <div
-            className="absolute inset-0 bg-black/75 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/70"
             onClick={() => setConfirmDelete(false)}
           />
-          <div className="glass-panel relative w-full max-w-md rounded-3xl p-7">
-            <h2 className="text-[18px] font-semibold text-white">
+          <div className="app-panel relative w-full max-w-md p-6">
+            <h2 className="text-[16px] font-medium text-[var(--app-text)]">
               Delete {name || "this model"}?
             </h2>
-            <p className="mt-2 text-[13px] leading-relaxed text-white/50">
+            <p className="mt-2 text-[13px] leading-relaxed text-[var(--app-text-3)]">
               Her persona, photos, conversations and memory are deleted with her. This
               cannot be undone.
             </p>
@@ -167,7 +167,7 @@ export function ModelHeader({
               <button
                 type="button"
                 onClick={() => setConfirmDelete(false)}
-                className="btn-modern-dark h-10 px-5 text-[13px]"
+                className="app-btn app-btn-ghost h-9 px-4"
               >
                 Keep her
               </button>
@@ -175,9 +175,9 @@ export function ModelHeader({
                 type="button"
                 onClick={remove}
                 disabled={pending}
-                className="inline-flex h-10 items-center gap-2 rounded-full border border-[#7a2b23] bg-[#3a1512] px-5 text-[13px] font-semibold text-[#ff9b8f] transition-colors hover:bg-[#4a1a16]"
+                className="app-btn app-btn-danger h-9 px-4"
               >
-                {pending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                {pending && <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />}
                 Delete for good
               </button>
             </div>

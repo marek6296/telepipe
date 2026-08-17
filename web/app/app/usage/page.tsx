@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { BarChart3, Wallet } from "lucide-react";
+import { BarChart3 } from "lucide-react";
 
 import { RelativeTime } from "@/components/app/relative-time";
 import { UsageChart } from "@/components/app/usage-chart";
@@ -66,7 +66,7 @@ export default async function UsagePage({ searchParams }: PageProps<"/app/usage"
 
       {/* --- Filter modelky --------------------------------------------------- */}
       {models.length > 1 && (
-        <div className="mb-4 flex flex-wrap gap-1.5">
+        <div className="mb-6 flex flex-wrap gap-1.5">
           <FilterChip href="/app/usage" active={!selected}>
             All models
           </FilterChip>
@@ -82,32 +82,26 @@ export default async function UsagePage({ searchParams }: PageProps<"/app/usage"
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatTile
-          label="Balance"
-          value={usd(balance)}
-          hint="credit left"
-          icon={<Wallet className="h-3.5 w-3.5 text-[var(--gold)]/70" />}
-        />
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatTile label="Balance" value={usd(balance)} hint="credit left" />
         <StatTile label="Today" value={usdPrecise(total1)} hint="since midnight UTC" />
         <StatTile label="Last 7 days" value={usdPrecise(total7)} />
         <StatTile label="Last 30 days" value={usdPrecise(total30)} />
       </div>
 
       {events.length === 0 ? (
-        <div className="mt-5">
+        <div className="mt-6">
           <EmptyState
-            icon={<BarChart3 className="h-6 w-6" />}
+            icon={<BarChart3 className="h-[18px] w-[18px]" strokeWidth={1.5} />}
             title="Nothing spent yet"
             description="Once your agents start replying, every reply, summary and voice note shows up here with what it cost you."
           />
         </div>
       ) : (
         <>
-          <div className="mt-5">
+          <div className="mt-4">
             <Card>
               <CardHeader
-                icon={<BarChart3 className="h-4 w-4" />}
                 title="Daily spend"
                 description={`Last ${WINDOW_DAYS} days${
                   selected ? ` · ${modelName.get(selected) ?? "model"}` : ""
@@ -127,23 +121,23 @@ export default async function UsagePage({ searchParams }: PageProps<"/app/usage"
                 {kinds.map((kind) => (
                   <li key={kind.kind}>
                     <div className="flex items-baseline justify-between gap-3">
-                      <span className="text-[13px] font-medium text-white/80">
+                      <span className="text-[13px] text-[var(--app-text-2)]">
                         {KIND_LABEL[kind.kind] ?? kind.kind}
                       </span>
-                      <span className="tabular-nums text-[13px] font-semibold text-[var(--gold-light)]">
+                      <span className="tabular-nums text-[13px] font-medium text-[var(--app-text)]">
                         {usdPrecise(kind.total)}
                       </span>
                     </div>
-                    <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-white/[0.06]">
+                    <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-[#1a1a1a]">
                       <div
                         className="h-full rounded-full"
                         style={{
                           width: `${Math.max(2, (kind.total / kindMax) * 100)}%`,
-                          background: KIND_COLOR[kind.kind] ?? "var(--gold)",
+                          background: KIND_COLOR[kind.kind] ?? "#a1a1aa",
                         }}
                       />
                     </div>
-                    <p className="mt-1.5 text-[11.5px] text-white/30">
+                    <p className="mt-1.5 text-[11.5px] text-[var(--app-text-4)]">
                       {KIND_HINT[kind.kind] ?? ""} {compactNumber(kind.count)}×
                       {kind.tokens > 0 ? ` · ${compactNumber(kind.tokens)} tokens` : ""}
                     </p>
@@ -157,7 +151,7 @@ export default async function UsagePage({ searchParams }: PageProps<"/app/usage"
                 title="Recent activity"
                 description="The last 25 things your agents did."
               />
-              <ul className="divide-y divide-white/[0.05]">
+              <ul className="divide-y divide-[var(--app-border)]">
                 {events.slice(0, 25).map((event) => (
                   <li
                     key={event.id}
@@ -165,21 +159,21 @@ export default async function UsagePage({ searchParams }: PageProps<"/app/usage"
                   >
                     <span
                       className="h-1.5 w-1.5 shrink-0 rounded-full"
-                      style={{ background: KIND_COLOR[event.kind] ?? "var(--gold)" }}
+                      style={{ background: KIND_COLOR[event.kind] ?? "#a1a1aa" }}
                     />
-                    <span className="min-w-0 flex-1 truncate text-white/70">
+                    <span className="min-w-0 flex-1 truncate text-[var(--app-text-2)]">
                       {KIND_LABEL[event.kind] ?? event.kind}
                       {!selected && (
-                        <span className="text-white/30">
+                        <span className="text-[var(--app-text-4)]">
                           {" "}
                           · {modelName.get(event.model_id) ?? "model"}
                         </span>
                       )}
                     </span>
-                    <span className="shrink-0 text-white/25">
+                    <span className="shrink-0 text-[var(--app-text-4)]">
                       <RelativeTime iso={event.created_at} />
                     </span>
-                    <span className="w-16 shrink-0 text-right tabular-nums text-white/60">
+                    <span className="w-16 shrink-0 text-right tabular-nums text-[var(--app-text-2)]">
                       {usdPrecise(event.charged_usd)}
                     </span>
                   </li>
@@ -190,7 +184,7 @@ export default async function UsagePage({ searchParams }: PageProps<"/app/usage"
         </>
       )}
 
-      <p className="mt-6 px-1 text-[11.5px] leading-relaxed text-white/25">
+      <p className="mt-8 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
         Credits are deducted the moment work happens. When the balance hits zero your models
         pause themselves — nothing is lost, they pick up where they left off after a top-up.
       </p>
@@ -211,10 +205,10 @@ function FilterChip({
     <Link
       href={href}
       className={cn(
-        "rounded-full border px-3.5 py-1.5 text-[12.5px] font-medium transition-colors",
+        "rounded-md border px-3 py-1.5 text-[12.5px] transition-colors",
         active
-          ? "border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.1)] text-[var(--gold-light)]"
-          : "border-white/[0.08] text-white/45 hover:text-white/80",
+          ? "border-[var(--app-border-strong)] bg-[var(--app-active)] text-[var(--app-text)]"
+          : "border-[var(--app-border)] text-[var(--app-text-3)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]",
       )}
     >
       {children}

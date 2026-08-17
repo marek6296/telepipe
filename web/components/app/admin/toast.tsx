@@ -63,10 +63,10 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
               exit={{ opacity: 0, y: 8, scale: 0.98 }}
               transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
               className={cn(
-                "widget-depth pointer-events-auto flex items-start gap-2.5 rounded-2xl px-4 py-3 text-left text-[12.5px] leading-snug",
+                "app-panel pointer-events-auto flex items-start gap-2.5 px-4 py-3 text-left text-[12.5px] leading-snug",
                 toast.tone === "success"
-                  ? "border-[rgba(212,175,55,0.3)] text-[var(--gold-light)]"
-                  : "border-[#7a2b23] text-[#ffb3a7]",
+                  ? "text-[var(--app-text)]"
+                  : "border-[rgba(248,113,113,0.3)] text-[#fca5a5]",
               )}
             >
               {toast.tone === "success" ? (

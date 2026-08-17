@@ -150,22 +150,22 @@ function SaveIndicator({ status, error }: { status: Status; error: string | null
 
   const map = {
     pending: {
-      className: "border-white/[0.09] bg-black/70 text-white/45",
-      icon: <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--gold)]" />,
+      className: "border-[var(--app-border-strong)] bg-black/70 text-[var(--app-text-3)]",
+      icon: <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--app-text)]" />,
       label: "Editing…",
     },
     saving: {
-      className: "border-white/[0.09] bg-black/70 text-white/55",
+      className: "border-[var(--app-border-strong)] bg-black/70 text-[var(--app-text-2)]",
       icon: <Loader2 className="h-3 w-3 animate-spin" />,
       label: "Saving…",
     },
     saved: {
-      className: "border-[#2e7d52]/40 bg-[#0f2a1d]/90 text-[#8ff0bb]",
+      className: "border-[rgba(74,222,128,0.28)] bg-black/80 text-[#86efac]",
       icon: <Check className="h-3 w-3" />,
       label: "Saved",
     },
     error: {
-      className: "border-[#7a2b23] bg-[#2a100d]/95 text-[#ffb3a7]",
+      className: "border-[rgba(248,113,113,0.3)] bg-black/85 text-[#fca5a5]",
       icon: <AlertCircle className="h-3 w-3" />,
       label: error ?? "Could not save",
     },

@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Plus, X } from "lucide-react";
 
 import { createModelAction } from "@/app/app/actions";
-import { ErrorMessage, SubmitButton } from "@/components/auth/form-parts";
+import { AppErrorMessage, AppSubmitButton } from "@/components/app/forms/parts";
 import { cn } from "@/lib/utils";
 
 /**
@@ -45,12 +45,12 @@ export function AddModelDialog({
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          variant === "gold" ? "btn-modern-light" : "btn-modern-dark",
-          "h-10 px-5 text-[13px]",
+          variant === "gold" ? "app-btn app-btn-primary" : "app-btn app-btn-ghost",
+          "h-9 px-4",
           className,
         )}
       >
-        <Plus className="h-4 w-4" />
+        <Plus className="h-3.5 w-3.5" strokeWidth={1.75} />
         {label}
       </button>
 
@@ -63,7 +63,7 @@ export function AddModelDialog({
               exit={{ opacity: 0 }}
               transition={{ duration: 0.18 }}
               onClick={() => setOpen(false)}
-              className="absolute inset-0 bg-black/75 backdrop-blur-sm"
+              className="absolute inset-0 bg-black/70"
             />
             <motion.div
               role="dialog"
@@ -73,21 +73,21 @@ export function AddModelDialog({
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.97, y: 8 }}
               transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              className="glass-panel relative w-full max-w-[26rem] rounded-3xl p-7"
+              className="app-panel relative w-full max-w-[24rem] p-6"
             >
               <button
                 type="button"
                 onClick={() => setOpen(false)}
                 aria-label="Close"
-                className="absolute right-4 top-4 rounded-full p-1.5 text-white/35 transition-colors hover:text-[var(--gold-light)]"
+                className="absolute right-3 top-3 rounded-md p-1.5 text-[var(--app-text-4)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
               >
-                <X className="h-4 w-4" />
+                <X className="h-4 w-4" strokeWidth={1.75} />
               </button>
 
-              <h2 className="text-[19px] font-semibold tracking-tight text-white">
+              <h2 className="text-[16px] font-medium tracking-[-0.01em] text-[var(--app-text)]">
                 Add a model
               </h2>
-              <p className="mt-1.5 text-[13px] leading-relaxed text-white/45">
+              <p className="mt-2 text-[13px] leading-relaxed text-[var(--app-text-3)]">
                 Start with her name — you can connect her Telegram account on the next
                 screen.
               </p>
@@ -96,7 +96,7 @@ export function AddModelDialog({
                 <div>
                   <label
                     htmlFor="new-model-name"
-                    className="mb-2 block text-[12.5px] font-medium tracking-tight text-white/60"
+                    className="app-label mb-2"
                   >
                     Model name
                   </label>
@@ -108,16 +108,16 @@ export function AddModelDialog({
                     required
                     maxLength={60}
                     placeholder="e.g. Simona"
-                    className="glass-input"
+                    className="app-input"
                   />
-                  <p className="mt-2 text-[11.5px] text-white/30">
+                  <p className="mt-2 text-[11.5px] text-[var(--app-text-4)]">
                     Only you see this — it is how she shows up in your dashboard.
                   </p>
                 </div>
 
-                {state?.error && <ErrorMessage>{state.error}</ErrorMessage>}
+                {state?.error && <AppErrorMessage>{state.error}</AppErrorMessage>}
 
-                <SubmitButton className="h-11">Create model</SubmitButton>
+                <AppSubmitButton>Create model</AppSubmitButton>
               </form>
             </motion.div>
           </div>

@@ -30,7 +30,7 @@ export default async function AdminModelsPage() {
         description="Every bot on the platform with the worker that runs it. Metadata only — conversations stay private to the client."
       />
 
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile label="Models" value={compactNumber(models.length)} hint={`${active} active`} />
         <StatTile label="Claimed" value={compactNumber(claimed)} hint="held by a worker" />
         <StatTile label="Messages today" value={compactNumber(msgsToday)} />
@@ -39,7 +39,7 @@ export default async function AdminModelsPage() {
 
       {models.length === 0 ? (
         <EmptyState
-          icon={<Bot className="h-6 w-6" />}
+          icon={<Bot className="h-[18px] w-[18px]" strokeWidth={1.5} />}
           title="No models yet"
           description="Once a client adds their first model it shows up here with its worker and heartbeat."
         />
@@ -48,7 +48,7 @@ export default async function AdminModelsPage() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[58rem] text-left text-[13px]">
               <thead>
-                <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-[0.12em] text-white/30">
+                <tr className="border-b border-[var(--app-border)] text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
                   <th className="px-5 py-2.5 font-medium">Model</th>
                   <th className="px-5 py-2.5 font-medium">Account</th>
                   <th className="px-5 py-2.5 font-medium">Status</th>
@@ -58,23 +58,23 @@ export default async function AdminModelsPage() {
                   <th className="px-5 py-2.5 text-right font-medium">Spend today</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-white/[0.05]">
+              <tbody className="divide-y divide-[var(--app-border)]">
                 {models.map((model) => {
                   const reason = statusReasonText(model.statusReason);
                   return (
-                    <tr key={model.id} className="transition-colors hover:bg-white/[0.02]">
+                    <tr key={model.id} className="transition-colors hover:bg-[var(--app-surface-hover)]">
                       <td className="px-5 py-3">
-                        <p className="truncate text-white/85" title={model.id}>
+                        <p className="truncate text-[var(--app-text)]" title={model.id}>
                           {model.name || "Untitled model"}
                         </p>
                         {reason && (
-                          <p className="mt-0.5 max-w-[18rem] truncate text-[11.5px] text-white/25">
+                          <p className="mt-0.5 max-w-[18rem] truncate text-[11.5px] text-[var(--app-text-4)]">
                             {reason}
                           </p>
                         )}
                       </td>
                       <td className="px-5 py-3">
-                        <span className="truncate text-white/55" title={model.accountId}>
+                        <span className="truncate text-[var(--app-text-2)]" title={model.accountId}>
                           {model.accountEmail || "—"}
                         </span>
                       </td>
@@ -84,7 +84,7 @@ export default async function AdminModelsPage() {
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-2">
                           <HeartbeatBadge iso={model.heartbeatAt} />
-                          <span className="text-[11.5px] text-white/25">
+                          <span className="text-[11.5px] text-[var(--app-text-4)]">
                             <RelativeTime iso={model.heartbeatAt} />
                           </span>
                         </div>
@@ -92,15 +92,15 @@ export default async function AdminModelsPage() {
                       <td className="px-5 py-3">
                         <span
                           title={model.claimedBy ?? "not claimed"}
-                          className="font-mono text-[12px] text-white/45"
+                          className="font-mono text-[12px] text-[var(--app-text-3)]"
                         >
                           {shortId(model.claimedBy)}
                         </span>
                       </td>
-                      <td className="px-5 py-3 tabular-nums text-white/70">
+                      <td className="px-5 py-3 tabular-nums text-[var(--app-text-2)]">
                         {compactNumber(model.msgsToday)}
                       </td>
-                      <td className="px-5 py-3 text-right tabular-nums text-white/70">
+                      <td className="px-5 py-3 text-right tabular-nums text-[var(--app-text-2)]">
                         {usdPrecise(model.spendToday)}
                       </td>
                     </tr>
@@ -112,7 +112,7 @@ export default async function AdminModelsPage() {
         </Card>
       )}
 
-      <p className="mt-6 px-1 text-[11.5px] leading-relaxed text-white/25">
+      <p className="mt-8 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
         Heartbeat is live under 90 seconds, stale under 10 minutes, dead after that. An active
         model without a heartbeat means no worker picked it up.
       </p>

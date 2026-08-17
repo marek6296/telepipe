@@ -1,12 +1,5 @@
 import Link from "next/link";
-import {
-  Images,
-  MessageSquare,
-  Send,
-  Settings2,
-  Sparkles,
-  TrendingUp,
-} from "lucide-react";
+import { Images, MessageSquare, Send, Settings2 } from "lucide-react";
 
 import { ModelPowerButton } from "@/components/app/model-power-button";
 import { Callout, StatusBadge } from "@/components/app/ui";
@@ -28,23 +21,22 @@ export function ModelCard({
   const reason = statusReasonText(model.status_reason);
 
   return (
-    <div className="widget-depth group relative overflow-hidden rounded-2xl p-5 transition-all duration-300 hover:border-[rgba(212,175,55,0.28)]">
-      <div className="pointer-events-none absolute -right-20 -top-24 h-52 w-52 rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.12),transparent_65%)] opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
-
-      <div className="relative flex items-start justify-between gap-4">
+    <div className="app-card p-5 transition-colors hover:border-[var(--app-border-strong)]">
+      <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2.5">
-            <Link
-              href={`/app/m/${model.id}/persona`}
-              className="truncate text-[17px] font-semibold tracking-tight text-white transition-colors hover:text-[var(--gold-light)]"
-            >
-              {model.name || "Untitled model"}
-            </Link>
+          <Link
+            href={`/app/m/${model.id}/persona`}
+            className="block truncate text-[15px] font-medium tracking-[-0.01em] text-[var(--app-text)] transition-colors hover:text-white"
+          >
+            {model.name || "Untitled model"}
+          </Link>
+          <div className="mt-1.5 flex items-center gap-2.5">
             <StatusBadge status={model.status} />
+            <span className="text-[var(--app-text-4)]">·</span>
+            <span className="truncate text-[12px] text-[var(--app-text-3)]">
+              {connected ? statusHint(status) : "Telegram not connected yet."}
+            </span>
           </div>
-          <p className="mt-1.5 text-[12.5px] text-white/40">
-            {connected ? statusHint(status) : "Telegram account not connected yet."}
-          </p>
         </div>
 
         <ModelPowerButton
@@ -57,45 +49,39 @@ export function ModelCard({
       </div>
 
       {reason && (
-        <div className="relative mt-4">
-          <Callout tone={status === "error" ? "danger" : "gold"}>{reason}</Callout>
+        <div className="mt-4">
+          <Callout tone={status === "error" ? "danger" : "neutral"}>{reason}</Callout>
         </div>
       )}
 
-      <dl className="relative mt-5 grid grid-cols-3 gap-2">
-        <Metric
-          icon={<MessageSquare className="h-3.5 w-3.5" />}
-          label="Chats"
-          value={compactNumber(stats.chats)}
-        />
-        <Metric
-          icon={<TrendingUp className="h-3.5 w-3.5" />}
-          label="Converted"
-          value={compactNumber(stats.converted)}
-        />
-        <Metric
-          icon={<Sparkles className="h-3.5 w-3.5" />}
-          label="Today"
-          value={usdPrecise(stats.spentToday)}
-        />
+      <dl className="mt-5 grid grid-cols-3 gap-6">
+        <Metric label="Chats" value={compactNumber(stats.chats)} />
+        <Metric label="Converted" value={compactNumber(stats.converted)} />
+        <Metric label="Spent today" value={usdPrecise(stats.spentToday)} />
       </dl>
 
-      <div className="relative mt-5 flex flex-wrap items-center gap-1.5 border-t border-white/[0.06] pt-4">
-        <QuickLink href={`/app/m/${model.id}/telegram`} icon={<Send className="h-3.5 w-3.5" />}>
+      <div className="-mx-1.5 mt-5 flex flex-wrap items-center gap-0.5 border-t border-[var(--app-border)] pt-3">
+        <QuickLink
+          href={`/app/m/${model.id}/telegram`}
+          icon={<Send className="h-3.5 w-3.5" strokeWidth={1.75} />}
+        >
           {connected ? "Telegram" : "Set up"}
         </QuickLink>
         <QuickLink
           href={`/app/m/${model.id}/persona`}
-          icon={<Settings2 className="h-3.5 w-3.5" />}
+          icon={<Settings2 className="h-3.5 w-3.5" strokeWidth={1.75} />}
         >
           Persona
         </QuickLink>
-        <QuickLink href={`/app/m/${model.id}/photos`} icon={<Images className="h-3.5 w-3.5" />}>
+        <QuickLink
+          href={`/app/m/${model.id}/photos`}
+          icon={<Images className="h-3.5 w-3.5" strokeWidth={1.75} />}
+        >
           Photos
         </QuickLink>
         <QuickLink
           href={`/app/m/${model.id}/chats`}
-          icon={<MessageSquare className="h-3.5 w-3.5" />}
+          icon={<MessageSquare className="h-3.5 w-3.5" strokeWidth={1.75} />}
         >
           Chats
         </QuickLink>
@@ -104,22 +90,13 @@ export function ModelCard({
   );
 }
 
-function Metric({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
+function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-white/[0.05] bg-white/[0.02] px-3 py-2.5">
-      <dt className="flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-white/30">
-        <span className="text-[var(--gold)]/70">{icon}</span>
-        {label}
-      </dt>
-      <dd className="mt-1 text-[15px] font-semibold tabular-nums text-white/90">{value}</dd>
+    <div>
+      <dt className="text-[11.5px] text-[var(--app-text-4)]">{label}</dt>
+      <dd className="mt-1 text-[18px] font-semibold tabular-nums tracking-[-0.02em] text-[var(--app-text)]">
+        {value}
+      </dd>
     </div>
   );
 }
@@ -136,7 +113,7 @@ function QuickLink({
   return (
     <Link
       href={href}
-      className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[12.5px] font-medium text-white/45 transition-colors hover:bg-white/[0.05] hover:text-[var(--gold-light)]"
+      className="inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-[12.5px] text-[var(--app-text-3)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
     >
       {icon}
       {children}

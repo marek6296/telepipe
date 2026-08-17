@@ -24,7 +24,7 @@ export function HeartbeatBadge({ iso }: { iso: string | null | undefined }) {
       title={iso ? dateTime(iso) : "no heartbeat yet"}
       suppressHydrationWarning
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em]",
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium",
         FRESHNESS_STYLE[state],
       )}
     >
@@ -39,7 +39,7 @@ export function ReplicaBadge({ stale }: { stale: boolean }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em]",
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium",
         stale ? FRESHNESS_STYLE.dead : FRESHNESS_STYLE.live,
       )}
     >
@@ -56,7 +56,7 @@ export function RoleBadge({ role }: { role: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em]",
+        "inline-flex items-center rounded-full border px-2.5 py-1 text-[11px] font-medium",
         ROLE_STYLE[value],
       )}
     >

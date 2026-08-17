@@ -49,19 +49,19 @@ export default async function ChatsPage({
   return (
     <div className="space-y-4">
       <form className="relative max-w-sm" action={`/app/m/${model.id}/chats`}>
-        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-white/25" />
+        <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--app-text-4)]" />
         <input
           name="q"
           type="search"
           defaultValue={search}
           placeholder="Search by name or @username"
-          className="glass-input pl-11!"
+          className="app-input pl-11!"
         />
       </form>
 
       {chats.length === 0 ? (
         <EmptyState
-          icon={<MessageSquare className="h-6 w-6" />}
+          icon={<MessageSquare className="h-[18px] w-[18px]" strokeWidth={1.5} />}
           title={search ? "Nobody matches that" : "No conversations yet"}
           description={
             search
@@ -71,36 +71,36 @@ export default async function ChatsPage({
         />
       ) : (
         <Card className="overflow-hidden">
-          <ul className="divide-y divide-white/[0.05]">
+          <ul className="divide-y divide-[var(--app-border)]">
             {chats.map((chat) => (
               <li key={chat.tg_id}>
                 <Link
                   href={`/app/m/${model.id}/chats/${chat.tg_id}`}
-                  className="flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-white/[0.03] sm:px-5"
+                  className="flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-[var(--app-surface-hover)] sm:px-5"
                 >
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-white/[0.04] text-[13px] font-semibold text-white/60">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--app-border)] bg-[#111111] text-[13px] font-semibold text-[var(--app-text-2)]">
                     {chatTitle(chat).replace("@", "").slice(0, 1).toUpperCase()}
                   </span>
 
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-2">
-                      <span className="truncate text-[14px] font-medium text-white/90">
+                      <span className="truncate text-[14px] font-medium text-[var(--app-text)]">
                         {chatTitle(chat)}
                       </span>
                       <FunnelBadge stage={chat.funnel_stage} />
                       {chat.human_takeover && (
-                        <span className="rounded-full border border-white/12 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-white/45">
+                        <span className="rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-[var(--app-text-3)]">
                           You took over
                         </span>
                       )}
                     </span>
-                    <span className="mt-0.5 block truncate text-[12px] text-white/35">
+                    <span className="mt-0.5 block truncate text-[12px] text-[var(--app-text-4)]">
                       {chat.username ? `@${chat.username} · ` : ""}
                       {compactNumber(chat.msg_count)} messages
                     </span>
                   </span>
 
-                  <span className="shrink-0 text-right text-[11.5px] text-white/30">
+                  <span className="shrink-0 text-right text-[11.5px] text-[var(--app-text-4)]">
                     <RelativeTime iso={chat.last_incoming_at} />
                   </span>
                 </Link>
@@ -116,7 +116,7 @@ export default async function ChatsPage({
             href={`/app/m/${model.id}/chats?take=${take + PAGE_SIZE}${
               search ? `&q=${encodeURIComponent(search)}` : ""
             }`}
-            className="btn-modern-dark h-10 px-5 text-[13px]"
+            className="app-btn app-btn-ghost h-9 px-4"
           >
             Show more
           </Link>

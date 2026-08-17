@@ -1,6 +1,5 @@
 "use client";
 
-import { Clock, Dices, Gauge, Mic, Sparkles, Timer } from "lucide-react";
 
 import { saveBehaviorAction } from "@/app/app/m/[id]/behavior/actions";
 import { AutoSaveForm } from "@/components/app/forms/auto-save";
@@ -119,7 +118,6 @@ export function BehaviorForm({ behavior }: { behavior: BehaviorRow }) {
       {/* --- Štýl chatu ------------------------------------------------------ */}
       <Card>
         <CardHeader
-          icon={<Sparkles className="h-4 w-4" />}
           title="Chat style"
           description="How openly she talks and how human her typing looks."
         />
@@ -190,7 +188,6 @@ export function BehaviorForm({ behavior }: { behavior: BehaviorRow }) {
       {/* --- Aktívne okno ---------------------------------------------------- */}
       <Card>
         <CardHeader
-          icon={<Clock className="h-4 w-4" />}
           title="Active hours"
           description="Outside this window she does not reply — messages wait and get answered when she wakes up."
         />
@@ -244,7 +241,6 @@ export function BehaviorForm({ behavior }: { behavior: BehaviorRow }) {
       {/* --- Časovanie -------------------------------------------------------- */}
       <Card>
         <CardHeader
-          icon={<Timer className="h-4 w-4" />}
           title="Timing"
           description="Nothing is instant. Every delay is picked at random inside these ranges."
         />
@@ -299,7 +295,6 @@ export function BehaviorForm({ behavior }: { behavior: BehaviorRow }) {
       {/* --- Náhodnosť -------------------------------------------------------- */}
       <Card>
         <CardHeader
-          icon={<Dices className="h-4 w-4" />}
           title="Randomness"
           description="The little inconsistencies that make her look like a person with a life."
         />
@@ -355,7 +350,6 @@ export function BehaviorForm({ behavior }: { behavior: BehaviorRow }) {
       {/* --- Limity ----------------------------------------------------------- */}
       <Card>
         <CardHeader
-          icon={<Gauge className="h-4 w-4" />}
           title="Limits and memory"
           description="Guardrails that keep her account safe and her memory sharp."
         />
@@ -400,7 +394,6 @@ export function BehaviorForm({ behavior }: { behavior: BehaviorRow }) {
       {/* --- Hlas -------------------------------------------------------------- */}
       <Card>
         <CardHeader
-          icon={<Mic className="h-4 w-4" />}
           title="Voice messages"
           description="Voice notes convert better than text — and they are the hardest thing to fake."
         />
@@ -462,12 +455,12 @@ export function BehaviorForm({ behavior }: { behavior: BehaviorRow }) {
           >
             <div className="grid gap-3 sm:grid-cols-2">
               <div>
-                <p className="mb-2 text-[12.5px] font-medium text-white/50">ElevenLabs API key</p>
-                <div className="glass-input select-none text-white/25">••••••••••••••••</div>
+                <p className="mb-2 text-[12.5px] font-medium text-[var(--app-text-3)]">ElevenLabs API key</p>
+                <div className="app-input select-none text-[var(--app-text-4)]">••••••••••••••••</div>
               </div>
               <div>
-                <p className="mb-2 text-[12.5px] font-medium text-white/50">Voice</p>
-                <div className="glass-input select-none text-white/25">
+                <p className="mb-2 text-[12.5px] font-medium text-[var(--app-text-3)]">Voice</p>
+                <div className="app-input select-none text-[var(--app-text-4)]">
                   {behavior.eleven_voice_id || "Not selected"}
                 </div>
               </div>

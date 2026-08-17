@@ -18,7 +18,7 @@ export function AdminTabs() {
   const pathname = usePathname();
 
   return (
-    <div className="mb-6 flex flex-wrap gap-1.5">
+    <div className="-mx-1 mb-8 flex gap-1 overflow-x-auto border-b border-[var(--app-border)] pb-px">
       {TABS.map((tab) => {
         const active = tab.exact
           ? pathname === tab.href
@@ -30,14 +30,17 @@ export function AdminTabs() {
             href={tab.href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-[12.5px] font-medium transition-colors",
+              "relative flex shrink-0 items-center gap-2 px-3 py-2.5 text-[13px] transition-colors",
               active
-                ? "border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.1)] text-[var(--gold-light)]"
-                : "border-white/[0.08] text-white/45 hover:text-white/80",
+                ? "font-medium text-[var(--app-text)]"
+                : "text-[var(--app-text-3)] hover:text-[var(--app-text-2)]",
             )}
           >
-            <Icon className="h-3.5 w-3.5" />
+            <Icon className="h-4 w-4" strokeWidth={1.75} />
             {tab.label}
+            {active && (
+              <span className="absolute inset-x-0 -bottom-px h-px bg-[var(--app-text)]" />
+            )}
           </Link>
         );
       })}

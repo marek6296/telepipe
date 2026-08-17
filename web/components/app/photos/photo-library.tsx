@@ -119,23 +119,23 @@ export function PhotoLibrary({
           void upload(event.dataTransfer.files);
         }}
         className={cn(
-          "relative flex flex-col items-center justify-center rounded-2xl border border-dashed px-6 py-10 text-center transition-colors",
+          "relative flex flex-col items-center justify-center rounded-lg border border-dashed px-6 py-10 text-center transition-colors",
           dragging
-            ? "border-[var(--gold)] bg-[rgba(212,175,55,0.06)]"
-            : "border-white/[0.12] bg-white/[0.015]",
+            ? "border-[var(--app-border-strong)] bg-[var(--app-surface-hover)]"
+            : "border-[var(--app-border-strong)] bg-[#0c0c0c]",
         )}
       >
-        <span className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[rgba(212,175,55,0.25)] bg-[rgba(212,175,55,0.07)] text-[var(--gold)]">
+        <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--app-border)] text-[var(--app-text-4)]">
           {uploading > 0 ? (
             <Loader2 className="h-5 w-5 animate-spin" />
           ) : (
             <Upload className="h-5 w-5" />
           )}
         </span>
-        <p className="mt-4 text-[14px] font-medium text-white/80">
+        <p className="mt-4 text-[14px] font-medium text-[var(--app-text-2)]">
           {uploading > 0 ? `Uploading ${uploading}…` : "Drop her photos here"}
         </p>
-        <p className="mt-1 text-[12.5px] text-white/35">
+        <p className="mt-1 text-[12.5px] text-[var(--app-text-4)]">
           JPG, PNG or WebP, up to 12 MB each. She never sends the same photo to the same fan
           twice.
         </p>
@@ -143,7 +143,7 @@ export function PhotoLibrary({
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={uploading > 0}
-          className="btn-modern-light mt-5 h-10 px-5 text-[13px]"
+          className="app-btn app-btn-primary mt-5 h-9 px-4"
         >
           <ImagePlus className="h-4 w-4" />
           Choose files
@@ -167,7 +167,7 @@ export function PhotoLibrary({
       {/* --- Mriežka ---------------------------------------------------------- */}
       {photos.length === 0 ? (
         <EmptyState
-          icon={<ImagePlus className="h-6 w-6" />}
+          icon={<ImagePlus className="h-[18px] w-[18px]" strokeWidth={1.5} />}
           title="No photos yet"
           description="Upload a handful of everyday selfies. She only ever sends one when there is a reason — he asked, she is warming up a quiet chat, or it is her first selfie of the conversation."
         />
@@ -178,7 +178,7 @@ export function PhotoLibrary({
               key={photo.id}
               type="button"
               onClick={() => setOpenPhoto(photo)}
-              className="group relative aspect-[3/4] overflow-hidden rounded-2xl border border-white/[0.07] bg-[#0b0b0b] text-left transition-colors hover:border-[rgba(212,175,55,0.35)]"
+              className="group relative aspect-[3/4] overflow-hidden rounded-lg border border-[var(--app-border)] bg-[#0b0b0b] text-left transition-colors hover:border-[var(--app-border-strong)]"
             >
               <Image
                 src={photo.url}
@@ -200,7 +200,7 @@ export function PhotoLibrary({
                   </Badge>
                 )}
                 {!photo.active && (
-                  <Badge className="border-white/15 bg-black/70 text-white/60">
+                  <Badge className="border-[var(--app-border-strong)] bg-black/70 text-[var(--app-text-2)]">
                     <EyeOff className="h-3 w-3" />
                     Off
                   </Badge>
@@ -208,10 +208,10 @@ export function PhotoLibrary({
               </span>
 
               <span className="absolute inset-x-0 bottom-0 p-2.5">
-                <span className="line-clamp-2 block text-[12px] leading-snug text-white/85">
+                <span className="line-clamp-2 block text-[12px] leading-snug text-[var(--app-text)]">
                   {photo.caption || "No caption"}
                 </span>
-                <span className="mt-1 flex items-center gap-2 text-[10.5px] text-white/40">
+                <span className="mt-1 flex items-center gap-2 text-[10.5px] text-[var(--app-text-3)]">
                   <Send className="h-3 w-3" />
                   {photo.sent_count} sent
                   <span>· {relativeTime(photo.created_at)}</span>
@@ -244,7 +244,7 @@ function Badge({ className, children }: { className?: string; children: React.Re
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] backdrop-blur-sm",
+        "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10.5px] font-medium backdrop-blur-sm",
         className,
       )}
     >
@@ -304,7 +304,7 @@ function PhotoEditor({
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
-        className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/75"
       />
       <motion.div
         role="dialog"
@@ -314,13 +314,13 @@ function PhotoEditor({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.98, y: 8 }}
         transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-        className="glass-panel relative grid max-h-[88svh] w-full max-w-4xl grid-cols-1 overflow-y-auto rounded-3xl md:grid-cols-[minmax(0,320px)_1fr]"
+        className="app-panel relative grid max-h-[88svh] w-full max-w-4xl grid-cols-1 overflow-y-auto md:grid-cols-[minmax(0,320px)_1fr]"
       >
         <button
           type="button"
           onClick={onClose}
           aria-label="Close"
-          className="absolute right-3 top-3 z-10 rounded-full bg-black/60 p-2 text-white/60 backdrop-blur transition-colors hover:text-[var(--gold-light)]"
+          className="absolute right-3 top-3 z-10 rounded-md border border-[var(--app-border-strong)] bg-black/70 p-1.5 text-[var(--app-text-2)] backdrop-blur transition-colors hover:text-[var(--app-text)]"
         >
           <X className="h-4 w-4" />
         </button>
@@ -360,7 +360,7 @@ function PhotoEditor({
             />
 
             <div>
-              <p className="mb-2 text-[12.5px] font-medium tracking-tight text-white/70">
+              <p className="mb-2 text-[12.5px] font-medium tracking-tight text-[var(--app-text-2)]">
                 Good times of day
               </p>
               <div className="flex flex-wrap gap-2">
@@ -374,8 +374,8 @@ function PhotoEditor({
                       className={cn(
                         "rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors",
                         active
-                          ? "border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.12)] text-[var(--gold-light)]"
-                          : "border-white/[0.09] text-white/45 hover:text-white/75",
+                          ? "border-[var(--app-border-strong)] bg-[var(--app-active)] text-[var(--app-text)]"
+                          : "border-[var(--app-border-strong)] text-[var(--app-text-3)] hover:text-[var(--app-text)]",
                       )}
                       title={DAY_PART_HOURS[part]}
                     >
@@ -384,7 +384,7 @@ function PhotoEditor({
                   );
                 })}
               </div>
-              <p className="mt-2 text-[11.5px] leading-relaxed text-white/30">
+              <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
                 Leave all off and the photo fits any hour. A beach shot at 2 a.m. is the
                 fastest way to break the illusion.
               </p>
@@ -412,8 +412,8 @@ function PhotoEditor({
             </div>
           )}
 
-          <div className="mt-5 flex items-center justify-between gap-3 border-t border-white/[0.06] pt-4">
-            <span className="text-[11.5px] text-white/30">
+          <div className="mt-5 flex items-center justify-between gap-3 border-t border-[var(--app-border)] pt-4">
+            <span className="text-[11.5px] text-[var(--app-text-4)]">
               Sent {photo.sent_count}× · added {relativeTime(photo.created_at)}
             </span>
             {confirming ? (
@@ -421,7 +421,7 @@ function PhotoEditor({
                 <button
                   type="button"
                   onClick={() => setConfirming(false)}
-                  className="text-[12.5px] text-white/45 hover:text-white/80"
+                  className="text-[12.5px] text-[var(--app-text-3)] hover:text-[var(--app-text)]"
                 >
                   Cancel
                 </button>
@@ -429,7 +429,7 @@ function PhotoEditor({
                   type="button"
                   onClick={remove}
                   disabled={pending}
-                  className="inline-flex h-9 items-center gap-2 rounded-full border border-[#7a2b23] bg-[#3a1512] px-4 text-[12.5px] font-semibold text-[#ff9b8f]"
+                  className="app-btn app-btn-danger h-9 px-4"
                 >
                   {pending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                   Delete for good
@@ -439,7 +439,7 @@ function PhotoEditor({
               <button
                 type="button"
                 onClick={() => setConfirming(true)}
-                className="inline-flex items-center gap-1.5 text-[12.5px] text-white/35 transition-colors hover:text-[#ffb3a7]"
+                className="inline-flex items-center gap-1.5 text-[12.5px] text-[var(--app-text-4)] transition-colors hover:text-[#fca5a5]"
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 Delete

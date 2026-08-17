@@ -31,14 +31,14 @@ function Shell({
       <div className="mb-2 flex items-baseline justify-between gap-3">
         <label
           htmlFor={htmlFor}
-          className="text-[12.5px] font-medium tracking-tight text-white/70"
+          className="app-label"
         >
           {label}
         </label>
         {action}
       </div>
       {children}
-      {help && <p className="mt-2 text-[11.5px] leading-relaxed text-white/30">{help}</p>}
+      {help && <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">{help}</p>}
     </div>
   );
 }
@@ -76,7 +76,7 @@ export function TextField({
           set(name, event.target.value);
         }}
         onBlur={flush}
-        className="glass-input"
+        className="app-input"
       />
     </Shell>
   );
@@ -115,7 +115,7 @@ export function TextAreaField({
           set(name, event.target.value);
         }}
         onBlur={flush}
-        className="glass-input resize-y leading-relaxed"
+        className="app-input resize-y leading-relaxed"
       />
     </Shell>
   );
@@ -168,10 +168,10 @@ export function NumberField({
             if (Number.isFinite(parsed)) set(name, clamp(parsed, min, max));
           }}
           onBlur={flush}
-          className={cn("glass-input", suffix && "pr-16!")}
+          className={cn("app-input", suffix && "pr-16!")}
         />
         {suffix && (
-          <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-[12px] text-white/30">
+          <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[12px] text-[var(--app-text-4)]">
             {suffix}
           </span>
         )}
@@ -212,7 +212,7 @@ export function SliderField({
       htmlFor={id}
       className={className}
       action={
-        <span className="tabular-nums text-[12.5px] font-semibold text-[var(--gold-light)]">
+        <span className="tabular-nums text-[12.5px] font-medium text-[var(--app-text)]">
           {format(value)}
         </span>
       }
@@ -231,8 +231,8 @@ export function SliderField({
         }}
         onPointerUp={flush}
         onBlur={flush}
-        className="h-1.5 w-full cursor-pointer appearance-none rounded-full bg-white/[0.09] accent-[var(--gold)]"
-        style={{ accentColor: "var(--gold)" }}
+        className="h-1 w-full cursor-pointer appearance-none rounded-full bg-[#26262a] accent-white"
+        style={{ accentColor: "#fafafa" }}
       />
     </Shell>
   );
@@ -257,13 +257,13 @@ export function SwitchField({
   return (
     <div
       className={cn(
-        "flex items-start justify-between gap-4 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3",
+        "flex items-start justify-between gap-4 rounded-lg border border-[var(--app-border)] bg-[#0c0c0c] px-4 py-3",
         className,
       )}
     >
       <div className="min-w-0">
-        <p className="text-[13px] font-medium text-white/80">{label}</p>
-        {help && <p className="mt-1 text-[11.5px] leading-relaxed text-white/30">{help}</p>}
+        <p className="text-[13px] text-[var(--app-text)]">{label}</p>
+        {help && <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">{help}</p>}
       </div>
       <button
         type="button"
@@ -277,14 +277,14 @@ export function SwitchField({
           flush();
         }}
         className={cn(
-          "relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors",
-          value ? "bg-[var(--gold)]" : "bg-white/[0.12]",
+          "relative mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors",
+          value ? "bg-[var(--app-text)]" : "bg-[#2e2e2e]",
         )}
       >
         <span
           className={cn(
-            "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-            value ? "translate-x-[22px]" : "translate-x-0.5",
+            "absolute top-0.5 h-4 w-4 rounded-full transition-transform",
+            value ? "translate-x-[18px] bg-[#0a0a0a]" : "translate-x-0.5 bg-[#a1a1aa]",
           )}
         />
       </button>
@@ -321,10 +321,10 @@ export function SelectField({
           set(name, event.target.value);
           flush();
         }}
-        className="glass-input cursor-pointer appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 fill=%22none%22 stroke=%22%23d4af37%22 stroke-width=%222%22><path d=%22M2 4l4 4 4-4%22/></svg>')] bg-[length:12px] bg-[right_1rem_center] bg-no-repeat pr-10!"
+        className="app-input app-select"
       >
         {options.map((option) => (
-          <option key={option.value} value={option.value} className="bg-[#0d0d0d]">
+          <option key={option.value} value={option.value}>
             {option.label}
           </option>
         ))}
@@ -363,7 +363,7 @@ export function TimeField({
           if (minutes !== null) set(name, minutes);
         }}
         onBlur={flush}
-        className="glass-input"
+        className="app-input"
       />
     </Shell>
   );
@@ -387,7 +387,7 @@ export function RangeRow({
 }) {
   return (
     <div>
-      <p className="mb-2 text-[12.5px] font-medium tracking-tight text-white/70">{label}</p>
+      <p className="app-label mb-2">{label}</p>
       <div className="grid grid-cols-2 gap-3">
         <NumberField
           name={minField.name}
@@ -406,7 +406,7 @@ export function RangeRow({
           suffix={suffix}
         />
       </div>
-      {help && <p className="mt-2 text-[11.5px] leading-relaxed text-white/30">{help}</p>}
+      {help && <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">{help}</p>}
     </div>
   );
 }
@@ -422,15 +422,15 @@ export function LockedSection({
   children?: ReactNode;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-2xl border border-white/[0.06] bg-white/[0.015] p-5">
+    <div className="rounded-lg border border-[var(--app-border)] bg-[#0c0c0c] p-5">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-[14px] font-semibold text-white/50">{title}</h3>
-          <p className="mt-1 max-w-lg text-[12.5px] leading-relaxed text-white/30">
+          <h3 className="text-[14px] font-medium text-[var(--app-text-2)]">{title}</h3>
+          <p className="mt-1.5 max-w-lg text-[12.5px] leading-relaxed text-[var(--app-text-4)]">
             {description}
           </p>
         </div>
-        <span className="shrink-0 rounded-full border border-[rgba(212,175,55,0.28)] bg-[rgba(212,175,55,0.07)] px-2.5 py-1 text-[10.5px] font-semibold uppercase tracking-[0.1em] text-[var(--gold)]">
+        <span className="shrink-0 rounded-full border border-[var(--app-border-strong)] px-2.5 py-1 text-[10.5px] font-medium text-[var(--app-text-3)]">
           Coming soon
         </span>
       </div>

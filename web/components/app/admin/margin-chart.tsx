@@ -3,9 +3,9 @@ import { usdPrecise } from "@/lib/format";
 
 /**
  * Charged vs. Atlas cost ako čisté SVG — žiadna knižnica, žiaden client bundle.
- * Zlatý stĺpec je to, čo zaplatil klient; tmavý prekryv v jeho spodnej časti je
- * naša nákupná cena, takže zlatý zvyšok NAD ním je marža. Svetlá lomená čiara
- * kreslí maržu deň po dni.
+ * Svetlý stĺpec je to, čo zaplatil klient; tmavý prekryv v jeho spodnej časti je
+ * naša nákupná cena, takže svetlý zvyšok NAD ním je marža. Čiarkovaná lomená
+ * čiara kreslí maržu deň po dni. Monochróm — série sa líšia jasom.
  */
 export function MarginChart({ days }: { days: AdminUsageDay[] }) {
   const max = Math.max(...days.map((day) => day.charged), 0.0001);
@@ -29,7 +29,7 @@ export function MarginChart({ days }: { days: AdminUsageDay[] }) {
     });
 
   return (
-    <div className="px-5 pb-5 pt-4">
+    <div className="px-5 pb-5 pt-5">
       <svg
         viewBox={`0 0 ${width} ${height}`}
         preserveAspectRatio="none"
@@ -39,8 +39,8 @@ export function MarginChart({ days }: { days: AdminUsageDay[] }) {
       >
         <defs>
           <linearGradient id="admin-charged" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor="#e8c766" />
-            <stop offset="100%" stopColor="#a8872a" />
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.92" />
+            <stop offset="100%" stopColor="#ffffff" stopOpacity="0.12" />
           </linearGradient>
         </defs>
 
@@ -51,7 +51,7 @@ export function MarginChart({ days }: { days: AdminUsageDay[] }) {
             x2={width}
             y1={height - line * (height - 2)}
             y2={height - line * (height - 2)}
-            stroke="rgba(255,255,255,0.05)"
+            stroke="#1a1a1a"
             strokeWidth={0.15}
           />
         ))}
@@ -71,7 +71,7 @@ export function MarginChart({ days }: { days: AdminUsageDay[] }) {
                 y={height - chargedHeight}
                 width={barWidth}
                 height={chargedHeight}
-                rx={0.35}
+                rx={0.3}
                 fill="url(#admin-charged)"
                 opacity={day.charged > 0 ? 1 : 0.25}
               />
@@ -80,9 +80,9 @@ export function MarginChart({ days }: { days: AdminUsageDay[] }) {
                 y={height - costHeight}
                 width={barWidth}
                 height={costHeight}
-                rx={0.35}
-                fill="#2a2210"
-                opacity={0.92}
+                rx={0.3}
+                fill="#0d0d0d"
+                opacity={0.95}
               />
             </g>
           );
@@ -91,7 +91,8 @@ export function MarginChart({ days }: { days: AdminUsageDay[] }) {
         <polyline
           points={marginLine}
           fill="none"
-          stroke="#f3e0a4"
+          stroke="#a1a1aa"
+          strokeDasharray="4 3"
           strokeWidth={0.35}
           strokeLinejoin="round"
           strokeLinecap="round"
@@ -99,16 +100,19 @@ export function MarginChart({ days }: { days: AdminUsageDay[] }) {
         />
       </svg>
 
-      <div className="mt-3 flex justify-between text-[10.5px] text-white/25">
+      <div className="mt-3 flex justify-between text-[11px] text-[var(--app-text-4)]">
         <span>{days[0] ? label(days[0]) : ""}</span>
         <span>{days[Math.floor(days.length / 2)] ? label(days[Math.floor(days.length / 2)]) : ""}</span>
         <span>{days[days.length - 1] ? label(days[days.length - 1]) : ""}</span>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-4 text-[11.5px] text-white/40">
-        <Legend swatch="linear-gradient(180deg,#e8c766,#a8872a)" label="Charged to clients" />
-        <Legend swatch="#2a2210" label="Atlas cost" />
-        <Legend swatch="#f3e0a4" label="Margin" line />
+      <div className="mt-4 flex flex-wrap items-center gap-4 text-[11.5px] text-[var(--app-text-3)]">
+        <Legend
+          swatch="linear-gradient(180deg,rgba(255,255,255,0.92),rgba(255,255,255,0.12))"
+          label="Charged to clients"
+        />
+        <Legend swatch="#0d0d0d" label="Atlas cost" border />
+        <Legend swatch="#a1a1aa" label="Margin" line />
       </div>
     </div>
   );
@@ -118,16 +122,25 @@ function Legend({
   swatch,
   label,
   line = false,
+  border = false,
 }: {
   swatch: string;
   label: string;
   line?: boolean;
+  border?: boolean;
 }) {
   return (
     <span className="flex items-center gap-2">
       <span
-        className={line ? "h-[2px] w-4 rounded-full" : "h-2.5 w-2.5 rounded-[3px]"}
-        style={{ background: swatch }}
+        className={line ? "h-px w-4" : "h-2.5 w-2.5 rounded-[3px]"}
+        style={
+          line
+            ? { borderTop: `1.5px dashed ${swatch}` }
+            : {
+                background: swatch,
+                border: border ? "1px solid #2e2e2e" : undefined,
+              }
+        }
       />
       {label}
     </span>

@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { BarChart3, TrendingUp } from "lucide-react";
 
 import { MarginChart } from "@/components/app/admin/margin-chart";
 import { Card, CardHeader, PageHeader, StatTile } from "@/components/app/ui";
@@ -34,19 +33,17 @@ export default async function AdminUsagePage() {
         description="What clients were charged against what Atlas cost us, day by day."
       />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile
           label="Charged 30d"
           value={usdPrecise(charged)}
           hint="what clients paid"
-          icon={<BarChart3 className="h-3.5 w-3.5 text-[var(--gold)]/70" />}
         />
         <StatTile label="Atlas cost 30d" value={usdPrecise(atlasCost)} hint="what we paid" />
         <StatTile
           label="Margin 30d"
           value={usdPrecise(margin)}
           hint={`${marginPct}% of charged`}
-          icon={<TrendingUp className="h-3.5 w-3.5 text-[var(--gold)]/70" />}
         />
         <StatTile
           label="Events 30d"
@@ -55,12 +52,11 @@ export default async function AdminUsagePage() {
         />
       </div>
 
-      <div className="mt-5">
+      <div className="mt-4">
         <Card>
           <CardHeader
-            icon={<BarChart3 className="h-4 w-4" />}
             title="Charged vs. cost"
-            description={`Last ${WINDOW_DAYS} days. The dark base of each bar is what Atlas billed us — the gold above it is margin.`}
+            description={`Last ${WINDOW_DAYS} days. The dark base of each bar is what Atlas billed us — the light part above it is margin.`}
           />
           <MarginChart days={days} />
         </Card>
@@ -70,14 +66,14 @@ export default async function AdminUsagePage() {
         <Card>
           <CardHeader title="Day by day" description="Only days with activity." />
           {rows.length === 0 ? (
-            <p className="px-5 py-8 text-center text-[13px] text-white/35">
+            <p className="px-5 py-10 text-center text-[13px] text-[var(--app-text-4)]">
               Nothing was charged in the last {WINDOW_DAYS} days.
             </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[38rem] text-left text-[13px]">
                 <thead>
-                  <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-[0.12em] text-white/30">
+                  <tr className="border-b border-[var(--app-border)] text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
                     <th className="px-5 py-2.5 font-medium">Day</th>
                     <th className="px-5 py-2.5 font-medium">Events</th>
                     <th className="px-5 py-2.5 font-medium">Charged</th>
@@ -85,10 +81,10 @@ export default async function AdminUsagePage() {
                     <th className="px-5 py-2.5 text-right font-medium">Margin</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/[0.05]">
+                <tbody className="divide-y divide-[var(--app-border)]">
                   {rows.map((day) => (
-                    <tr key={day.day} className="transition-colors hover:bg-white/[0.02]">
-                      <td className="px-5 py-2.5 text-white/70">
+                    <tr key={day.day} className="transition-colors hover:bg-[var(--app-surface-hover)]">
+                      <td className="px-5 py-2.5 text-[var(--app-text-2)]">
                         {new Date(`${day.day}T00:00:00Z`).toLocaleDateString("en-US", {
                           day: "numeric",
                           month: "short",
@@ -96,34 +92,34 @@ export default async function AdminUsagePage() {
                           timeZone: "UTC",
                         })}
                       </td>
-                      <td className="px-5 py-2.5 tabular-nums text-white/45">
+                      <td className="px-5 py-2.5 tabular-nums text-[var(--app-text-3)]">
                         {compactNumber(day.events)}
                       </td>
-                      <td className="px-5 py-2.5 tabular-nums text-white/70">
+                      <td className="px-5 py-2.5 tabular-nums text-[var(--app-text-2)]">
                         {usdPrecise(day.charged)}
                       </td>
-                      <td className="px-5 py-2.5 tabular-nums text-white/45">
+                      <td className="px-5 py-2.5 tabular-nums text-[var(--app-text-3)]">
                         {usdPrecise(day.atlasCost)}
                       </td>
-                      <td className="px-5 py-2.5 text-right tabular-nums font-medium text-[var(--gold-light)]">
+                      <td className="px-5 py-2.5 text-right tabular-nums font-medium text-[var(--app-text)]">
                         {usdPrecise(day.margin)}
                       </td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
-                  <tr className="border-t border-white/[0.08] text-[12.5px] font-semibold">
-                    <td className="px-5 py-3 text-white/60">Total</td>
-                    <td className="px-5 py-3 tabular-nums text-white/60">
+                  <tr className="border-t border-[var(--app-border)] text-[12.5px] font-semibold">
+                    <td className="px-5 py-3 text-[var(--app-text-2)]">Total</td>
+                    <td className="px-5 py-3 tabular-nums text-[var(--app-text-2)]">
                       {compactNumber(events)}
                     </td>
-                    <td className="px-5 py-3 tabular-nums text-white/85">
+                    <td className="px-5 py-3 tabular-nums text-[var(--app-text)]">
                       {usdPrecise(charged)}
                     </td>
-                    <td className="px-5 py-3 tabular-nums text-white/60">
+                    <td className="px-5 py-3 tabular-nums text-[var(--app-text-2)]">
                       {usdPrecise(atlasCost)}
                     </td>
-                    <td className="px-5 py-3 text-right tabular-nums text-[var(--gold-light)]">
+                    <td className="px-5 py-3 text-right tabular-nums text-[var(--app-text)]">
                       {usdPrecise(margin)}
                     </td>
                   </tr>

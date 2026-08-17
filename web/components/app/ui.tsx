@@ -1,7 +1,15 @@
 import type { ReactNode } from "react";
 
-import { asStatus, STATUS_LABEL, STATUS_STYLE, type ModelStatus } from "@/lib/status";
+import { asStatus, STATUS_DOT, STATUS_LABEL, type ModelStatus } from "@/lib/status";
 import { cn } from "@/lib/utils";
+
+/**
+ * Primitívy /app sekcie — monochróm podľa Efferd referencie (invertovanej).
+ * Farba je výhradne signál: zelená/červená delta a status bodky. Zlatá nikde.
+ *
+ * Triedy `app-*` sú definované v `globals.css` v app-scoped bloku; landing
+ * a auth používajú vlastnú (zlatú) sadu a tento súbor sa ich nedotýka.
+ */
 
 /** Nadpis stránky s podnadpisom a miestom na akcie vpravo. */
 export function PageHeader({
@@ -16,28 +24,27 @@ export function PageHeader({
   eyebrow?: string;
 }) {
   return (
-    <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+    <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
-        {eyebrow && (
-          <p className="mb-1.5 text-[10.5px] font-semibold uppercase tracking-[0.18em] text-[var(--gold)]/70">
-            {eyebrow}
-          </p>
-        )}
-        <h1 className="text-balance-tight text-[26px] font-semibold text-white sm:text-[30px]">
+        {eyebrow && <p className="app-group-label mb-2">{eyebrow}</p>}
+        <h1 className="text-[24px] font-semibold tracking-[-0.02em] text-[var(--app-text)]">
           {title}
         </h1>
         {description && (
-          <p className="mt-1.5 max-w-2xl text-[13.5px] leading-relaxed text-white/45">
+          <p className="mt-2 max-w-2xl text-[13px] leading-relaxed text-[var(--app-text-3)]">
             {description}
           </p>
         )}
       </div>
-      {actions && <div className="flex shrink-0 items-center gap-2.5">{actions}</div>}
+      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </div>
   );
 }
 
-/** Základná karta appky — tmavý povrch, jemný lem, hlboký tieň. */
+/**
+ * Základná karta appky. `gold` ostáva v API kvôli volajúcim, ale v monochróme
+ * znamená len o stupeň výraznejší lem — žiadny farebný akcent.
+ */
 export function Card({
   className,
   children,
@@ -48,19 +55,13 @@ export function Card({
   gold?: boolean;
 }) {
   return (
-    <div
-      className={cn(
-        "widget-depth rounded-2xl",
-        gold && "widget-depth-gold",
-        className,
-      )}
-    >
+    <div className={cn("app-card", gold && "border-[var(--app-border-strong)]", className)}>
       {children}
     </div>
   );
 }
 
-/** Hlavička sekcie vnútri karty. */
+/** Hlavička sekcie vnútri karty — titulok, popis, akcie. Žiadne ikonové chipy. */
 export function CardHeader({
   title,
   description,
@@ -73,65 +74,101 @@ export function CardHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="flex items-start justify-between gap-4 border-b border-white/[0.06] px-5 py-4">
-      <div className="flex min-w-0 items-start gap-3">
-        {icon && (
-          <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-[rgba(212,175,55,0.22)] bg-[rgba(212,175,55,0.07)] text-[var(--gold)]">
-            {icon}
-          </span>
+    <div className="flex items-start justify-between gap-4 border-b border-[var(--app-border)] px-5 py-4">
+      <div className="min-w-0">
+        <h2 className="flex items-center gap-2 text-[14px] font-medium tracking-[-0.01em] text-[var(--app-text)]">
+          {icon && <span className="text-[var(--app-text-4)]">{icon}</span>}
+          {title}
+        </h2>
+        {description && (
+          <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--app-text-3)]">
+            {description}
+          </p>
         )}
-        <div className="min-w-0">
-          <h2 className="text-[15px] font-semibold tracking-tight text-white">{title}</h2>
-          {description && (
-            <p className="mt-1 text-[12.5px] leading-relaxed text-white/40">{description}</p>
-          )}
-        </div>
       </div>
       {actions && <div className="shrink-0">{actions}</div>}
     </div>
   );
 }
 
-/** Malá dlaždica s číslom. */
+/**
+ * Delta oproti minulému týždňu — jediné miesto v appke, kde smie byť farba.
+ * `null` znamená „nedá sa spočítať" a nevykreslíme nič.
+ */
+export function Delta({
+  value,
+  caption = "vs last week",
+}: {
+  value: number | null;
+  caption?: string;
+}) {
+  if (value === null || !Number.isFinite(value)) return null;
+  const up = value >= 0;
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11.5px]">
+      <span
+        className="tabular-nums"
+        style={{ color: up ? "var(--app-up)" : "var(--app-down)" }}
+      >
+        {up ? "▲" : "▼"} {Math.abs(value).toFixed(1)}%
+      </span>
+      <span className="text-[var(--app-text-4)]">{caption}</span>
+    </span>
+  );
+}
+
+/**
+ * Dlaždica so štatistikou: malý label, veľké čisté číslo, drobná poznámka
+ * alebo delta pod ním — presne ako referencia.
+ */
 export function StatTile({
   label,
   value,
   hint,
   icon,
+  delta,
+  deltaCaption,
 }: {
   label: string;
   value: ReactNode;
   hint?: string;
   icon?: ReactNode;
+  /** Percentuálna zmena; `null`/`undefined` = nezobrazovať. */
+  delta?: number | null;
+  deltaCaption?: string;
 }) {
   return (
-    <div className="widget-depth rounded-2xl px-4 py-3.5">
-      <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.12em] text-white/35">
-        {icon}
+    <div className="app-card px-5 py-4">
+      <div className="flex items-center gap-2 text-[12px] font-normal text-[var(--app-text-3)]">
+        {icon && <span className="text-[var(--app-text-4)]">{icon}</span>}
         {label}
       </div>
-      <p className="mt-2 text-[22px] font-semibold tabular-nums text-white">{value}</p>
-      {hint && <p className="mt-0.5 text-[11.5px] text-white/30">{hint}</p>}
+      <p className="mt-2.5 text-[28px] font-semibold leading-none tracking-[-0.03em] tabular-nums text-[var(--app-text)]">
+        {value}
+      </p>
+      <div className="mt-2.5 min-h-[17px]">
+        {delta !== undefined && delta !== null ? (
+          <Delta value={delta} caption={deltaCaption} />
+        ) : (
+          hint && <span className="text-[11.5px] text-[var(--app-text-4)]">{hint}</span>
+        )}
+      </div>
     </div>
   );
 }
 
-/** Badge stavu modelky. */
+/** Stav modelky — bodka + text, žiadny farebný obdĺžnik. */
 export function StatusBadge({ status }: { status: string }) {
   const value: ModelStatus = asStatus(status);
   return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em]",
-        STATUS_STYLE[value],
-      )}
-    >
+    <span className="inline-flex items-center gap-1.5 text-[12px] text-[var(--app-text-2)]">
+      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", STATUS_DOT[value])} />
       {STATUS_LABEL[value]}
     </span>
   );
 }
 
-/** Prázdny stav s ikonou, textom a jednou akciou. */
+/** Prázdny stav — čistý rám, tichá ikona, jedna akcia. */
 export function EmptyState({
   icon,
   title,
@@ -144,21 +181,22 @@ export function EmptyState({
   action?: ReactNode;
 }) {
   return (
-    <div className="relative overflow-hidden rounded-3xl border border-white/[0.07] bg-[linear-gradient(160deg,rgba(24,24,24,0.75),rgba(6,6,6,0.9))] px-6 py-16 text-center">
-      <div className="gold-halo pointer-events-none absolute left-1/2 top-0 h-[320px] w-[320px] -translate-x-1/2 -translate-y-1/2 opacity-60" />
-      <div className="relative mx-auto flex max-w-md flex-col items-center">
-        <span className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[rgba(212,175,55,0.28)] bg-[rgba(212,175,55,0.08)] text-[var(--gold)]">
+    <div className="app-card px-6 py-16 text-center">
+      <div className="mx-auto flex max-w-md flex-col items-center">
+        <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-[var(--app-border)] text-[var(--app-text-4)]">
           {icon}
         </span>
-        <h3 className="mt-5 text-[18px] font-semibold text-white">{title}</h3>
-        <p className="mt-2 text-[13.5px] leading-relaxed text-white/45">{description}</p>
-        {action && <div className="mt-7">{action}</div>}
+        <h3 className="mt-5 text-[15px] font-medium text-[var(--app-text)]">{title}</h3>
+        <p className="mt-2 text-[13px] leading-relaxed text-[var(--app-text-3)]">
+          {description}
+        </p>
+        {action && <div className="mt-6">{action}</div>}
       </div>
     </div>
   );
 }
 
-/** Bloček s vysvetlením / upozornením. */
+/** Bloček s vysvetlením / upozornením. Tón mení len farbu textu a lemu. */
 export function Callout({
   tone = "neutral",
   children,
@@ -169,21 +207,67 @@ export function Callout({
   icon?: ReactNode;
 }) {
   const tones = {
-    neutral: "border-white/[0.08] bg-white/[0.03] text-white/55",
-    gold: "border-[rgba(212,175,55,0.28)] bg-[rgba(212,175,55,0.07)] text-[var(--gold-light)]",
-    danger: "border-[#7a2b23] bg-[#2a100d] text-[#ffb3a7]",
-    success: "border-[#2e7d52]/45 bg-[#0f2a1d] text-[#8ff0bb]",
+    neutral: "border-[var(--app-border)] bg-[#0c0c0c] text-[var(--app-text-2)]",
+    // `gold` ostáva v API kvôli volajúcim — v monochróme je to neutrálny dôraz.
+    gold: "border-[var(--app-border-strong)] bg-[#0e0e0e] text-[var(--app-text-2)]",
+    danger: "border-[rgba(248,113,113,0.28)] bg-[rgba(248,113,113,0.05)] text-[#fca5a5]",
+    success: "border-[rgba(74,222,128,0.24)] bg-[rgba(74,222,128,0.04)] text-[#86efac]",
   } as const;
 
   return (
     <div
       className={cn(
-        "flex items-start gap-2.5 rounded-xl border px-3.5 py-3 text-[12.5px] leading-relaxed",
+        "flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-[12.5px] leading-relaxed",
         tones[tone],
       )}
     >
-      {icon && <span className="mt-px shrink-0">{icon}</span>}
+      {icon && <span className="mt-px shrink-0 opacity-70">{icon}</span>}
       <div className="min-w-0">{children}</div>
     </div>
+  );
+}
+
+/* --------------------------------------------------------------------------
+   Tabuľky — čisté riadky, tenké deliace čiary, žiadne zebra farby.
+-------------------------------------------------------------------------- */
+
+export function TableWrap({
+  children,
+  minWidth,
+}: {
+  children: ReactNode;
+  minWidth?: string;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table
+        className="w-full text-left text-[13px]"
+        style={minWidth ? { minWidth } : undefined}
+      >
+        {children}
+      </table>
+    </div>
+  );
+}
+
+export function Th({
+  children,
+  align = "left",
+  className,
+}: {
+  children?: ReactNode;
+  align?: "left" | "right";
+  className?: string;
+}) {
+  return (
+    <th
+      className={cn(
+        "px-5 py-2.5 text-[11px] font-medium uppercase tracking-[0.1em] text-[var(--app-text-4)]",
+        align === "right" && "text-right",
+        className,
+      )}
+    >
+      {children}
+    </th>
   );
 }

@@ -132,14 +132,14 @@ export function UsersTable({
   return (
     <>
       <div className="relative mb-4 max-w-sm">
-        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-white/25" />
+        <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--app-text-4)]" />
         <input
           type="search"
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search by email or id"
           aria-label="Search accounts"
-          className="glass-input py-2.5! pl-10! text-[13px]!"
+          className="app-input pl-9! text-[13px]!"
         />
       </div>
 
@@ -147,7 +147,7 @@ export function UsersTable({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[54rem] text-left text-[13px]">
             <thead>
-              <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-[0.12em] text-white/30">
+              <tr className="border-b border-[var(--app-border)] text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
                 <th className="px-5 py-2.5 font-medium">Account</th>
                 <th className="px-5 py-2.5 font-medium">Models</th>
                 <th className="px-5 py-2.5 font-medium">Spend 30d</th>
@@ -159,40 +159,40 @@ export function UsersTable({
                 <th className="px-5 py-2.5 text-right font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/[0.05]">
+            <tbody className="divide-y divide-[var(--app-border)]">
               {rows.map((row) => {
                 const busy = pendingId === row.id;
                 return (
                   <tr
                     key={row.id}
                     className={cn(
-                      "transition-colors hover:bg-white/[0.02]",
+                      "transition-colors hover:bg-[var(--app-surface-hover)]",
                       busy && "opacity-60",
                     )}
                   >
                     <td className="px-5 py-3">
                       <div className="flex min-w-0 items-center gap-2">
-                        <span className="truncate text-white/85" title={row.id}>
+                        <span className="truncate text-[var(--app-text)]" title={row.id}>
                           {row.email || "—"}
                         </span>
                         {row.id === viewerId && (
-                          <span className="shrink-0 rounded-full border border-white/10 px-1.5 py-0.5 text-[10px] uppercase tracking-[0.1em] text-white/35">
+                          <span className="shrink-0 rounded-full border border-[var(--app-border)] px-1.5 py-0.5 text-[10px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
                             You
                           </span>
                         )}
                         {viewerRole !== "superadmin" && <RoleBadge role={row.role} />}
                       </div>
-                      <p className="mt-0.5 text-[11.5px] text-white/25">
+                      <p className="mt-0.5 text-[11.5px] text-[var(--app-text-4)]">
                         joined <RelativeTime iso={row.createdAt} />
                       </p>
                     </td>
-                    <td className="px-5 py-3 tabular-nums text-white/70">
+                    <td className="px-5 py-3 tabular-nums text-[var(--app-text-2)]">
                       {compactNumber(row.modelsCount)}
                     </td>
-                    <td className="px-5 py-3 tabular-nums text-white/70">
+                    <td className="px-5 py-3 tabular-nums text-[var(--app-text-2)]">
                       {usdPrecise(row.spend30d)}
                     </td>
-                    <td className="px-5 py-3 tabular-nums font-medium text-[var(--gold-light)]">
+                    <td className="px-5 py-3 tabular-nums font-medium text-[var(--app-text)]">
                       {usd(row.creditBalance)}
                     </td>
                     <td className="px-5 py-3">
@@ -228,7 +228,7 @@ export function UsersTable({
                         type="button"
                         disabled={busy}
                         onClick={() => setCreditFor(row)}
-                        className="btn-modern-dark h-8 px-3 text-[12px]"
+                        className="app-btn app-btn-ghost h-8 px-3 text-[12px]"
                       >
                         {busy ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -245,7 +245,7 @@ export function UsersTable({
                 <tr>
                   <td
                     colSpan={viewerRole === "superadmin" ? 7 : 6}
-                    className="px-5 py-10 text-center text-[13px] text-white/35"
+                    className="px-5 py-10 text-center text-[13px] text-[var(--app-text-4)]"
                   >
                     No account matches “{query}”.
                   </td>
@@ -295,14 +295,14 @@ export function UsersTable({
             <button
               type="button"
               onClick={() => changeRole(roleChange.row, roleChange.next)}
-              className="btn-modern-light h-11 flex-1 text-[13.5px]"
+              className="app-btn app-btn-primary h-9 flex-1"
             >
               Yes, make {ROLE_LABEL[roleChange.next]}
             </button>
             <button
               type="button"
               onClick={() => setRoleChange(null)}
-              className="btn-modern-dark h-11 px-5 text-[13.5px]"
+              className="app-btn app-btn-ghost h-9 px-4"
             >
               Cancel
             </button>
@@ -334,7 +334,7 @@ function AdminSelect({
       value={value}
       disabled={disabled}
       onChange={(event) => onChange(event.target.value)}
-      className="glass-input w-auto! cursor-pointer appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 fill=%22none%22 stroke=%22%23d4af37%22 stroke-width=%222%22><path d=%22M2 4l4 4 4-4%22/></svg>')] bg-[length:10px] bg-[right_0.7rem_center] bg-no-repeat py-1.5! pl-3! pr-8! text-[12.5px]! disabled:opacity-50"
+      className="app-input app-select w-auto! py-1.5! pl-3! text-[12.5px]! disabled:opacity-50"
     >
       {options.map((option) => (
         <option key={option.value} value={option.value} className="bg-[#0d0d0d]">
@@ -367,7 +367,7 @@ function CreditForm({
       <div>
         <label
           htmlFor="credit-amount"
-          className="mb-2 block text-[12.5px] font-medium tracking-tight text-white/60"
+          className="mb-2 block text-[12.5px] font-medium tracking-tight text-[var(--app-text-2)]"
         >
           Amount (USD)
         </label>
@@ -378,13 +378,13 @@ function CreditForm({
           inputMode="decimal"
           autoFocus
           placeholder="50"
-          className="glass-input"
+          className="app-input"
         />
       </div>
       <div>
         <label
           htmlFor="credit-note"
-          className="mb-2 block text-[12.5px] font-medium tracking-tight text-white/60"
+          className="mb-2 block text-[12.5px] font-medium tracking-tight text-[var(--app-text-2)]"
         >
           Note
         </label>
@@ -394,13 +394,13 @@ function CreditForm({
           onChange={(event) => setNote(event.target.value)}
           maxLength={200}
           placeholder="e.g. bank transfer #1042"
-          className="glass-input"
+          className="app-input"
         />
-        <p className="mt-2 text-[11.5px] text-white/30">
+        <p className="mt-2 text-[11.5px] text-[var(--app-text-4)]">
           Stored with your name in the credit ledger.
         </p>
       </div>
-      <button type="submit" disabled={!valid} className="btn-modern-light h-11 w-full text-[14px]">
+      <button type="submit" disabled={!valid} className="app-btn app-btn-primary h-10 w-full">
         Apply
       </button>
     </form>
@@ -442,7 +442,7 @@ function Modal({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.18 }}
             onClick={onClose}
-            className="absolute inset-0 bg-black/75 backdrop-blur-sm"
+            className="absolute inset-0 bg-black/70"
           />
           <motion.div
             ref={panelRef}
@@ -453,19 +453,19 @@ function Modal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.97, y: 8 }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-            className="glass-panel relative w-full max-w-[26rem] rounded-3xl p-7"
+            className="app-panel relative w-full max-w-[24rem] p-6"
           >
             <button
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="absolute right-4 top-4 rounded-full p-1.5 text-white/35 transition-colors hover:text-[var(--gold-light)]"
+              className="absolute right-3 top-3 rounded-md p-1.5 text-[var(--app-text-4)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
             >
               <X className="h-4 w-4" />
             </button>
             <h2 className="text-[19px] font-semibold tracking-tight text-white">{title}</h2>
             {description && (
-              <p className="mt-1.5 text-[13px] leading-relaxed text-white/45">{description}</p>
+              <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--app-text-3)]">{description}</p>
             )}
             {children}
           </motion.div>

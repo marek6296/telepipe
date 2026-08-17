@@ -20,7 +20,7 @@ export function ModelTabs({ modelId, needsSetup }: { modelId: string; needsSetup
   const pathname = usePathname();
 
   return (
-    <nav className="-mx-1 mb-7 flex gap-1 overflow-x-auto border-b border-white/[0.07] pb-px">
+    <nav className="-mx-1 mb-8 flex gap-1 overflow-x-auto border-b border-[var(--app-border)] pb-px">
       {TABS.map((tab) => {
         const href = `/app/m/${modelId}/${tab.slug}`;
         const active = pathname === href || pathname.startsWith(`${href}/`);
@@ -31,22 +31,22 @@ export function ModelTabs({ modelId, needsSetup }: { modelId: string; needsSetup
             href={href}
             aria-current={active ? "page" : undefined}
             className={cn(
-              "relative flex shrink-0 items-center gap-2 rounded-t-lg px-3.5 py-2.5 text-[13px] font-medium transition-colors",
+              "relative flex shrink-0 items-center gap-2 px-3 py-2.5 text-[13px] transition-colors",
               active
-                ? "text-[var(--gold-light)]"
-                : "text-white/45 hover:text-white/80",
+                ? "font-medium text-[var(--app-text)]"
+                : "text-[var(--app-text-3)] hover:text-[var(--app-text-2)]",
             )}
           >
-            <Icon className="h-[15px] w-[15px]" />
+            <Icon className="h-4 w-4" strokeWidth={1.75} />
             {tab.label}
             {tab.slug === "telegram" && needsSetup && (
               <span
-                className="h-1.5 w-1.5 rounded-full bg-[var(--gold)]"
+                className="h-1.5 w-1.5 rounded-full bg-[#facc15]"
                 title="Setup not finished"
               />
             )}
             {active && (
-              <span className="absolute inset-x-2 -bottom-px h-[2px] rounded-full bg-[var(--gold)]" />
+              <span className="absolute inset-x-0 -bottom-px h-px bg-[var(--app-text)]" />
             )}
           </Link>
         );

@@ -92,7 +92,7 @@ export function FanvueConnectCard({
           {fanvue.connected ? (
             <div className="flex flex-col gap-5">
               <div className="flex flex-wrap items-center gap-2.5">
-                <span className="inline-flex items-center gap-1.5 rounded-full border border-[#2e7d52]/45 bg-[#0f2a1d] px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8ff0bb]">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-[rgba(74,222,128,0.28)] px-2.5 py-1 text-[11px] font-medium text-[#86efac]">
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   Connected
                 </span>
@@ -100,14 +100,14 @@ export function FanvueConnectCard({
                   {fanvue.handle ? `@${fanvue.handle}` : fanvue.display_name || "Fanvue creator"}
                 </span>
                 {fanvue.handle && fanvue.display_name && (
-                  <span className="text-[13px] text-white/40">{fanvue.display_name}</span>
+                  <span className="text-[13px] text-[var(--app-text-3)]">{fanvue.display_name}</span>
                 )}
               </div>
 
               <dl className="grid gap-x-8 gap-y-3 sm:grid-cols-2">
                 <Row label="Access token expires">
                   {fanvue.expires_at ? (
-                    <span className={expired ? "text-[#ffb3a7]" : undefined}>
+                    <span className={expired ? "text-[#fca5a5]" : undefined}>
                       <RelativeTime iso={fanvue.expires_at} />
                       {expired && " — the worker will refresh it"}
                     </span>
@@ -119,16 +119,16 @@ export function FanvueConnectCard({
                   {fanvue.updated_at ? dateTime(fanvue.updated_at) : "—"}
                 </Row>
                 <Row label="Creator ID">
-                  <code className="break-all font-mono text-[11.5px] text-white/50">
+                  <code className="break-all font-mono text-[11.5px] text-[var(--app-text-3)]">
                     {fanvue.creator_uuid || "—"}
                   </code>
                 </Row>
               </dl>
 
-              <div className="flex items-start justify-between gap-4 rounded-xl border border-white/[0.06] bg-white/[0.02] px-4 py-3">
+              <div className="flex items-start justify-between gap-4 rounded-xl border border-[var(--app-border)] bg-[#0c0c0c] px-4 py-3">
                 <div className="min-w-0">
-                  <p className="text-[13px] font-medium text-white/80">Agent enabled</p>
-                  <p className="mt-1 text-[11.5px] leading-relaxed text-white/30">
+                  <p className="text-[13px] font-medium text-[var(--app-text-2)]">Agent enabled</p>
+                  <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
                     When enabled, the AI replies to Fanvue messages using this
                     model&apos;s persona and credits.
                   </p>
@@ -142,7 +142,7 @@ export function FanvueConnectCard({
                   disabled={pending}
                   className={cn(
                     "relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-60",
-                    enabled ? "bg-[var(--gold)]" : "bg-white/[0.12]",
+                    enabled ? "bg-[var(--app-text)]" : "bg-[#2e2e2e]",
                   )}
                 >
                   <span
@@ -156,14 +156,14 @@ export function FanvueConnectCard({
 
               {scopes.length > 0 && (
                 <div>
-                  <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-white/35">
+                  <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--app-text-4)]">
                     Permissions granted
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {scopes.map((scope) => (
                       <span
                         key={scope}
-                        className="rounded-md border border-white/[0.08] bg-white/[0.03] px-2 py-1 font-mono text-[11px] text-white/50"
+                        className="rounded-md border border-[var(--app-border)] bg-[#0c0c0c] px-2 py-1 font-mono text-[11px] text-[var(--app-text-3)]"
                       >
                         {scope}
                       </span>
@@ -179,7 +179,7 @@ export function FanvueConnectCard({
               )}
 
               <div className="flex flex-wrap items-center gap-2.5">
-                <a href={`/api/fanvue/start?model=${modelId}`} className="btn-modern-dark h-10 px-5 text-[13px]">
+                <a href={`/api/fanvue/start?model=${modelId}`} className="app-btn app-btn-ghost h-9 px-4">
                   <ExternalLink className="h-3.5 w-3.5" />
                   Reconnect
                 </a>
@@ -187,7 +187,7 @@ export function FanvueConnectCard({
                   type="button"
                   onClick={disconnect}
                   disabled={pending}
-                  className="btn-modern-dark h-10 px-5 text-[13px]"
+                  className="app-btn app-btn-ghost h-9 px-4"
                 >
                   {pending ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -198,14 +198,14 @@ export function FanvueConnectCard({
                 </button>
               </div>
               {failed && (
-                <p role="alert" className="text-[11.5px] text-[#ffb3a7]">
+                <p role="alert" className="text-[11.5px] text-[#fca5a5]">
                   {failed}
                 </p>
               )}
             </div>
           ) : (
             <div className="flex flex-col gap-5">
-              <p className="max-w-xl text-[13.5px] leading-relaxed text-white/45">
+              <p className="max-w-xl text-[13.5px] leading-relaxed text-[var(--app-text-3)]">
                 Not connected. You will be sent to Fanvue to sign in and approve the
                 permissions. Nothing is posted or sent until you turn the Fanvue agent on.
               </p>
@@ -214,14 +214,14 @@ export function FanvueConnectCard({
                 <div>
                   <a
                     href={`/api/fanvue/start?model=${modelId}`}
-                    className="btn-modern-light h-10 px-5 text-[13px]"
+                    className="app-btn app-btn-primary h-9 px-4"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
                     Connect Fanvue
                   </a>
                 </div>
               ) : (
-                <Callout tone="gold" icon={<AlertTriangle className="h-4 w-4" />}>
+                <Callout tone="danger" icon={<AlertTriangle className="h-3.5 w-3.5" strokeWidth={1.75} />}>
                   Fanvue is not configured on this deployment yet
                   (<code className="font-mono">FANVUE_CLIENT_ID</code> /{" "}
                   <code className="font-mono">FANVUE_CLIENT_SECRET</code>).
@@ -244,10 +244,10 @@ export function FanvueConnectCard({
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="min-w-0">
-      <dt className="text-[11px] font-medium uppercase tracking-[0.12em] text-white/35">
+      <dt className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--app-text-4)]">
         {label}
       </dt>
-      <dd className="mt-1 text-[13.5px] text-white/70">{children}</dd>
+      <dd className="mt-1 text-[13.5px] text-[var(--app-text-2)]">{children}</dd>
     </div>
   );
 }

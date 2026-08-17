@@ -304,17 +304,17 @@ function ConnectionStrip({
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 rounded-2xl border px-5 py-4 sm:flex-row sm:items-center sm:justify-between",
+        "flex flex-col gap-3 rounded-lg border px-5 py-4 sm:flex-row sm:items-center sm:justify-between",
         connected
-          ? "border-[#2e7d52]/40 bg-[#0d2118]"
-          : "border-white/[0.08] bg-white/[0.02]",
+          ? "border-[rgba(74,222,128,0.24)] bg-[#0c0c0c]"
+          : "border-[var(--app-border)] bg-[#0c0c0c]",
       )}
     >
       <div className="flex items-center gap-3">
         <span
           className={cn(
             "flex h-9 w-9 items-center justify-center rounded-xl",
-            connected ? "bg-[#123a28] text-[#6ee7a8]" : "bg-white/[0.05] text-white/40",
+            connected ? "bg-[#123a28] text-[#6ee7a8]" : "bg-[#141414] text-[var(--app-text-3)]",
           )}
         >
           {connected ? (
@@ -327,7 +327,7 @@ function ConnectionStrip({
           <p className="text-[13.5px] font-semibold text-white">
             {connected ? "Telegram connected" : "Telegram not connected"}
           </p>
-          <p className="text-[12.5px] text-white/40">
+          <p className="text-[12.5px] text-[var(--app-text-3)]">
             {connected
               ? phone
                 ? `Signed in as ${phone}`
@@ -341,7 +341,7 @@ function ConnectionStrip({
         <button
           type="button"
           onClick={onReconnect}
-          className="btn-modern-dark h-9 shrink-0 px-4 text-[12.5px]"
+          className="app-btn app-btn-ghost h-9 shrink-0 px-4"
         >
           <RefreshCw className="h-3.5 w-3.5" />
           Reconnect
@@ -350,7 +350,7 @@ function ConnectionStrip({
         <button
           type="button"
           onClick={onCancelReconnect}
-          className="btn-modern-dark h-9 shrink-0 px-4 text-[12.5px]"
+          className="app-btn app-btn-ghost h-9 shrink-0 px-4"
         >
           Cancel
         </button>
@@ -385,10 +385,10 @@ function Stepper({
               className={cn(
                 "flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors",
                 current
-                  ? "border-[rgba(212,175,55,0.45)] bg-[rgba(212,175,55,0.1)] text-[var(--gold-light)]"
+                  ? "border-[var(--app-border-strong)] bg-[var(--app-active)] text-[var(--app-text)]"
                   : done
-                    ? "border-[#2e7d52]/35 bg-[#0f2a1d]/60 text-[#79dda7]"
-                    : "border-white/[0.07] bg-white/[0.02] text-white/30",
+                    ? "border-[rgba(74,222,128,0.28)] bg-[#0c0c0c] text-[#86efac]"
+                    : "border-[var(--app-border)] bg-[#0c0c0c] text-[var(--app-text-4)]",
               )}
             >
               {done && !current ? (
@@ -400,7 +400,7 @@ function Stepper({
               <span className="sm:hidden">{step.n}</span>
             </div>
             {index < STEPS.length - 1 && (
-              <span className="h-px w-3 bg-white/[0.09] sm:w-5" />
+              <span className="h-px w-3 bg-[#26262a] sm:w-5" />
             )}
           </li>
         );
@@ -431,7 +431,6 @@ function StepApiKeys({
   return (
     <Card>
       <CardHeader
-        icon={<KeyRound className="h-4 w-4" />}
         title="Telegram API keys"
         description="Telegram gives every account its own app keys. You only do this once per model."
       />
@@ -461,7 +460,7 @@ function StepApiKeys({
           <Callout tone="neutral">
             We store these encrypted and use them only to keep her account online.
           </Callout>
-          <button type="button" onClick={onContinue} className="btn-modern-light h-11 w-full">
+          <button type="button" onClick={onContinue} className="app-btn app-btn-primary h-10 w-full">
             Continue
             <ArrowRight className="h-4 w-4" />
           </button>
@@ -493,7 +492,6 @@ function StepPhone({
   return (
     <Card>
       <CardHeader
-        icon={<Phone className="h-4 w-4" />}
         title="Her phone number"
         description="Telegram sends a login code to this account — have the phone (or her Telegram app) at hand."
       />
@@ -506,7 +504,7 @@ function StepPhone({
             placeholder="+421901234567"
             inputMode="tel"
           />
-          <p className="mt-2 text-[11.5px] text-white/30">
+          <p className="mt-2 text-[11.5px] text-[var(--app-text-4)]">
             International format, including the country code.
           </p>
         </div>
@@ -527,12 +525,12 @@ function StepPhone({
             type="button"
             onClick={onSend}
             disabled={pending}
-            className="btn-modern-light h-11 px-6"
+            className="app-btn app-btn-primary h-10 px-5"
           >
             {pending && <Loader2 className="h-4 w-4 animate-spin" />}
             Send code
           </button>
-          <button type="button" onClick={onBack} className="btn-modern-dark h-11 px-5">
+          <button type="button" onClick={onBack} className="app-btn app-btn-ghost h-10 px-5">
             Back
           </button>
         </div>
@@ -581,7 +579,6 @@ function StepCode({
   return (
     <Card>
       <CardHeader
-        icon={<Smartphone className="h-4 w-4" />}
         title={
           job.phase === "error"
             ? "Login failed"
@@ -604,17 +601,17 @@ function StepCode({
             <Callout tone="danger" icon={<AlertCircle className="h-3.5 w-3.5" />}>
               {jobError?.body ?? "The login attempt failed."}
             </Callout>
-            <button type="button" onClick={onStartOver} className="btn-modern-light h-11 px-6">
+            <button type="button" onClick={onStartOver} className="app-btn app-btn-primary h-10 px-5">
               Start over
             </button>
           </>
         ) : waiting ? (
-          <div className="flex items-center gap-3 rounded-xl border border-white/[0.07] bg-white/[0.02] px-4 py-5">
-            <Loader2 className="h-4.5 w-4.5 animate-spin text-[var(--gold)]" />
+          <div className="flex items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[#0c0c0c] px-4 py-5">
+            <Loader2 className="h-4.5 w-4.5 animate-spin text-[var(--app-text-2)]" />
             <div>
-              <p className="text-[13.5px] text-white/75">{waitingText[job.phase]}</p>
+              <p className="text-[13.5px] text-[var(--app-text-2)]">{waitingText[job.phase]}</p>
               {stale && (
-                <p className="mt-1 text-[12px] text-white/35">
+                <p className="mt-1 text-[12px] text-[var(--app-text-4)]">
                   Taking longer than usual. If nothing happens within a minute, start over.
                 </p>
               )}
@@ -633,7 +630,7 @@ function StepCode({
               type="button"
               onClick={() => onSubmitPassword(password)}
               disabled={pending || !password}
-              className="btn-modern-light h-11 w-full"
+              className="app-btn app-btn-primary h-10 w-full"
             >
               {pending && <Loader2 className="h-4 w-4 animate-spin" />}
               Confirm password
@@ -653,7 +650,7 @@ function StepCode({
               type="button"
               onClick={() => onSubmitCode(code)}
               disabled={pending || code.length < 4}
-              className="btn-modern-light h-11 w-full"
+              className="app-btn app-btn-primary h-10 w-full"
             >
               {pending && <Loader2 className="h-4 w-4 animate-spin" />}
               Confirm code
@@ -674,7 +671,7 @@ function StepCode({
         )}
 
         {job.phase !== "error" && (
-          <div className="flex items-center justify-between gap-3 border-t border-white/[0.06] pt-4 text-[12px] text-white/35">
+          <div className="flex items-center justify-between gap-3 border-t border-[var(--app-border)] pt-4 text-[12px] text-[var(--app-text-4)]">
             <span>
               {expiresIn > 0
                 ? `This attempt expires in ${formatCountdown(expiresIn)}.`
@@ -683,7 +680,7 @@ function StepCode({
             <button
               type="button"
               onClick={onStartOver}
-              className="text-white/45 underline underline-offset-2 transition-colors hover:text-[var(--gold-light)]"
+              className="text-[var(--app-text-3)] underline underline-offset-2 transition-colors hover:text-[var(--app-text)]"
             >
               Start over
             </button>
@@ -729,20 +726,19 @@ function StepControlBot({
   return (
     <Card>
       <CardHeader
-        icon={<Bot className="h-4 w-4" />}
         title="Your control bot"
         description="A small Telegram bot that pings you about new fans and lets you take over a chat."
       />
       <div className="grid gap-6 p-5 lg:grid-cols-[1fr_1fr]">
         <div className="space-y-5">
           <div>
-            <p className="mb-2.5 text-[12px] font-semibold uppercase tracking-[0.12em] text-white/35">
+            <p className="app-group-label mb-2.5">
               Create the bot
             </p>
             <BotFatherGuide />
           </div>
           <div>
-            <p className="mb-2.5 text-[12px] font-semibold uppercase tracking-[0.12em] text-white/35">
+            <p className="app-group-label mb-2.5">
               Find your chat ID
             </p>
             <OwnerChatGuide />
@@ -781,12 +777,12 @@ function StepControlBot({
             type="button"
             onClick={save}
             disabled={pending || !token || !chatId}
-            className="btn-modern-light h-11 w-full"
+            className="app-btn app-btn-primary h-10 w-full"
           >
             {pending && <Loader2 className="h-4 w-4 animate-spin" />}
             Save and continue
           </button>
-          <p className="text-[11.5px] leading-relaxed text-white/30">
+          <p className="text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
             The token is encrypted before it touches our database, and it never leaves the
             server again.
           </p>
@@ -836,7 +832,6 @@ function StepActivate({
   return (
     <Card gold>
       <CardHeader
-        icon={<Zap className="h-4 w-4" />}
         title={isLive ? `${modelName} is live` : "Ready to go live"}
         description={
           isLive
@@ -845,7 +840,7 @@ function StepActivate({
         }
       />
       <div className="space-y-4 p-5">
-        <ul className="space-y-2 text-[13px] text-white/55">
+        <ul className="space-y-2 text-[13px] text-[var(--app-text-2)]">
           <Ready>Telegram account connected</Ready>
           <Ready>Control bot ready — notifications land in your chat</Ready>
           <Ready>Persona and behaviour can be tuned any time, no restart needed</Ready>
@@ -870,24 +865,24 @@ function StepActivate({
             type="button"
             onClick={activate}
             disabled={pending}
-            className="btn-modern-light h-12 px-7 text-[14.5px]"
+            className="app-btn app-btn-primary h-10 px-5"
           >
             {pending && <Loader2 className="h-4 w-4 animate-spin" />}
             Activate {modelName}
           </button>
         )}
 
-        <div className="flex flex-wrap gap-4 border-t border-white/[0.06] pt-4 text-[12.5px]">
+        <div className="flex flex-wrap gap-4 border-t border-[var(--app-border)] pt-4 text-[12.5px]">
           <Link
             href={`/app/m/${modelId}/persona`}
-            className="text-white/45 transition-colors hover:text-[var(--gold-light)]"
+            className="text-[var(--app-text-3)] transition-colors hover:text-[var(--app-text)]"
           >
             Set up her persona →
           </Link>
           <button
             type="button"
             onClick={onEditBot}
-            className="text-white/45 transition-colors hover:text-[var(--gold-light)]"
+            className="text-[var(--app-text-3)] transition-colors hover:text-[var(--app-text)]"
           >
             Change control bot
           </button>
@@ -929,7 +924,7 @@ function Field({
 }) {
   return (
     <label className="block">
-      <span className="mb-2 block text-[12.5px] font-medium tracking-tight text-white/60">
+      <span className="mb-2 block text-[12.5px] font-medium tracking-tight text-[var(--app-text-2)]">
         {label}
       </span>
       <input
@@ -940,7 +935,7 @@ function Field({
         onChange={(event) => onChange(event.target.value)}
         autoComplete="off"
         spellCheck={false}
-        className={cn("glass-input", mono && "font-mono text-[13px] tracking-tight")}
+        className={cn("app-input", mono && "font-mono text-[13px] tracking-tight")}
       />
     </label>
   );

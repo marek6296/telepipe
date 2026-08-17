@@ -500,3 +500,216 @@ body {
     display: none !important;
   }
 }
+
+/* ===========================================================================
+   /app — monochrómna téma (Efferd, invertovaná)
+
+   POZOR: tento blok je APP-SCOPED. Landing (/) a auth stránky používajú triedy
+   vyššie (btn-modern-*, glass-*, widget-depth, premium-depth-card) a tie sa
+   nesmú meniť. Appka má vlastnú sadu `.app-*` tried — keby sa dizajny niekedy
+   rozišli ešte viac, mení sa len tento blok.
+
+   Farba je v appke výhradne signál: zelená/červená delta a status bodky.
+   Zlatá ostáva jedine v logu.
+=========================================================================== */
+
+.app-scope {
+  --app-bg: #0a0a0a;
+  --app-bg-sidebar: #070707;
+  --app-surface: #101010;
+  --app-surface-hover: #151515;
+  --app-active: #1a1a1a;
+  --app-border: #1f1f1f;
+  --app-border-strong: #2e2e2e;
+  --app-text: #fafafa;
+  --app-text-2: #a1a1aa;
+  --app-text-3: #71717a;
+  --app-text-4: #52525b;
+  --app-up: #4ade80;
+  --app-down: #f87171;
+
+  background: var(--app-bg);
+}
+
+/* Focus ring v appke je biely, nie zlatý (globálne pravidlo vyššie je zlaté). */
+.app-scope :where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.65);
+  outline-offset: 2px;
+}
+
+.app-scope ::selection {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+/* --- Povrchy -------------------------------------------------------------- */
+
+.app-card {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: 12px;
+}
+
+.app-panel {
+  background: #0e0e0e;
+  border: 1px solid var(--app-border-strong);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.7);
+}
+
+.app-divider {
+  border-color: var(--app-border);
+}
+
+/* --- Buttony -------------------------------------------------------------- */
+
+.app-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  border: 1px solid transparent;
+  transition:
+    background-color 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.app-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* Primárny = biely na čiernom (inverzia referencie). */
+.app-btn-primary {
+  background: #fafafa;
+  color: #0a0a0a;
+  font-weight: 600;
+}
+.app-btn-primary:hover:not(:disabled) {
+  background: #ffffff;
+}
+.app-btn-primary:active:not(:disabled) {
+  background: #e4e4e7;
+}
+
+/* Sekundárny = ghost s borderom. */
+.app-btn-ghost {
+  background: transparent;
+  border-color: var(--app-border-strong);
+  color: var(--app-text-2);
+}
+.app-btn-ghost:hover:not(:disabled) {
+  background: var(--app-surface-hover);
+  border-color: #3f3f46;
+  color: var(--app-text);
+}
+
+/* Tichý — bez borderu, len hover podklad. */
+.app-btn-quiet {
+  background: transparent;
+  color: var(--app-text-3);
+}
+.app-btn-quiet:hover:not(:disabled) {
+  background: var(--app-surface-hover);
+  color: var(--app-text);
+}
+
+.app-btn-danger {
+  background: transparent;
+  border-color: rgba(248, 113, 113, 0.32);
+  color: #f87171;
+}
+.app-btn-danger:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.08);
+  border-color: rgba(248, 113, 113, 0.5);
+}
+
+/* --- Formuláre ------------------------------------------------------------ */
+
+.app-input {
+  width: 100%;
+  border-radius: 8px;
+  background: #0c0c0c;
+  border: 1px solid var(--app-border);
+  color: var(--app-text);
+  padding: 0.625rem 0.75rem;
+  font-size: 13.5px;
+  line-height: 1.45;
+  outline: none;
+  transition:
+    border-color 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.app-input::placeholder {
+  color: var(--app-text-4);
+}
+
+.app-input:hover:not(:disabled) {
+  border-color: #2e2e2e;
+}
+
+.app-input:focus,
+.app-input:focus-visible {
+  border-color: #52525b;
+  background: #0f0f0f;
+  outline: none;
+}
+
+.app-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.app-input[aria-invalid="true"] {
+  border-color: rgba(248, 113, 113, 0.55);
+}
+
+/* Select — vlastná šípka, lebo `appearance: none` tú natívnu zhasne. */
+.app-select {
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 2rem;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='none' stroke='%23a1a1aa' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 4.5l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  background-size: 12px 12px;
+}
+
+.app-select option {
+  background: #101010;
+  color: var(--app-text);
+}
+
+.app-label {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  color: var(--app-text-2);
+}
+
+/* Malý sivý nadpis skupiny — sidebar aj sekcie. */
+.app-group-label {
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--app-text-4);
+}
+
+/* --- Scrollbar v appke — bez zlatej --------------------------------------- */
+
+.app-scope ::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}

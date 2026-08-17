@@ -5,11 +5,11 @@ import { LogOut } from "lucide-react";
 
 import { changePasswordAction, signOutEverywhereAction } from "@/app/app/account/actions";
 import {
-  ErrorMessage,
-  NoticeMessage,
-  PasswordField,
-  SubmitButton,
-} from "@/components/auth/form-parts";
+  AppErrorMessage,
+  AppNoticeMessage,
+  AppPasswordField,
+  AppSubmitButton,
+} from "@/components/app/forms/parts";
 
 /** Zmena hesla — staré heslo overujeme cez signInWithPassword. */
 export function ChangePasswordForm() {
@@ -17,27 +17,27 @@ export function ChangePasswordForm() {
 
   return (
     <form action={formAction} className="max-w-sm space-y-4 p-5">
-      <PasswordField
+      <AppPasswordField
         label="Current password"
         name="current"
         autoComplete="current-password"
       />
-      <PasswordField
+      <AppPasswordField
         label="New password"
         name="password"
         autoComplete="new-password"
         hint="At least 8 characters."
       />
-      <PasswordField
+      <AppPasswordField
         label="Repeat new password"
         name="confirm"
         autoComplete="new-password"
       />
 
-      {state?.error && <ErrorMessage>{state.error}</ErrorMessage>}
-      {state?.notice && <NoticeMessage>{state.notice}</NoticeMessage>}
+      {state?.error && <AppErrorMessage>{state.error}</AppErrorMessage>}
+      {state?.notice && <AppNoticeMessage>{state.notice}</AppNoticeMessage>}
 
-      <SubmitButton className="h-11">Change password</SubmitButton>
+      <AppSubmitButton>Change password</AppSubmitButton>
     </form>
   );
 }
@@ -46,8 +46,8 @@ export function ChangePasswordForm() {
 export function SignOutEverywhereButton() {
   return (
     <form action={signOutEverywhereAction}>
-      <button type="submit" className="btn-modern-dark h-10 px-5 text-[13px]">
-        <LogOut className="h-4 w-4" />
+      <button type="submit" className="app-btn app-btn-ghost h-9 px-4">
+        <LogOut className="h-3.5 w-3.5" strokeWidth={1.75} />
         Sign out everywhere
       </button>
     </form>

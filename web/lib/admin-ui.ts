@@ -30,10 +30,11 @@ export const ROLE_LABEL: Record<AccountRole, string> = {
   superadmin: "Superadmin",
 };
 
+/** Monochróm — rola je hierarchia, tú nesie jas textu, nie farba. */
 export const ROLE_STYLE: Record<AccountRole, string> = {
-  user: "border-white/10 bg-white/[0.04] text-white/45",
-  admin: "border-[rgba(212,175,55,0.35)] bg-[rgba(212,175,55,0.1)] text-[var(--gold-light)]",
-  superadmin: "border-[rgba(212,175,55,0.6)] bg-[rgba(212,175,55,0.18)] text-[var(--gold-light)]",
+  user: "border-[#1f1f1f] text-[#71717a]",
+  admin: "border-[#3f3f46] text-[#d4d4d8]",
+  superadmin: "border-[#52525b] bg-[#161616] text-[#fafafa]",
 };
 
 export const PLAN_LABEL: Record<Plan, string> = {
@@ -70,15 +71,15 @@ export const FRESHNESS_LABEL: Record<Freshness, string> = {
 };
 
 export const FRESHNESS_STYLE: Record<Freshness, string> = {
-  live: "border-[#2e7d52]/45 bg-[#0f2a1d] text-[#6ee7a8]",
-  stale: "border-[#8a6d1f]/50 bg-[#2a2210] text-[#f2cd6b]",
-  dead: "border-[#7a2b23]/70 bg-[#2a100d] text-[#ffb3a7]",
+  live: "border-[rgba(74,222,128,0.28)] text-[#86efac]",
+  stale: "border-[rgba(250,204,21,0.26)] text-[#fde047]",
+  dead: "border-[rgba(248,113,113,0.3)] text-[#fca5a5]",
 };
 
 export const FRESHNESS_DOT: Record<Freshness, string> = {
   live: "bg-[#4ade80]",
-  stale: "bg-[#f2cd6b]",
-  dead: "bg-[#ff7a6a]",
+  stale: "bg-[#facc15]",
+  dead: "bg-[#f87171]",
 };
 
 /** `7f3a1c9e-93d6-…` → `7f3a1c9e` (celá hodnota ostáva v tooltipe). */

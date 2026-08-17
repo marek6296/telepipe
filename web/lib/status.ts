@@ -15,22 +15,25 @@ export const STATUS_LABEL: Record<ModelStatus, string> = {
   disabled: "Disabled",
 };
 
-/** Tailwind triedy badge-u pre každý stav. */
+/**
+ * Triedy badge-u pre každý stav — monochróm, farba len ako tlmený signál.
+ * (App-only mapa; landing/auth ju nepoužívajú.)
+ */
 export const STATUS_STYLE: Record<ModelStatus, string> = {
-  draft: "border-white/12 bg-white/[0.05] text-white/55",
-  active: "border-[#2e7d52]/45 bg-[#0f2a1d] text-[#6ee7a8]",
-  paused: "border-[#8a6d1f]/50 bg-[#2a2210] text-[#f2cd6b]",
-  error: "border-[#7a2b23]/70 bg-[#2a100d] text-[#ffb3a7]",
-  disabled: "border-white/10 bg-white/[0.03] text-white/35",
+  draft: "border-[#262626] text-[#a1a1aa]",
+  active: "border-[rgba(74,222,128,0.28)] text-[#86efac]",
+  paused: "border-[rgba(250,204,21,0.26)] text-[#fde047]",
+  error: "border-[rgba(248,113,113,0.3)] text-[#fca5a5]",
+  disabled: "border-[#1f1f1f] text-[#52525b]",
 };
 
-/** Farba bodky v zozname / na karte. */
+/** Farba bodky v zozname / na karte — jediné farebné miesto pri stave. */
 export const STATUS_DOT: Record<ModelStatus, string> = {
-  draft: "bg-white/35",
+  draft: "bg-[#52525b]",
   active: "bg-[#4ade80]",
-  paused: "bg-[#f2cd6b]",
-  error: "bg-[#ff7a6a]",
-  disabled: "bg-white/20",
+  paused: "bg-[#facc15]",
+  error: "bg-[#f87171]",
+  disabled: "bg-[#3f3f46]",
 };
 
 const REASON_TEXT: Record<string, string> = {

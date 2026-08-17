@@ -54,19 +54,19 @@ export function ModelPowerButton({
         disabled={pending || blocked}
         title={blocked ? "Connect her Telegram account first" : undefined}
         className={cn(
-          activate ? "btn-modern-light" : "btn-modern-dark",
-          size === "sm" ? "h-9 px-4 text-[12.5px]" : "h-10 px-5 text-[13px]",
+          activate ? "app-btn app-btn-primary" : "app-btn app-btn-ghost",
+          size === "sm" ? "h-8 px-3" : "h-9 px-4",
         )}
       >
         {pending ? (
-          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <Loader2 className="h-3.5 w-3.5 animate-spin" strokeWidth={1.75} />
         ) : (
-          <Icon className="h-3.5 w-3.5" />
+          <Icon className="h-3.5 w-3.5" strokeWidth={1.75} />
         )}
         {label}
       </button>
       {error && (
-        <p role="alert" className="max-w-[15rem] text-right text-[11.5px] text-[#ffb3a7]">
+        <p role="alert" className="max-w-[15rem] text-right text-[11.5px] text-[#fca5a5]">
           {error}
         </p>
       )}

@@ -1,13 +1,4 @@
 import type { Metadata } from "next";
-import {
-  Activity,
-  Bot,
-  Server,
-  Signal,
-  TrendingUp,
-  Users,
-  Wallet,
-} from "lucide-react";
 
 import { ReplicaBadge } from "@/components/app/admin/badges";
 import { RelativeTime } from "@/components/app/relative-time";
@@ -60,39 +51,34 @@ export default async function AdminOverviewPage() {
         description="Everything running on Telepipe right now — accounts, bots, workers and what the platform earns."
       />
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile
           label="Users"
           value={compactNumber(accounts.length)}
           hint={`${accounts.filter((account) => account.modelsCount > 0).length} with models`}
-          icon={<Users className="h-3.5 w-3.5 text-[var(--gold)]/70" />}
         />
         <StatTile
           label="Active models"
           value={compactNumber(activeModels)}
           hint={`${models.length} total`}
-          icon={<Bot className="h-3.5 w-3.5 text-[var(--gold)]/70" />}
         />
         <StatTile
           label="Live bots"
           value={compactNumber(liveBots)}
           hint={`${liveReplicas} of ${replicas.length} replicas live`}
-          icon={<Signal className="h-3.5 w-3.5 text-[var(--gold)]/70" />}
         />
         <StatTile
           label="Credits"
           value={usd(creditsTotal)}
           hint="outstanding balance"
-          icon={<Wallet className="h-3.5 w-3.5 text-[var(--gold)]/70" />}
         />
       </div>
 
-      <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mt-4 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile
           label="Spend today"
           value={usdPrecise(spendToday)}
           hint="charged, since midnight UTC"
-          icon={<Activity className="h-3.5 w-3.5 text-[var(--gold)]/70" />}
         />
         <StatTile label="Charged 30d" value={usdPrecise(charged30)} hint="what clients paid" />
         <StatTile label="Atlas cost 30d" value={usdPrecise(atlas30)} hint="what we paid" />
@@ -100,27 +86,25 @@ export default async function AdminOverviewPage() {
           label="Margin 30d"
           value={usdPrecise(margin30)}
           hint={`${marginPct}% of charged`}
-          icon={<TrendingUp className="h-3.5 w-3.5 text-[var(--gold)]/70" />}
         />
       </div>
 
-      <div className="mt-5">
+      <div className="mt-4">
         <Card>
           <CardHeader
-            icon={<Server className="h-4 w-4" />}
             title="Worker replicas"
             description="Each replica claims a slice of the active models and beats every 30 seconds. Stale means no heartbeat for over 2 minutes."
           />
 
           {replicas.length === 0 ? (
-            <p className="px-5 py-8 text-center text-[13px] text-white/35">
+            <p className="px-5 py-10 text-center text-[13px] text-[var(--app-text-4)]">
               No replica has reported in yet.
             </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[36rem] text-left text-[13px]">
                 <thead>
-                  <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-[0.12em] text-white/30">
+                  <tr className="border-b border-[var(--app-border)] text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
                     <th className="px-5 py-2.5 font-medium">Replica</th>
                     <th className="px-5 py-2.5 font-medium">Bots</th>
                     <th className="px-5 py-2.5 font-medium">Last seen</th>
@@ -128,24 +112,24 @@ export default async function AdminOverviewPage() {
                     <th className="px-5 py-2.5 text-right font-medium">State</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/[0.05]">
+                <tbody className="divide-y divide-[var(--app-border)]">
                   {replicas.map((replica) => (
-                    <tr key={replica.name} className="transition-colors hover:bg-white/[0.02]">
+                    <tr key={replica.name} className="transition-colors hover:bg-[var(--app-surface-hover)]">
                       <td className="px-5 py-3">
                         <span
                           title={replica.name}
-                          className="font-mono text-[12px] text-white/70"
+                          className="font-mono text-[12px] text-[var(--app-text-2)]"
                         >
                           {shortId(replica.name)}
                         </span>
                       </td>
-                      <td className="px-5 py-3 tabular-nums text-white/70">
+                      <td className="px-5 py-3 tabular-nums text-[var(--app-text-2)]">
                         {replica.tenantCount}
                       </td>
-                      <td className="px-5 py-3 text-white/45">
+                      <td className="px-5 py-3 text-[var(--app-text-3)]">
                         <RelativeTime iso={replica.lastSeen} />
                       </td>
-                      <td className="px-5 py-3 text-white/45">
+                      <td className="px-5 py-3 text-[var(--app-text-3)]">
                         <RelativeTime iso={replica.startedAt} />
                       </td>
                       <td className="px-5 py-3 text-right">
@@ -160,7 +144,7 @@ export default async function AdminOverviewPage() {
         </Card>
       </div>
 
-      <p className="mt-6 px-1 text-[11.5px] leading-relaxed text-white/25">
+      <p className="mt-8 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
         Numbers come straight from the database through admin-only functions — nothing here is
         cached, refresh to re-read.
       </p>

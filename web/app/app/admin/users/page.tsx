@@ -27,7 +27,7 @@ export default async function AdminUsersPage() {
         description="Every account on the platform — plan, credit and role. Changes take effect immediately."
       />
 
-      <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatTile label="Accounts" value={compactNumber(accounts.length)} />
         <StatTile label="Admins" value={compactNumber(admins)} hint="admin or superadmin" />
         <StatTile label="Credits" value={usd(credits)} hint="outstanding balance" />

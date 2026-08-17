@@ -5,16 +5,18 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   BarChart3,
   Bot,
+  ChevronsUpDown,
   LayoutDashboard,
   LogOut,
   Menu,
   Plus,
   Settings,
   Shield,
-  Wallet,
+  Users,
   X,
 } from "lucide-react";
 
@@ -29,20 +31,71 @@ export type ShellModel = {
   status: string;
 };
 
-const NAV = [
+type NavItem = {
+  href: string;
+  label: string;
+  icon: typeof LayoutDashboard;
+  exact: boolean;
+};
+
+const OVERVIEW: NavItem[] = [
   { href: "/app", label: "Dashboard", icon: LayoutDashboard, exact: true },
-  { href: "/app/models", label: "Models", icon: Bot, exact: false },
   { href: "/app/usage", label: "Usage", icon: BarChart3, exact: false },
+];
+
+const WORKSPACE: NavItem[] = [
   { href: "/app/account", label: "Account", icon: Settings, exact: false },
+];
+
+const ADMIN: NavItem[] = [
+  { href: "/app/admin", label: "Overview", icon: Shield, exact: true },
+  { href: "/app/admin/users", label: "Users", icon: Users, exact: false },
+  { href: "/app/admin/models", label: "Models", icon: Bot, exact: false },
+  { href: "/app/admin/usage", label: "Usage", icon: BarChart3, exact: false },
 ];
 
 function isActive(pathname: string, href: string, exact: boolean): boolean {
   return exact ? pathname === href : pathname === href || pathname.startsWith(`${href}/`);
 }
 
+const MODEL_TAB_LABEL: Record<string, string> = {
+  telegram: "Telegram",
+  fanvue: "Fanvue",
+  persona: "Persona",
+  behavior: "Behavior",
+  photos: "Photos",
+  chats: "Chats",
+};
+
+/** Titulok v topbare — odvodený z cesty, aby ho stránky nemuseli posielať. */
+function pageTitle(pathname: string, models: ShellModel[]): string {
+  if (pathname === "/app") return "Dashboard";
+  if (pathname.startsWith("/app/models")) return "Models";
+  if (pathname.startsWith("/app/usage")) return "Usage";
+  if (pathname.startsWith("/app/account")) return "Account";
+
+  if (pathname.startsWith("/app/admin")) {
+    const rest = pathname.slice("/app/admin".length).split("/").filter(Boolean);
+    const leaf = rest[0];
+    if (!leaf) return "Admin · Overview";
+    return `Admin · ${leaf.charAt(0).toUpperCase()}${leaf.slice(1)}`;
+  }
+
+  const match = /^\/app\/m\/([^/]+)(?:\/([^/]+))?/.exec(pathname);
+  if (match) {
+    const model = models.find((item) => item.id === match[1]);
+    const name = model?.name || "Model";
+    const tab = match[2] ? MODEL_TAB_LABEL[match[2]] : undefined;
+    return tab ? `${name} · ${tab}` : name;
+  }
+
+  return "Telepipe";
+}
+
 /**
- * AppShell v štýle Efferd dashboardu — fixný sidebar s lucide ikonami, zlatý
- * aktívny item, dole účet a odhlásenie. Na mobile sa sidebar mení na sheet.
+ * AppShell v štýle Efferd dashboardu, invertovanom do čiernej: zoskupený
+ * sidebar s tenkými ikonami, aktívna položka ako jemný #1A1A1A pill, dole
+ * účet v dropdowne. Na mobile sa sidebar mení na sheet.
  */
 export function AppShell({
   email,
@@ -79,11 +132,9 @@ export function AppShell({
   );
 
   return (
-    <div className="relative flex min-h-svh w-full">
-      <div className="pointer-events-none fixed inset-0 bg-grid-fine opacity-70" />
-
+    <div className="app-scope relative flex min-h-svh w-full">
       {/* --- Desktop sidebar ---------------------------------------------- */}
-      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[252px] flex-col border-r border-white/[0.07] bg-[#050505]/95 backdrop-blur-xl lg:flex">
+      <aside className="fixed inset-y-0 left-0 z-40 hidden w-[240px] flex-col border-r border-[var(--app-border)] bg-[var(--app-bg-sidebar)] lg:flex">
         {sidebar}
       </aside>
 
@@ -98,7 +149,7 @@ export function AppShell({
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               onClick={() => setMenuOpen(false)}
-              className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm lg:hidden"
+              className="fixed inset-0 z-50 bg-black/70 lg:hidden"
             />
             <motion.aside
               key="sheet"
@@ -106,15 +157,15 @@ export function AppShell({
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "spring", stiffness: 380, damping: 38 }}
-              className="fixed inset-y-0 left-0 z-50 flex w-[272px] flex-col border-r border-white/[0.08] bg-[#070707] lg:hidden"
+              className="fixed inset-y-0 left-0 z-50 flex w-[264px] flex-col border-r border-[var(--app-border)] bg-[var(--app-bg-sidebar)] lg:hidden"
             >
               <button
                 type="button"
                 onClick={() => setMenuOpen(false)}
                 aria-label="Close menu"
-                className="absolute right-3 top-4 rounded-full p-2 text-white/45 transition-colors hover:text-[var(--gold-light)]"
+                className="absolute right-3 top-3.5 rounded-md p-2 text-[var(--app-text-3)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
               >
-                <X className="h-4.5 w-4.5" />
+                <X className="h-4 w-4" strokeWidth={1.75} />
               </button>
               {sidebar}
             </motion.aside>
@@ -123,53 +174,33 @@ export function AppShell({
       </AnimatePresence>
 
       {/* --- Obsah ---------------------------------------------------------- */}
-      <div className="relative flex min-w-0 flex-1 flex-col lg:pl-[252px]">
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-3 border-b border-white/[0.06] bg-black/70 px-4 backdrop-blur-xl sm:px-6">
-          <div className="flex items-center gap-3">
+      <div className="relative flex min-w-0 flex-1 flex-col lg:pl-[240px]">
+        <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-3 border-b border-[var(--app-border)] bg-[var(--app-bg)]/90 px-4 backdrop-blur-md sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
               onClick={() => setMenuOpen(true)}
               aria-label="Open menu"
-              className="rounded-xl border border-white/[0.08] p-2 text-white/70 transition-colors hover:border-[rgba(212,175,55,0.35)] hover:text-[var(--gold-light)] lg:hidden"
+              className="-ml-1 rounded-md p-2 text-[var(--app-text-2)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)] lg:hidden"
             >
-              <Menu className="h-4.5 w-4.5" />
+              <Menu className="h-4 w-4" strokeWidth={1.75} />
             </button>
-            <Link href="/app" className="flex items-center lg:hidden" aria-label="Telepipe">
-              <Image
-                src="/logo-white.png"
-                alt="Telepipe"
-                width={132}
-                height={42}
-                className="h-6 w-auto"
-              />
-            </Link>
+            <p className="truncate text-[13.5px] font-medium text-[var(--app-text)]">
+              {pageTitle(pathname, models)}
+            </p>
           </div>
 
-          <div className="flex items-center gap-2.5">
-            <Link
-              href="/app/usage"
-              className="widget-depth widget-depth-gold flex items-center gap-2 rounded-full px-3.5 py-2 text-[12.5px] font-medium text-white/75 transition-colors hover:text-[var(--gold-light)]"
-            >
-              <Wallet className="h-3.5 w-3.5 text-[var(--gold)]" />
-              <span className="tabular-nums">{usd(creditBalance)}</span>
-              <span className="hidden text-white/35 sm:inline">credit</span>
-            </Link>
-          </div>
+          <Link
+            href="/app/usage"
+            className="flex shrink-0 items-center gap-2 rounded-md border border-[var(--app-border)] px-2.5 py-1.5 text-[12px] text-[var(--app-text-2)] transition-colors hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"
+          >
+            <span className="tabular-nums">{usd(creditBalance)}</span>
+            <span className="hidden text-[var(--app-text-4)] sm:inline">credit</span>
+          </Link>
         </header>
 
-        <main className="relative flex-1 px-4 pb-16 pt-6 sm:px-6 lg:px-9">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={pathname}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-              className="mx-auto w-full max-w-[1180px]"
-            >
-              {children}
-            </motion.div>
-          </AnimatePresence>
+        <main className="relative flex-1 px-4 pb-16 pt-8 sm:px-6 lg:px-8">
+          <div className="mx-auto w-full max-w-[1140px]">{children}</div>
         </main>
       </div>
     </div>
@@ -191,139 +222,204 @@ function SidebarContent({
 }) {
   return (
     <>
-      <div className="flex h-16 shrink-0 items-center px-5">
+      <div className="flex h-14 shrink-0 items-center border-b border-[var(--app-border)] px-5">
         <Link href="/app" className="flex items-center" aria-label="Telepipe">
+          {/* Jediné miesto v appke, kde zlatá ostáva. */}
           <Image
             src="/logo-white.png"
             alt="Telepipe"
             width={148}
             height={47}
             priority
-            className="h-6 w-auto"
+            className="h-5 w-auto"
           />
         </Link>
       </div>
 
-      <nav className="flex-1 overflow-y-auto px-3 pb-4">
-        <ul className="space-y-1">
-          {NAV.map((item) => {
-            const active = isActive(pathname, item.href, item.exact);
-            const Icon = item.icon;
+      <nav className="flex-1 overflow-y-auto px-3 py-4">
+        <Group label="Overview">
+          {OVERVIEW.map((item) => (
+            <NavLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
+          ))}
+        </Group>
+
+        <Group label="Models">
+          <NavLink
+            item={{ href: "/app/models", label: "All models", icon: Bot, exact: true }}
+            pathname={pathname}
+            onNavigate={onNavigate}
+          />
+          {models.map((model) => {
+            const active = pathname.startsWith(`/app/m/${model.id}`);
             return (
-              <li key={item.href}>
+              <li key={model.id}>
                 <Link
-                  href={item.href}
+                  href={`/app/m/${model.id}/persona`}
                   onClick={onNavigate}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px] font-medium transition-all",
+                    "flex items-center gap-2.5 rounded-md py-1.5 pl-[26px] pr-2.5 text-[13px] transition-colors",
                     active
-                      ? "bg-[rgba(212,175,55,0.1)] text-[var(--gold-light)]"
-                      : "text-white/55 hover:bg-white/[0.04] hover:text-white/85",
+                      ? "bg-[var(--app-active)] text-[var(--app-text)]"
+                      : "text-[var(--app-text-3)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text-2)]",
                   )}
                 >
-                  {active && (
-                    <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[var(--gold)]" />
-                  )}
-                  <Icon
+                  <span
                     className={cn(
-                      "h-[17px] w-[17px] shrink-0 transition-colors",
-                      active ? "text-[var(--gold)]" : "text-white/40 group-hover:text-white/70",
+                      "h-1.5 w-1.5 shrink-0 rounded-full",
+                      STATUS_DOT[asStatus(model.status)],
                     )}
                   />
-                  {item.label}
+                  <span className="truncate">{model.name || "Untitled model"}</span>
                 </Link>
               </li>
             );
           })}
-        </ul>
+          <li>
+            <Link
+              href="/app/models"
+              onClick={onNavigate}
+              className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-[var(--app-text-4)] transition-colors hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text-2)]"
+            >
+              <Plus className="h-4 w-4 shrink-0" strokeWidth={1.75} />
+              Add model
+            </Link>
+          </li>
+        </Group>
 
-        <div className="mt-7">
-          <p className="px-3 text-[10.5px] font-semibold uppercase tracking-[0.16em] text-white/25">
-            Your models
-          </p>
-          <ul className="mt-2 space-y-0.5">
-            {models.map((model) => {
-              const active = pathname.startsWith(`/app/m/${model.id}`);
-              return (
-                <li key={model.id}>
-                  <Link
-                    href={`/app/m/${model.id}/persona`}
-                    onClick={onNavigate}
-                    className={cn(
-                      "flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] transition-colors",
-                      active
-                        ? "bg-white/[0.05] text-white"
-                        : "text-white/45 hover:bg-white/[0.03] hover:text-white/80",
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "h-1.5 w-1.5 shrink-0 rounded-full",
-                        STATUS_DOT[asStatus(model.status)],
-                      )}
-                    />
-                    <span className="truncate">{model.name || "Untitled model"}</span>
-                  </Link>
-                </li>
-              );
-            })}
-            <li>
-              <Link
-                href="/app/models"
-                onClick={onNavigate}
-                className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-[13px] text-white/35 transition-colors hover:text-[var(--gold-light)]"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                Add model
-              </Link>
-            </li>
-          </ul>
-        </div>
+        <Group label="Workspace">
+          {WORKSPACE.map((item) => (
+            <NavLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
+          ))}
+        </Group>
 
         {/* Admin vidí len ten, komu to server layout povolil (accounts.role). */}
         {isAdmin && (
-          <div className="mt-7 border-t border-white/[0.06] pt-4">
-            <Link
-              href="/app/admin"
-              onClick={onNavigate}
-              aria-current={isActive(pathname, "/app/admin", false) ? "page" : undefined}
-              className={cn(
-                "group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px] font-medium transition-all",
-                isActive(pathname, "/app/admin", false)
-                  ? "bg-[rgba(212,175,55,0.12)] text-[var(--gold-light)]"
-                  : "text-[var(--gold)]/65 hover:bg-[rgba(212,175,55,0.07)] hover:text-[var(--gold-light)]",
-              )}
-            >
-              {isActive(pathname, "/app/admin", false) && (
-                <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-[var(--gold)]" />
-              )}
-              <Shield className="h-[17px] w-[17px] shrink-0 text-[var(--gold)]" />
-              Admin
-            </Link>
-          </div>
+          <Group label="Admin">
+            {ADMIN.map((item) => (
+              <NavLink key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
+            ))}
+          </Group>
         )}
       </nav>
 
-      <div className="shrink-0 border-t border-white/[0.06] p-3">
-        <div className="flex items-center gap-3 rounded-xl px-2.5 py-2">
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[linear-gradient(180deg,var(--gold-light),var(--gold-dark))] text-[12px] font-bold text-black">
-            {email.slice(0, 1).toUpperCase()}
-          </span>
-          <span className="min-w-0 flex-1 truncate text-[12.5px] text-white/55" title={email}>
-            {email}
-          </span>
-        </div>
-        <form action={signOutAction}>
-          <button
-            type="submit"
-            className="mt-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13px] font-medium text-white/45 transition-colors hover:bg-white/[0.04] hover:text-[#ffb3a7]"
-          >
-            <LogOut className="h-[16px] w-[16px]" />
-            Sign out
-          </button>
-        </form>
+      <div className="shrink-0 border-t border-[var(--app-border)] p-3">
+        <UserMenu email={email} onNavigate={onNavigate} />
+        <p className="mt-3 px-2.5 text-[10.5px] text-[var(--app-text-4)]">
+          © Telepipe
+        </p>
       </div>
     </>
+  );
+}
+
+function Group({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-5 last:mb-0">
+      <p className="app-group-label mb-2 px-2.5">{label}</p>
+      <ul className="space-y-0.5">{children}</ul>
+    </div>
+  );
+}
+
+function NavLink({
+  item,
+  pathname,
+  onNavigate,
+}: {
+  item: NavItem;
+  pathname: string;
+  onNavigate: () => void;
+}) {
+  const active = isActive(pathname, item.href, item.exact);
+  const Icon = item.icon;
+  return (
+    <li>
+      <Link
+        href={item.href}
+        onClick={onNavigate}
+        aria-current={active ? "page" : undefined}
+        className={cn(
+          "flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] transition-colors",
+          active
+            ? "bg-[var(--app-active)] font-medium text-[var(--app-text)]"
+            : "text-[var(--app-text-2)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]",
+        )}
+      >
+        <Icon
+          className={cn(
+            "h-4 w-4 shrink-0",
+            active ? "text-[var(--app-text)]" : "text-[var(--app-text-4)]",
+          )}
+          strokeWidth={1.75}
+        />
+        {item.label}
+      </Link>
+    </li>
+  );
+}
+
+/** Účet dole v sidebare — email a odhlásenie v dropdowne. */
+function UserMenu({ email, onNavigate }: { email: string; onNavigate: () => void }) {
+  return (
+    <DropdownMenu.Root>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-[var(--app-surface-hover)]"
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--app-border-strong)] bg-[var(--app-surface)] text-[11px] font-medium text-[var(--app-text-2)]">
+            {email.slice(0, 1).toUpperCase()}
+          </span>
+          <span
+            className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--app-text-2)]"
+            title={email}
+          >
+            {email}
+          </span>
+          <ChevronsUpDown
+            className="h-3.5 w-3.5 shrink-0 text-[var(--app-text-4)]"
+            strokeWidth={1.75}
+          />
+        </button>
+      </DropdownMenu.Trigger>
+
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          side="top"
+          align="start"
+          sideOffset={6}
+          className="app-scope z-[100] w-[214px] rounded-lg border border-[var(--app-border-strong)] bg-[#0e0e0e] p-1 shadow-[0_16px_48px_rgba(0,0,0,0.7)]"
+        >
+          <div className="px-2.5 py-2">
+            <p className="truncate text-[12px] text-[var(--app-text-3)]" title={email}>
+              {email}
+            </p>
+          </div>
+          <DropdownMenu.Separator className="my-1 h-px bg-[var(--app-border)]" />
+          <DropdownMenu.Item asChild>
+            <Link
+              href="/app/account"
+              onClick={onNavigate}
+              className="flex cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-[var(--app-text-2)] outline-none transition-colors data-[highlighted]:bg-[var(--app-surface-hover)] data-[highlighted]:text-[var(--app-text)]"
+            >
+              <Settings className="h-4 w-4" strokeWidth={1.75} />
+              Account
+            </Link>
+          </DropdownMenu.Item>
+          <DropdownMenu.Item asChild>
+            <form action={signOutAction}>
+              <button
+                type="submit"
+                className="flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2.5 py-1.5 text-left text-[13px] text-[var(--app-text-2)] outline-none transition-colors data-[highlighted]:bg-[var(--app-surface-hover)] data-[highlighted]:text-[var(--app-text)]"
+              >
+                <LogOut className="h-4 w-4" strokeWidth={1.75} />
+                Sign out
+              </button>
+            </form>
+          </DropdownMenu.Item>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }

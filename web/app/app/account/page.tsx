@@ -1,5 +1,4 @@
 import type { Metadata } from "next";
-import { AtSign, KeyRound, ShieldCheck, Trash2, Wallet } from "lucide-react";
 
 import {
   ChangePasswordForm,
@@ -29,11 +28,10 @@ export default async function AccountPage() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader
-            icon={<AtSign className="h-4 w-4" />}
             title="Sign-in"
             description="Email and password. Google sign-in is coming soon."
           />
-          <dl className="divide-y divide-white/[0.05]">
+          <dl className="divide-y divide-[var(--app-border)]">
             <Row label="Email">{account?.email ?? user.email}</Row>
             <Row label="Member since">
               <RelativeTime iso={account?.created_at ?? user.created_at} />
@@ -44,19 +42,18 @@ export default async function AccountPage() {
           </dl>
         </Card>
 
-        <Card gold>
+        <Card>
           <CardHeader
-            icon={<Wallet className="h-4 w-4" />}
             title="Credit balance"
             description="Top-ups are handled by us while we are in early access."
           />
           <div className="p-5">
-            <p className="text-[36px] font-semibold leading-none tracking-tight text-gradient-gold">
+            <p className="text-[32px] font-semibold leading-none tracking-[-0.03em] tabular-nums text-[var(--app-text)]">
               {usd(toNumber(account?.credit_balance_usd))}
             </p>
             <a
               href="mailto:support@telepipe.app?subject=Telepipe%20top-up"
-              className="btn-modern-light mt-5 h-10 px-5 text-[13px]"
+              className="app-btn app-btn-primary mt-5 h-9 px-4"
             >
               Contact us to top up
             </a>
@@ -65,7 +62,6 @@ export default async function AccountPage() {
 
         <Card>
           <CardHeader
-            icon={<KeyRound className="h-4 w-4" />}
             title="Change password"
             description="You will need your current password."
           />
@@ -75,7 +71,6 @@ export default async function AccountPage() {
         <div className="space-y-4">
           <Card>
             <CardHeader
-              icon={<ShieldCheck className="h-4 w-4" />}
               title="Sessions"
               description="Signed in on a device you no longer have? Kick every session out."
             />
@@ -86,7 +81,6 @@ export default async function AccountPage() {
 
           <Card>
             <CardHeader
-              icon={<Trash2 className="h-4 w-4" />}
               title="Delete account"
               description="Removes your models, conversations and history for good."
             />
@@ -95,7 +89,7 @@ export default async function AccountPage() {
                 Self-service deletion is not live yet. Write to us and we will wipe
                 everything within 24 hours.
               </Callout>
-              <button type="button" disabled className="btn-modern-dark h-10 px-5 text-[13px]">
+              <button type="button" disabled className="app-btn app-btn-ghost h-9 px-4">
                 Delete account
               </button>
             </div>
@@ -109,8 +103,8 @@ export default async function AccountPage() {
 function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-4 px-5 py-3.5 text-[13px]">
-      <dt className="text-white/40">{label}</dt>
-      <dd className="truncate text-white/85">{children}</dd>
+      <dt className="text-[var(--app-text-3)]">{label}</dt>
+      <dd className="truncate text-[var(--app-text)]">{children}</dd>
     </div>
   );
 }

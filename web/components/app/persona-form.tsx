@@ -1,6 +1,6 @@
 "use client";
 
-import { Link2, MessageCircle, Quote, UserRound } from "lucide-react";
+import { Quote } from "lucide-react";
 
 import { savePersonaAction } from "@/app/app/m/[id]/persona/actions";
 import { AutoSaveForm } from "@/components/app/forms/auto-save";
@@ -33,7 +33,6 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
     <AutoSaveForm save={(patch) => savePersonaAction(persona.model_id, patch)}>
       <Card>
         <CardHeader
-          icon={<UserRound className="h-4 w-4" />}
           title="Who she is"
           description="The basics every message leans on. She never contradicts these."
         />
@@ -89,7 +88,6 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
 
       <Card>
         <CardHeader
-          icon={<MessageCircle className="h-4 w-4" />}
           title="How she writes"
           description="Tone and shape of her messages. This is what makes her read as a person."
         />
@@ -140,7 +138,6 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
 
       <Card>
         <CardHeader
-          icon={<Link2 className="h-4 w-4" />}
           title="Your funnel"
           description="How a conversation turns into a subscriber."
         />
@@ -164,7 +161,7 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
         </div>
       </Card>
 
-      <p className="flex items-start gap-2 px-1 text-[11.5px] text-white/25">
+      <p className="flex items-start gap-2 px-1 text-[11.5px] text-[var(--app-text-4)]">
         <Quote className="mt-px h-3.5 w-3.5 shrink-0" />
         Changes save themselves and take effect from her next reply — no restart needed.
       </p>

@@ -9,12 +9,12 @@ export const FUNNEL_LABEL: Record<string, string> = {
   converted: "Converted",
 };
 
+/** Monochróm — jediná farba je tlmená zelená na „converted". */
 export const FUNNEL_STYLE: Record<string, string> = {
-  cold: "border-white/12 bg-white/[0.04] text-white/50",
-  warm: "border-[#8a6d1f]/45 bg-[#241d0e] text-[#f2cd6b]",
-  link_sent: "border-[#3b6fa8]/45 bg-[#0e1b2a] text-[#8ec1f0]",
-  converted:
-    "border-[rgba(212,175,55,0.55)] bg-[rgba(212,175,55,0.14)] text-[var(--gold-light)]",
+  cold: "border-[#1f1f1f] text-[#71717a]",
+  warm: "border-[#2e2e2e] text-[#a1a1aa]",
+  link_sent: "border-[#3f3f46] text-[#d4d4d8]",
+  converted: "border-[rgba(74,222,128,0.3)] text-[#86efac]",
 };
 
 export const FUNNEL_HINT: Record<string, string> = {

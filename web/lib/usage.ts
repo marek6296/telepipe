@@ -36,13 +36,13 @@ export const KIND_HINT: Record<string, string> = {
   voice: "Generating her own voice message.",
 };
 
-/** Odtiene zlatej — graf musí ostať v palete, nie dúha. */
+/** Odtiene bielej — graf je monochróm, série sa líšia jasom, nie farbou. */
 export const KIND_COLOR: Record<string, string> = {
-  chat: "#d4af37",
-  summary: "#a8872a",
-  vision: "#e8c766",
-  audio: "#8a6d1f",
-  voice: "#f3e0a4",
+  chat: "#fafafa",
+  summary: "#a1a1aa",
+  vision: "#d4d4d8",
+  audio: "#52525b",
+  voice: "#71717a",
 };
 
 export type DayBucket = { date: string; label: string; total: number };

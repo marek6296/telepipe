@@ -1,19 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import {
-  ArrowUpRight,
-  Bot,
-  MessageSquare,
-  Sparkles,
-  TrendingUp,
-  Wallet,
-} from "lucide-react";
+import { Bot } from "lucide-react";
 
 import { AddModelDialog } from "@/components/app/add-model-dialog";
+import {
+  MessagesChart,
+  SpendChart,
+  type SeriesPoint,
+  type SpendPoint,
+} from "@/components/app/dashboard-charts";
 import { ModelCard } from "@/components/app/model-card";
-import { Card, EmptyState, PageHeader, StatTile } from "@/components/app/ui";
+import { Card, CardHeader, EmptyState, PageHeader, StatTile } from "@/components/app/ui";
 import { compactNumber, isoDaysAgo, toNumber, usd, usdPrecise } from "@/lib/format";
-import { getAccount, getModelStats, listModels } from "@/lib/models";
+import { getAccount, getModelStats, listModels, type ModelRow } from "@/lib/models";
 import { getConnectedMap } from "@/lib/telegram";
 import { createClient } from "@/lib/supabase/server";
 
@@ -21,120 +20,107 @@ export const metadata: Metadata = {
   title: "Dashboard",
 };
 
+/** Okno grafov aj delty. Referencia: „last 7 days" + „vs last week". */
+const WINDOW = 7;
+
 export default async function DashboardPage() {
   const [account, models] = await Promise.all([getAccount(), listModels()]);
-  const [stats, connected, weekSpend] = await Promise.all([
+  const [stats, connected, events] = await Promise.all([
     getModelStats(models.map((model) => model.id)),
     getConnectedMap(models),
-    sumChargedSince(7),
+    recentUsage(WINDOW * 2),
   ]);
 
   const balance = toNumber(account?.credit_balance_usd);
-  const activeCount = models.filter((model) => model.status === "active").length;
   const totalChats = models.reduce((sum, model) => sum + (stats[model.id]?.chats ?? 0), 0);
   const totalConverted = models.reduce(
     (sum, model) => sum + (stats[model.id]?.converted ?? 0),
     0,
   );
-  const spentToday = models.reduce(
-    (sum, model) => sum + (stats[model.id]?.spentToday ?? 0),
-    0,
-  );
+
+  // Delty počítame len z toho, čo v `usage_events` naozaj máme.
+  const spendThis = sumCharged(events, 0, WINDOW);
+  const spendPrev = sumCharged(events, WINDOW, WINDOW * 2);
+  const repliesThis = countKind(events, "chat", 0, WINDOW);
+  const repliesPrev = countKind(events, "chat", WINDOW, WINDOW * 2);
+
+  const spendSeries = dailySpend(events, WINDOW);
+  const { data: messageSeries, series } = dailyMessagesByModel(events, models, WINDOW);
 
   return (
     <>
       <PageHeader
-        eyebrow="Overview"
         title="Dashboard"
         description="Everything your models did while you were away."
-        actions={models.length > 0 ? <AddModelDialog /> : undefined}
+        actions={
+          <>
+            <Link href="/app/usage" className="app-btn app-btn-ghost h-9 px-3.5">
+              View usage
+            </Link>
+            {models.length > 0 && <AddModelDialog className="h-9 px-3.5" />}
+          </>
+        }
       />
 
-      {/* --- Kredit ---------------------------------------------------------- */}
-      <Card gold className="relative overflow-hidden p-6 sm:p-7">
-        <div className="gold-halo pointer-events-none absolute -right-24 -top-32 h-[380px] w-[380px]" />
-        <div className="relative flex flex-col gap-6 sm:flex-row sm:items-end sm:justify-between">
-          <div>
-            <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-[var(--gold)]/75">
-              <Wallet className="h-3.5 w-3.5" />
-              Credit balance
-            </p>
-            <p className="mt-3 text-[44px] font-semibold leading-none tracking-tight text-gradient-gold sm:text-[52px]">
-              {usd(balance)}
-            </p>
-            <p className="mt-3 text-[13px] text-white/45">
-              {balance <= 0
-                ? "Out of credits — your models pause until you top up."
-                : `Roughly ${estimateReplies(balance)} more replies at current rates.`}
-            </p>
-          </div>
-
-          <div className="flex flex-col items-start gap-3 sm:items-end">
-            <a
-              href="mailto:support@telepipe.app?subject=Telepipe%20top-up"
-              className="btn-modern-light h-11 px-6 text-[13.5px]"
-            >
-              Contact us to top up
-              <ArrowUpRight className="h-4 w-4" />
-            </a>
-            <Link
-              href="/app/usage"
-              className="text-[12.5px] text-white/40 transition-colors hover:text-[var(--gold-light)]"
-            >
-              See what you spent →
-            </Link>
-          </div>
-        </div>
-      </Card>
-
       {/* --- Dlaždice --------------------------------------------------------- */}
-      <div className="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <StatTile label="Credit balance" value={usd(balance)} hint={creditHint(balance)} />
         <StatTile
-          label="Models"
-          value={models.length}
-          hint={`${activeCount} active`}
-          icon={<Bot className="h-3.5 w-3.5 text-[var(--gold)]/70" />}
+          label="Net spend"
+          value={usdPrecise(spendThis)}
+          delta={percentDelta(spendThis, spendPrev)}
+          hint="last 7 days"
         />
         <StatTile
-          label="Chats"
+          label="Replies sent"
+          value={compactNumber(repliesThis)}
+          delta={percentDelta(repliesThis, repliesPrev)}
+          hint="last 7 days"
+        />
+        <StatTile
+          label="Conversations"
           value={compactNumber(totalChats)}
-          hint="fans in the pipeline"
-          icon={<MessageSquare className="h-3.5 w-3.5 text-[var(--gold)]/70" />}
-        />
-        <StatTile
-          label="Converted"
-          value={compactNumber(totalConverted)}
-          hint="subscribed after chatting"
-          icon={<TrendingUp className="h-3.5 w-3.5 text-[var(--gold)]/70" />}
-        />
-        <StatTile
-          label="Spent"
-          value={usdPrecise(spentToday)}
-          hint={`${usdPrecise(weekSpend)} last 7 days`}
-          icon={<Sparkles className="h-3.5 w-3.5 text-[var(--gold)]/70" />}
+          hint={`${compactNumber(totalConverted)} converted`}
         />
       </div>
 
+      {/* --- Grafy ------------------------------------------------------------ */}
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader title="Net spend" description="Daily charged, last 7 days" />
+          <SpendChart data={spendSeries} />
+        </Card>
+
+        <Card>
+          <CardHeader title="Messages by model" description="Replies sent, last 7 days" />
+          {series.length === 0 ? (
+            <p className="px-5 py-[92px] text-center text-[12.5px] text-[var(--app-text-4)]">
+              No replies in the last 7 days.
+            </p>
+          ) : (
+            <MessagesChart data={messageSeries} series={series} />
+          )}
+        </Card>
+      </div>
+
       {/* --- Modelky ---------------------------------------------------------- */}
-      <div className="mt-9">
+      <div className="mt-10">
         {models.length === 0 ? (
           <EmptyState
-            icon={<Bot className="h-6 w-6" />}
+            icon={<Bot className="h-[18px] w-[18px]" strokeWidth={1.5} />}
             title="No models yet"
             description="Add your first model, connect her Telegram account, and she starts replying to fans within 30 seconds."
-            action={<AddModelDialog label="Add your first model" />}
+            action={<AddModelDialog label="Add your first model" className="h-9 px-4" />}
           />
         ) : (
           <>
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-[15px] font-semibold tracking-tight text-white/85">
-                Your models
-              </h2>
+              <h2 className="app-group-label">Your models</h2>
               <Link
                 href="/app/models"
-                className="text-[12.5px] text-white/40 transition-colors hover:text-[var(--gold-light)]"
+                className="text-[12.5px] text-[var(--app-text-3)] transition-colors hover:text-[var(--app-text)]"
               >
-                Manage all →
+                Manage all
               </Link>
             </div>
             <div className="grid gap-4 xl:grid-cols-2">
@@ -154,19 +140,141 @@ export default async function DashboardPage() {
   );
 }
 
-/** Súčet `charged_usd` za posledných N dní. Atlas cost klientovi nikdy. */
-async function sumChargedSince(days: number): Promise<number> {
-  const since = isoDaysAgo(days);
+/* --------------------------------------------------------------------------
+   Dáta pre dlaždice a grafy. Klient vidí VÝHRADNE `charged_usd` — nákupná
+   cena (`atlas_cost_usd`) sa sem nesmie dostať, preto ju ani nevyberáme.
+-------------------------------------------------------------------------- */
+
+type UsageRow = {
+  model_id: string;
+  kind: string;
+  charged_usd: number | string;
+  created_at: string;
+};
+
+async function recentUsage(days: number): Promise<UsageRow[]> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("usage_events")
-    .select("charged_usd")
-    .gte("created_at", since);
+    .select("model_id, kind, charged_usd, created_at")
+    .gte("created_at", isoDaysAgo(days))
+    .limit(20000);
 
-  return (data ?? []).reduce((sum, row) => sum + toNumber(row.charged_usd as string), 0);
+  return (data ?? []) as unknown as UsageRow[];
 }
 
-/** Hrubý odhad — priemerná odpoveď vyjde na ~$0.005 pri našej marži. */
-function estimateReplies(balance: number): string {
-  return compactNumber(Math.max(0, Math.round(balance / 0.005)));
+/** Polnoc UTC pred `daysAgo` dňami vrátane dneška (1 = dnešná polnoc). */
+function windowStart(daysAgo: number): number {
+  const now = new Date();
+  const midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return midnight - (daysAgo - 1) * 86_400_000;
+}
+
+/**
+ * Okno `[toDaysAgo, fromDaysAgo)`: `fromDaysAgo = 0` znamená „až po teraz".
+ * Zarovnané na polnoc UTC, nech sa tento a minulý týždeň neprekrývajú.
+ */
+function inRange(iso: string, fromDaysAgo: number, toDaysAgo: number): boolean {
+  const ms = new Date(iso).getTime();
+  if (!Number.isFinite(ms)) return false;
+  const start = windowStart(toDaysAgo);
+  const end = fromDaysAgo === 0 ? Date.now() + 1 : windowStart(fromDaysAgo);
+  return ms >= start && ms < end;
+}
+
+function sumCharged(rows: UsageRow[], fromDaysAgo: number, toDaysAgo: number): number {
+  return rows
+    .filter((row) => inRange(row.created_at, fromDaysAgo, toDaysAgo))
+    .reduce((sum, row) => sum + toNumber(row.charged_usd), 0);
+}
+
+function countKind(
+  rows: UsageRow[],
+  kind: string,
+  fromDaysAgo: number,
+  toDaysAgo: number,
+): number {
+  return rows.filter(
+    (row) => row.kind === kind && inRange(row.created_at, fromDaysAgo, toDaysAgo),
+  ).length;
+}
+
+function percentDelta(current: number, previous: number): number | null {
+  if (previous <= 0) return null;
+  return ((current - previous) / previous) * 100;
+}
+
+/** Posledných `days` dní ako popisky `12 Aug` — spoločná os oboch grafov. */
+function dayKeys(days: number): { key: string; label: string }[] {
+  const start = windowStart(days);
+  return Array.from({ length: days }, (_, index) => {
+    const date = new Date(start + index * 86_400_000);
+    return {
+      key: date.toISOString().slice(0, 10),
+      label: date.toLocaleDateString("en-US", {
+        day: "numeric",
+        month: "short",
+        timeZone: "UTC",
+      }),
+    };
+  });
+}
+
+function dailySpend(rows: UsageRow[], days: number): SpendPoint[] {
+  const keys = dayKeys(days);
+  const buckets = new Map(keys.map((day) => [day.key, 0]));
+  for (const row of rows) {
+    const key = row.created_at.slice(0, 10);
+    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + toNumber(row.charged_usd));
+  }
+  return keys.map((day) => ({
+    label: day.label,
+    value: Number((buckets.get(day.key) ?? 0).toFixed(4)),
+  }));
+}
+
+/** Počty odpovedí po dňoch pre max. 4 najaktívnejšie modelky. */
+function dailyMessagesByModel(
+  rows: UsageRow[],
+  models: ModelRow[],
+  days: number,
+): { data: SeriesPoint[]; series: { key: string; label: string }[] } {
+  const keys = dayKeys(days);
+  const window = new Set(keys.map((day) => day.key));
+  const chats = rows.filter(
+    (row) => row.kind === "chat" && window.has(row.created_at.slice(0, 10)),
+  );
+
+  const totals = new Map<string, number>();
+  const counts = new Map<string, number>();
+  for (const row of chats) {
+    totals.set(row.model_id, (totals.get(row.model_id) ?? 0) + 1);
+    const cell = `${row.created_at.slice(0, 10)}|${row.model_id}`;
+    counts.set(cell, (counts.get(cell) ?? 0) + 1);
+  }
+
+  const top = models
+    .filter((model) => (totals.get(model.id) ?? 0) > 0)
+    .sort((a, b) => (totals.get(b.id) ?? 0) - (totals.get(a.id) ?? 0))
+    .slice(0, 4);
+
+  const series = top.map((model) => ({
+    key: model.id,
+    label: model.name || "Untitled model",
+  }));
+
+  const data: SeriesPoint[] = keys.map((day) => {
+    const point: SeriesPoint = { label: day.label };
+    for (const model of top) {
+      point[model.id] = counts.get(`${day.key}|${model.id}`) ?? 0;
+    }
+    return point;
+  });
+
+  return { data, series };
+}
+
+function creditHint(balance: number): string {
+  if (balance <= 0) return "out of credits — models pause";
+  return `~${compactNumber(Math.max(0, Math.round(balance / 0.005)))} replies left`;
 }
