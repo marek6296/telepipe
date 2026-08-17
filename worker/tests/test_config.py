@@ -62,6 +62,26 @@ def test_config_pricing_sync_env_overrides(monkeypatch):
     assert cfg.atlas_balance_alert_usd == 12.5
 
 
+def test_config_fanvue_is_optional(monkeypatch):
+    """Bez Fanvue appky musí worker nabehnúť presne ako doteraz."""
+    for k, v in ENV.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.delenv("FANVUE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("FANVUE_CLIENT_SECRET", raising=False)
+    cfg = Config.from_env()
+    assert cfg.fanvue_client_id == "" and cfg.fanvue_client_secret == ""
+
+
+def test_config_reads_fanvue_app(monkeypatch):
+    for k, v in ENV.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("FANVUE_CLIENT_ID", " app-id ")
+    monkeypatch.setenv("FANVUE_CLIENT_SECRET", "app-secret")
+    cfg = Config.from_env()
+    assert cfg.fanvue_client_id == "app-id"          # orezané medzery
+    assert cfg.fanvue_client_secret == "app-secret"
+
+
 def test_config_missing_required(monkeypatch):
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     with pytest.raises(RuntimeError):

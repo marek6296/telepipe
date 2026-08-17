@@ -7,6 +7,9 @@ ktorú pool (Task 11) spustí ako `asyncio.Task` per tenant.
 
 Čo pribudlo oproti predlohe:
   * retry s backoffom — pád jednej modelky nesmie zhodiť ostatné,
+  * Fanvue agent vedľa Telegramu (`fanvue_tenant.start_fanvue`) — v predlohe to
+    bola samostatná služba (`main_fanvue.py`), tu je to ďalšia úloha tenanta,
+    zámerne best-effort: Fanvue nesmie zhodiť odpisovanie na Telegrame,
   * `stop()` na čisté ukončenie (SIGTERM / odobratý lease),
   * mapovanie pádov na stav v `models`: neplatná session → `session_revoked`,
     5× pád po sebe → `crashed_repeatedly`, došli kredity → len pustený lease
@@ -137,6 +140,18 @@ class TenantRunner:
         with contextlib.suppress(Exception):
             await self._reg.release(self.model_id)
 
+    async def _start_fanvue(self, cfg, g, llm) -> None:
+        """Best-effort spustenie Fanvue agenta. Nikdy nehádže."""
+        try:
+            from fanvue_tenant import start_fanvue
+
+            await start_fanvue(cfg, g, self._transport, llm, self._cleanup)
+        except Exception as exc:  # noqa: BLE001 — Telegram musí bežať aj tak
+            log.error(
+                "model %s: Fanvue agent sa nespustil (%s) — beží len Telegram",
+                self.model_id, exc,
+            )
+
     async def _drain_cleanup(self) -> None:
         """Zruší úlohy a odpojí klientov z `_cleanup`. Voláva sa aj dvakrát."""
         items, self._cleanup = self._cleanup, []
@@ -219,6 +234,13 @@ class TenantRunner:
             sweeper = userbot.start_sweeper()
             voice_jobs = userbot.start_voice_jobs()
             self._cleanup.extend(t for t in (sweeper, voice_jobs) if t)
+
+            # Fanvue je druhá platforma, nie podmienka tejto. Rovnaké pravidlo
+            # ako pri kontrolnom bote vyššie: keď sa nepodarí, beží ďalej aspoň
+            # odpisovanie na Telegrame. Vlastný `run()` agenta si pády kôl
+            # rieši sám, toto chráni pred pádom pri ŠTARTE (nedostupná DB,
+            # poškodený token, chýbajúca appka).
+            await self._start_fanvue(cfg, g, llm)
 
             # Po výpadku dotiahni, čo ušlo — nikomu sa nepíše, len sa doplní
             # kontext a rozhodne, na čo sa ešte oplatí odpovedať.

@@ -102,6 +102,13 @@ class Config:
     # sync_pricing/check_atlas_balance zaloguje log.error, nech si to Marek všimne.
     atlas_balance_alert_usd: float = 50.0
 
+    # Fanvue OAuth appka — spoločná pre všetky modelky (jedna appka, jeden
+    # redirect URI). Worker ju potrebuje na OBNOVU prístupového tokenu; samotné
+    # pripojenie účtu robí web (`/api/fanvue/start`). Prázdne = Fanvue sa
+    # nespúšťa vôbec, Telegram beží ako doteraz.
+    fanvue_client_id: str = ""
+    fanvue_client_secret: str = ""
+
     # Ako často sa pozerá do fronty `tg_login_jobs` (Telegram login z webu).
     # Wizard čaká na odpoveď naživo, preto sekundy, nie minúty. 0 = vypnuté.
     login_jobs_poll_s: int = 2
@@ -150,6 +157,8 @@ class Config:
             pricing_sync_hours=_int("PRICING_SYNC_HOURS", 24),
             atlas_balance_alert_usd=float(os.getenv("ATLAS_BALANCE_ALERT_USD", "50")),
             login_jobs_poll_s=_int("LOGIN_JOBS_POLL_S", 2),
+            fanvue_client_id=os.getenv("FANVUE_CLIENT_ID", "").strip(),
+            fanvue_client_secret=os.getenv("FANVUE_CLIENT_SECRET", "").strip(),
         )
 
 
