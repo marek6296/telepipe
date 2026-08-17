@@ -60,7 +60,9 @@ export function AutoSaveForm({
   const timer = useRef<number | null>(null);
   const inflight = useRef(false);
   const saveRef = useRef(save);
-  saveRef.current = save;
+  // `flush` sa plánuje sám (keď počas zápisu pribudla ďalšia zmena) — cez ref,
+  // aby sa funkcia nemusela odkazovať na seba pred svojou deklaráciou.
+  const flushRef = useRef<() => void>(() => {});
 
   const flush = useCallback(async () => {
     if (timer.current !== null) {
@@ -95,21 +97,24 @@ export function AutoSaveForm({
     setError(null);
     if (Object.keys(buffer.current).length > 0) {
       setStatus("pending");
-      timer.current = window.setTimeout(() => void flush(), DEBOUNCE_MS);
+      timer.current = window.setTimeout(() => flushRef.current(), DEBOUNCE_MS);
     } else {
       setStatus("saved");
     }
   }, []);
 
-  const set = useCallback(
-    (name: string, value: unknown) => {
-      buffer.current[name] = value;
-      setStatus("pending");
-      if (timer.current !== null) window.clearTimeout(timer.current);
-      timer.current = window.setTimeout(() => void flush(), DEBOUNCE_MS);
-    },
-    [flush],
-  );
+  const set = useCallback((name: string, value: unknown) => {
+    buffer.current[name] = value;
+    setStatus("pending");
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = window.setTimeout(() => flushRef.current(), DEBOUNCE_MS);
+  }, []);
+
+  // Refy sa aktualizujú v efekte, nie počas renderu.
+  useEffect(() => {
+    saveRef.current = save;
+    flushRef.current = () => void flush();
+  });
 
   // Rozpísaná zmena sa nesmie stratiť pri prechode na inú stránku.
   useEffect(() => {
@@ -120,7 +125,7 @@ export function AutoSaveForm({
   }, []);
 
   return (
-    <AutoSaveContext.Provider value={{ set, flush }}>
+    <AutoSaveContext.Provider value={{ set, flush: () => flushRef.current() }}>
       {sticky ? (
         <div className="relative">
           <div className="pointer-events-none sticky top-[76px] z-20 flex justify-end">

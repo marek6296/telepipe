@@ -33,6 +33,7 @@ import {
   OwnerChatGuide,
 } from "@/components/app/telegram/guides";
 import { Callout, Card, CardHeader } from "@/components/app/ui";
+import { isRecent } from "@/lib/format";
 import { prettifyCode } from "@/lib/status";
 import type { LoginJob } from "@/lib/telegram";
 import { cn } from "@/lib/utils";
@@ -92,9 +93,7 @@ export function TelegramWizard(props: WizardProps) {
   // Čerstvo spadnutý pokus musí ostať na obrazovke aj keď už polling skončil —
   // inak by sa wizard ticho vrátil na formulár a klient by nevedel prečo.
   const showFailedJob = Boolean(
-    job &&
-      job.phase === "error" &&
-      Date.now() - new Date(job.updated_at).getTime() < 30 * 60_000,
+    job && job.phase === "error" && isRecent(job.updated_at, 30 * 60_000),
   );
 
   // Worker beží každé 2 s — rovnakým tempom sa pýtame na stav.
@@ -222,6 +221,9 @@ export function TelegramWizard(props: WizardProps) {
 
           {activeStep === 3 && job && (
             <StepCode
+              // Nový pokus (worker vrátil fázu späť) komponent premountuje —
+              // políčko s neplatným kódom sa tým samo vyčistí.
+              key={`${job.phase}:${job.error}`}
               job={job}
               now={now}
               pending={pending}
@@ -566,12 +568,6 @@ function StepCode({
   const jobError = job.error ? loginErrorText(job.error) : null;
   const expiresIn = Math.max(0, new Date(job.expires_at).getTime() - now);
   const stale = now - new Date(job.updated_at).getTime() > 25_000;
-
-  // Nový pokus (worker vrátil fázu späť na code_sent) vyčistí staré políčko
-  useEffect(() => {
-    if (job.error === "invalid_code") setCode("");
-    if (job.error === "invalid_password") setPassword("");
-  }, [job.error, job.updated_at]);
 
   const waiting =
     job.phase === "send_code" || job.phase === "verify_code" || job.phase === "verify_password";

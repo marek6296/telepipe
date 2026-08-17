@@ -12,7 +12,7 @@ import {
 import { AddModelDialog } from "@/components/app/add-model-dialog";
 import { ModelCard } from "@/components/app/model-card";
 import { Card, EmptyState, PageHeader, StatTile } from "@/components/app/ui";
-import { compactNumber, toNumber, usd, usdPrecise } from "@/lib/format";
+import { compactNumber, isoDaysAgo, toNumber, usd, usdPrecise } from "@/lib/format";
 import { getAccount, getModelStats, listModels } from "@/lib/models";
 import { getConnectedMap } from "@/lib/telegram";
 import { createClient } from "@/lib/supabase/server";
@@ -21,14 +21,12 @@ export const metadata: Metadata = {
   title: "Dashboard",
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 export default async function DashboardPage() {
   const [account, models] = await Promise.all([getAccount(), listModels()]);
   const [stats, connected, weekSpend] = await Promise.all([
     getModelStats(models.map((model) => model.id)),
     getConnectedMap(models),
-    sumChargedSince(new Date(Date.now() - 7 * DAY_MS).toISOString()),
+    sumChargedSince(7),
   ]);
 
   const balance = toNumber(account?.credit_balance_usd);
@@ -156,8 +154,9 @@ export default async function DashboardPage() {
   );
 }
 
-/** Súčet `charged_usd` od danej chvíle. Atlas cost sa klientovi nezobrazuje. */
-async function sumChargedSince(since: string): Promise<number> {
+/** Súčet `charged_usd` za posledných N dní. Atlas cost klientovi nikdy. */
+async function sumChargedSince(days: number): Promise<number> {
+  const since = isoDaysAgo(days);
   const supabase = await createClient();
   const { data } = await supabase
     .from("usage_events")

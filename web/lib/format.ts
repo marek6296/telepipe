@@ -75,6 +75,21 @@ export function dateTime(input: string | Date | null | undefined): string {
   })} · ${date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false })}`;
 }
 
+/**
+ * ISO timestamp N dní dozadu. Obal nad `Date.now()` je zámerný — v tele
+ * komponentu by React Compiler (správne) hlásil nečistú funkciu v renderi.
+ */
+export function isoDaysAgo(days: number): string {
+  return new Date(Date.now() - days * DAY).toISOString();
+}
+
+/** Je časová značka mladšia než `maxAgeMs`? */
+export function isRecent(input: string | null | undefined, maxAgeMs: number): boolean {
+  if (!input) return false;
+  const ms = new Date(input).getTime();
+  return Number.isFinite(ms) && Date.now() - ms < maxAgeMs;
+}
+
 /** `732` → `12:12` — behavior drží aktívne okno v minútach od polnoci. */
 export function minutesToHhMm(minutes: number): string {
   const safe = ((Math.round(minutes) % 1440) + 1440) % 1440;

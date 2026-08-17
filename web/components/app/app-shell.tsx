@@ -57,11 +57,6 @@ export function AppShell({
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Prechod na inú stránku zavrie mobilné menu
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [pathname]);
-
   useEffect(() => {
     document.body.style.overflow = menuOpen ? "hidden" : "";
     return () => {
