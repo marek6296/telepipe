@@ -7,7 +7,7 @@ nespracuje dvakrát a že zlyhanie skončí zapísanou chybou, nie tichom.
 import asyncio
 
 import pytest
-from config import Config
+from config import TenantConfig as Config
 from userbot import UserBot
 
 pytestmark = pytest.mark.usefixtures("fast")
@@ -15,9 +15,9 @@ pytestmark = pytest.mark.usefixtures("fast")
 
 def make_config(**overrides):
     base = dict(
+        model_id="test-model", account_id="acc-1", name="Lucia",
         tg_api_id=1, tg_api_hash="hash", tg_session="sess",
         control_bot_token="token", owner_chat_id=999, owner_as_client=False,
-        supabase_url="https://x.supabase.co", supabase_key="key",
         supabase_schema="tgai",
         llm_key="key", llm_base_url="https://x/v1", model="m", summary_model="m",
         reasoning_effort="low", vision_model="v", audio_model="a",
@@ -521,6 +521,7 @@ class TestMazanieKonverzacie:
     def test_zmaze_aj_pamat_nielen_spravy(self):
         import asyncio
         import db as D
+        import transport as T
 
         zmazane = []
 
@@ -551,9 +552,10 @@ class TestMazanieKonverzacie:
             def json(self):
                 return self._j
 
-        baza = D.Db.__new__(D.Db)
-        baza._schema = "tgai"
-        baza._client = FakeClient()
+        # V Telepipe spojenie drží transport, nie Db — klienta podvrhneme jemu.
+        prenos = T.SupabaseTransport.__new__(T.SupabaseTransport)
+        prenos._client = FakeClient()
+        baza = D.TenantDb(prenos, "test-model")
         asyncio.run(baza.wipe_conversation(1))
 
         for tabulka in (D.MESSAGES, D.FACTS, D.EPISODES, D.LOOPS, D.CLAIMS,
@@ -563,6 +565,7 @@ class TestMazanieKonverzacie:
     def test_vynuluje_aj_meno_a_register_tem(self):
         import asyncio
         import db as D
+        import transport as T
 
         class FakeClient:
             def __init__(self):
@@ -591,9 +594,10 @@ class TestMazanieKonverzacie:
             def json(self):
                 return self._j
 
-        baza = D.Db.__new__(D.Db)
-        baza._schema = "tgai"
-        baza._client = FakeClient()
+        # V Telepipe spojenie drží transport, nie Db — klienta podvrhneme jemu.
+        prenos = T.SupabaseTransport.__new__(T.SupabaseTransport)
+        prenos._client = FakeClient()
+        baza = D.TenantDb(prenos, "test-model")
         asyncio.run(baza.wipe_conversation(1))
         patch = baza._client.patched
         assert patch["partner_name"] == ""
@@ -737,6 +741,7 @@ class TestMazanieNestiahneStaruHistoriu:
     def test_wipe_nechava_last_msg_id_na_pokoji(self):
         import asyncio
         import db as D
+        import transport as T
 
         class _O:
             def __init__(self, j=None):
@@ -765,9 +770,10 @@ class TestMazanieNestiahneStaruHistoriu:
                 self.patched = json
                 return _O()
 
-        baza = D.Db.__new__(D.Db)
-        baza._schema = "tgai"
-        baza._client = FakeClient()
+        # V Telepipe spojenie drží transport, nie Db — klienta podvrhneme jemu.
+        prenos = T.SupabaseTransport.__new__(T.SupabaseTransport)
+        prenos._client = FakeClient()
+        baza = D.TenantDb(prenos, "test-model")
         asyncio.run(baza.wipe_conversation(1))
         assert "last_msg_id" not in baza._client.patched
 

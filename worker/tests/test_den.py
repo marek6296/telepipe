@@ -112,13 +112,14 @@ class TestVypisVBotovi:
 
     def test_prikaz_den_vypise_rozvrh(self):
         import asyncio
-        from config import Config
+        from config import TenantConfig as Config
         from control_bot import ControlBot
 
         cfg = Config(
+            model_id="test-model", account_id="acc-1", name="Lucia",
             tg_api_id=1, tg_api_hash="h", tg_session="s", control_bot_token="t",
             owner_chat_id=5, owner_as_client=False,
-            supabase_url="https://x", supabase_key="k", supabase_schema="tgai",
+            supabase_schema="tgai",
             llm_key="k", llm_base_url="https://x/v1", model="m", summary_model="m",
             reasoning_effort="low", vision_model="v", audio_model="a",
             context_messages=12, summary_every=15, skip_contacts=True,

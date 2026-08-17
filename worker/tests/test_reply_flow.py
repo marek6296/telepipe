@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import behavior as bhv
 import humanize
 import pytest
-from config import Config
+from config import TenantConfig as Config
 import userbot
 from userbot import UserBot
 
@@ -28,14 +28,17 @@ PERSONA = {
 
 def make_config(**overrides):
     base = dict(
+        model_id="test-model",
+        account_id="acc-1",
+        name="Lucia",
         tg_api_id=1,
         tg_api_hash="hash",
         tg_session="sess",
         control_bot_token="token",
         owner_chat_id=999,
         owner_as_client=False,
-        supabase_url="https://x.supabase.co",
-        supabase_key="key",
+        # V Telepipe je supabase_schema seed pre denný rozvrh/aktivitu a prefix
+        # storage ciest — "tgai" drží rovnaký seed ako predloha.
         supabase_schema="tgai",
         llm_key="key",
         llm_base_url="https://api.atlascloud.ai/v1",
