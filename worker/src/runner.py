@@ -170,8 +170,6 @@ class TenantRunner:
             g.llm_key, g.model, g.summary_model, g.llm_base_url, g.reasoning_effort,
             g.vision_model, g.audio_model,
         )
-        # Každé LLM volanie ide cez merač — bez kreditu sa neodpisuje.
-        llm = MeteredLlm(raw_llm, self._reg, cfg.model_id, g.model, g.fallback_price_per_mtok)
 
         user_client = TelegramClient(
             StringSession(cfg.tg_session), cfg.tg_api_id, cfg.tg_api_hash
@@ -207,6 +205,14 @@ class TenantRunner:
             control = ControlBot(cfg, db, bot_client)
             if bot_ready:
                 control.register()
+
+            # Každé LLM volanie ide cez merač — bez kreditu sa neodpisuje.
+            # Merač sa stavia až tu, aby vedel o vyčerpanom kredite rovno
+            # napísať majiteľovi cez kontrolného bota (keď beží).
+            llm = MeteredLlm(
+                raw_llm, self._reg, cfg.model_id, g.model, g.fallback_price_per_mtok,
+                notify=control.notify if bot_ready else None,
+            )
 
             userbot = UserBot(cfg, db, llm, user_client, control.notify)
             userbot.register()

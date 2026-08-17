@@ -43,6 +43,36 @@ async def test_zero_balance_blocks_and_pauses():
     assert llm.calls == 0                       # LLM sa vôbec nezavolalo
     assert reg.status_calls == [("paused", "out_of_credits")]
 
+async def test_zero_balance_notifies_owner_once():
+    """Majiteľ dostane správu o vyčerpaných kreditoch raz, nie pri každej správe."""
+    reg = FakeRegistry(balance=0.0); llm = FakeLlm()
+    sent = []
+    async def notify(text): sent.append(text)
+    m = MeteredLlm(llm, reg, model_id="m-1", model_slug="s", notify=notify)
+    for _ in range(2):
+        with pytest.raises(OutOfCredits):
+            await m.reply("sys", [])
+    assert len(sent) == 1                       # žiadny spam do control bota
+    assert reg.status_calls == [("paused", "out_of_credits")]   # ani do DB
+
+
+async def test_zero_balance_works_without_notify():
+    """Bez kontrolného bota (notify=None) sa nič nerozbije."""
+    reg = FakeRegistry(balance=0.0)
+    m = MeteredLlm(FakeLlm(), reg, model_id="m-1", model_slug="s", notify=None)
+    with pytest.raises(OutOfCredits):
+        await m.reply("sys", [])
+    assert reg.status_calls == [("paused", "out_of_credits")]
+
+
+async def test_notify_failure_does_not_swallow_out_of_credits():
+    reg = FakeRegistry(balance=0.0)
+    async def boom(text): raise RuntimeError("bot down")
+    m = MeteredLlm(FakeLlm(), reg, model_id="m-1", model_slug="s", notify=boom)
+    with pytest.raises(OutOfCredits):
+        await m.reply("sys", [])
+
+
 async def test_summarize_uses_summary_kind():
     reg = FakeRegistry(); llm = FakeLlm()
     llm.summarize = llm.reply
