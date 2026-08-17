@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 
 import { controlBotConfigured } from "@/app/app/m/[id]/telegram/actions";
 import { TelegramWizard } from "@/components/app/telegram/wizard";
+import { PageHeader } from "@/components/app/ui";
 import { requireModel } from "@/lib/models";
 import { getTelegramConnection } from "@/lib/telegram";
 
@@ -18,18 +19,27 @@ export default async function TelegramPage({ params }: PageProps<"/app/m/[id]/te
   const controlBotReady = await controlBotConfigured(model.id);
 
   return (
-    <TelegramWizard
-      modelId={model.id}
-      modelName={model.name || "your model"}
-      status={model.status}
-      statusReason={model.status_reason}
-      apiId={model.tg_api_id ? String(model.tg_api_id) : ""}
-      apiHash={model.tg_api_hash ?? ""}
-      ownerChatId={model.owner_chat_id ? String(model.owner_chat_id) : ""}
-      connected={connection.connected}
-      connectedPhone={connection.phone}
-      controlBotReady={controlBotReady}
-      initialJob={connection.latestJob}
-    />
+    <>
+      {/* Modelka má dvoch agentov a každý má vlastné nastavenia. Tento vypínač,
+          časy a limity platia LEN pre Telegram — Fanvue má svoje na svojej karte. */}
+      <PageHeader
+        eyebrow="Telegram agent"
+        title="Telegram setup"
+        description="Her first agent: it talks to people in Telegram and moves them towards her Fanvue. Fanvue is a separate agent on its own tab, with its own settings — only the persona and memory are shared."
+      />
+      <TelegramWizard
+        modelId={model.id}
+        modelName={model.name || "your model"}
+        status={model.status}
+        statusReason={model.status_reason}
+        apiId={model.tg_api_id ? String(model.tg_api_id) : ""}
+        apiHash={model.tg_api_hash ?? ""}
+        ownerChatId={model.owner_chat_id ? String(model.owner_chat_id) : ""}
+        connected={connection.connected}
+        connectedPhone={connection.phone}
+        controlBotReady={controlBotReady}
+        initialJob={connection.latestJob}
+      />
+    </>
   );
 }

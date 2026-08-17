@@ -13,6 +13,25 @@
  */
 
 import { createClient } from "@/lib/supabase/server";
+import type {
+  FanvueSettings,
+  FanvueSyncRequest,
+  FvFolder,
+  FvMedia,
+} from "@/lib/fanvue-ui";
+
+// Tvary a číselníky vaultu žijú v `lib/fanvue-ui.ts`, lebo ich potrebujú aj
+// client komponenty — tento súbor cez `lib/supabase/server` ťahá `next/headers`
+// a do prehliadača sa dostať nesmie. Re-export je tu len pre pohodlie serverovej
+// strany, aby si nemusela pamätať dva importy.
+export type {
+  FanvueSettings,
+  FanvueSyncRequest,
+  FolderRole,
+  FvFolder,
+  FvMedia,
+} from "@/lib/fanvue-ui";
+export { FOLDER_ROLES, FOLDER_ROLE_LABEL } from "@/lib/fanvue-ui";
 
 const AUTH = "https://auth.fanvue.com/oauth2";
 const API = "https://api.fanvue.com";
@@ -256,4 +275,116 @@ export async function getFanvueConnection(modelId: string): Promise<FanvueConnec
     .maybeSingle();
 
   return { model_id: modelId, ...EMPTY, ...((data as Partial<FanvueConnection>) ?? {}) };
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Nastavenia Fanvue agenta (migrácia 015)                                    */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Telegram a Fanvue sú DVAJA agenti tej istej modelky. Telegram sa riadi
+ * tabuľkou `behavior`, Fanvue touto — žiadny stĺpec nie je zdieľaný. Spoločná
+ * je len persona, pamäť a časová zóna (`behavior.active_tz`): je to tá istá
+ * osoba a nesmie si protirečiť.
+ *
+ * Zoznam je vypísaný po stĺpcoch zámerne — `select('*')` by narazil na tokeny,
+ * na ktoré `authenticated` grant nemá.
+ */
+export const FANVUE_SETTINGS_COLUMNS =
+  "greet_new, discovery_msgs, summary_every, heat, extra_rules, " +
+  "reply_min_s, reply_max_s, active_start_min, active_end_min, " +
+  "sell_content, offer_after_msgs, offer_cooldown_h, nudge_after_msgs, " +
+  "thank_purchases, voices_enabled, voice_price_cents, " +
+  "send_photos, free_photo_max, posting_enabled, post_every_h, post_audience, " +
+  "last_post_at, media_synced_at";
+
+/** Defaulty sedia na migráciu 015 (a tá na živú starú schému). Použijú sa len
+ *  vtedy, keď riadok chýba — inak by formulár ukázal samé nuly. */
+export const FANVUE_SETTINGS_DEFAULTS: FanvueSettings = {
+  greet_new: true,
+  discovery_msgs: 4,
+  summary_every: 12,
+  heat: "hot",
+  extra_rules: "",
+  reply_min_s: 20,
+  reply_max_s: 180,
+  active_start_min: 0,
+  active_end_min: 0,
+  sell_content: true,
+  offer_after_msgs: 8,
+  offer_cooldown_h: 12,
+  nudge_after_msgs: 25,
+  thank_purchases: true,
+  voices_enabled: false,
+  voice_price_cents: 800,
+  send_photos: true,
+  free_photo_max: 2,
+  posting_enabled: false,
+  post_every_h: 24,
+  post_audience: "followers-and-subscribers",
+  last_post_at: null,
+  media_synced_at: null,
+};
+
+export async function getFanvueSettings(modelId: string): Promise<FanvueSettings> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("fanvue")
+    .select(FANVUE_SETTINGS_COLUMNS)
+    .eq("model_id", modelId)
+    .maybeSingle();
+
+  return { ...FANVUE_SETTINGS_DEFAULTS, ...((data as Partial<FanvueSettings>) ?? {}) };
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Vault                                                                      */
+/* -------------------------------------------------------------------------- */
+
+export async function listFvFolders(modelId: string): Promise<FvFolder[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("fv_folders")
+    .select("name, role, price_cents, media_count")
+    .eq("model_id", modelId)
+    .order("name", { ascending: true });
+  return (data as FvFolder[] | null) ?? [];
+}
+
+/**
+ * Zbierka fotiek. Limit je poistka, nie strop zbierky — vault s tisíckami
+ * položiek by inak zablokoval vykreslenie stránky na dobu, za ktorú si nikto
+ * nič nenastaví.
+ */
+export async function listFvMedia(modelId: string, limit = 500): Promise<FvMedia[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("fv_media")
+    .select(
+      "media_uuid, folder, kind, thumb_url, caption, fits, spicy, price_cents, active, sent_count, posted_at",
+    )
+    .eq("model_id", modelId)
+    .order("folder", { ascending: true })
+    .order("media_uuid", { ascending: true })
+    .limit(limit);
+  return (data as FvMedia[] | null) ?? [];
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Fronta „načítaj vault"                                                     */
+/* -------------------------------------------------------------------------- */
+
+/** Posledná požiadavka — z nej sa čerpá text pod tlačidlom aj to, či beží. */
+export async function getLatestSyncRequest(
+  modelId: string,
+): Promise<FanvueSyncRequest | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("fanvue_sync_requests")
+    .select("id, requested_at, started_at, finished_at, ok, folders, media_new, media_seen, error")
+    .eq("model_id", modelId)
+    .order("id", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  return (data as FanvueSyncRequest | null) ?? null;
 }

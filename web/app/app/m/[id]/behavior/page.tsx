@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { BehaviorForm, type BehaviorRow } from "@/components/app/behavior-form";
-import { Callout } from "@/components/app/ui";
+import { Callout, PageHeader } from "@/components/app/ui";
 import { requireModel } from "@/lib/models";
 import { createClient } from "@/lib/supabase/server";
 
@@ -44,5 +44,17 @@ export default async function BehaviorPage({ params }: PageProps<"/app/m/[id]/be
     );
   }
 
-  return <BehaviorForm behavior={data as unknown as BehaviorRow} />;
+  return (
+    <>
+      {/* Modelka má dvoch agentov. Táto karta patrí telegramovému — Fanvue má
+          vlastné tempo, otvorenosť aj okno hodín na svojej karte. Zdieľa sa len
+          persona, pamäť a časová zóna: je to tá istá osoba. */}
+      <PageHeader
+        eyebrow="Telegram agent"
+        title="Behavior"
+        description="How she behaves in Telegram — timing, randomness, limits. Her Fanvue agent has its own set on the Fanvue tab; only the persona, the memory and the time zone below are shared."
+      />
+      <BehaviorForm behavior={data as unknown as BehaviorRow} />
+    </>
+  );
 }
