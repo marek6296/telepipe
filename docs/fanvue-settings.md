@@ -97,7 +97,8 @@ Nový priečinok pribudne ako `ignore`: nič sa nezačne posielať samo od seba.
 | `fits` | Druhé pole do tej istej zhody — kedy sa fotka hodí. | `fvmedia.pick()` | `''` |
 | `price_cents` | Cena. **Bez ceny sa fotka z plateného priečinka neposiela vôbec** — poistka, aby platený obsah neodišiel zadarmo. | `fvmedia.pick(paid=True)`, `price_for()` | `0` |
 | `active` | Vypnutá fotka sa neposiela ani nepridáva na feed. | `fvmedia.pick()`, `next_post()` | `true` |
-| `spicy` | Štítok ostrosti. **Pri odosielaní do chatu ho prebije rola priečinka** (`fanvue_agent._pick_photo()` prepíše `item["spicy"]` na `True/False` podľa toho, či ide o platený moment). Slúži teda ako popis vo vaulte, nie ako rozhodovacie pravidlo. | `fvmedia.pick()` (po prepise) | `false` |
+| `spicy_override` | **Výslovné rozhodnutie o ostrosti tejto fotky** — prebíja rolu priečinka. `null` = nikto nerozhodol, platí priečinok. Toto prepína „Explicit" v dashboarde. | `fvmedia.effective_spicy()`, `_pick_photo()` | `null` |
+| `spicy` | ODVODENÁ efektívna ostrosť: `coalesce(spicy_override, rola priečinka = 'nsfw')`. Drží ju trigger z migrácie 016; zápis do nej sa berie ako nastavenie `spicy_override`. | `fvmedia.pick()`, dashboard | odvodené |
 | `sent_count` | Koľkokrát už odišla — medzi rovnako vhodnými vyhrá najmenej použitá. | `fvmedia.pick()` | `0` |
 | `posted_at` | Kedy išla na feed. Na feed ide každá najviac raz. | `fvmedia.next_post()` | `null` |
 
@@ -130,5 +131,10 @@ web (server action)  →  fanvue_sync_requests  →  worker (fvvault.VaultSync)
   `fanvue.connected` — teda **aj keď je odpisovanie vypnuté**. Priradiť
   priečinkom rolu musí ísť skôr, než sa agent zapne.
 * Synchronizácia **nikdy neprepíše naše stĺpce** existujúcej fotky
-  (`caption`, `fits`, `price_cents`, `active`, `spicy`, `sent_count`,
-  `posted_at`). Osviežuje len `folder`, `kind` a `thumb_url`.
+  (`caption`, `fits`, `price_cents`, `active`, `spicy_override`, `sent_count`,
+  `posted_at`). Osviežuje len `folder`, `kind` a `thumb_url` — a keď sa fotka
+  presunie do iného priečinka, trigger z 016 jej dopočíta novú efektívnu
+  `spicy` (fotky s vlastným `spicy_override` sa nemenia).
+* Dobehnuté požiadavky staršie než 24 h `VaultSync` **maže** (raz za hodinu).
+  Fronta je krátkodobá pracovná pamäť — dashboard z nej číta výsledok
+  posledného kliku a nič staršie.

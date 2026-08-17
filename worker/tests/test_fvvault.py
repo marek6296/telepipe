@@ -256,9 +256,13 @@ class QueueDb(FakeDb):
         self._settings = settings if settings is not None else {"creator_uuid": "creator-1"}
         self.started = []
         self.finished = []
+        self.pruned = []
 
     async def settings(self):
         return dict(self._settings)
+
+    async def prune_sync(self, older_than_h=24):
+        self.pruned.append(older_than_h)
 
     async def pending_sync(self):
         return self._requests.pop(0) if self._requests else None
@@ -309,6 +313,59 @@ class TestFronta:
         api = FakeApi([], {})
         await fvvault.VaultSync(db, api).tick()
         assert api.asked == ["creator-XYZ"]
+
+
+class TestUpratovanieFronty:
+    """Dobehnuté požiadavky nikto nemazal a tabuľka rástla donekonečna.
+
+    Dashboard z fronty číta jedinú vec — ako dopadol POSLEDNÝ klik. Riadok
+    spred týždňa už nikto neuvidí, ale pri modelke, ktorá synchronizuje denne,
+    ich za rok pribudnú stovky.
+    """
+
+    async def test_prve_kolo_uprace(self):
+        db = QueueDb([])
+        assert await fvvault.VaultSync(db, FakeApi([], {})).maybe_prune() is True
+        assert db.pruned == [fvvault.PRUNE_OLDER_THAN_H]
+
+    async def test_dalsie_kolo_hned_neuprataava(self):
+        """Fronta sa pozerá každé 4 s — mazanie pri každom kole by bol dotaz
+        navyše pri každom kole každej modelky."""
+        db = QueueDb([])
+        sync = fvvault.VaultSync(db, FakeApi([], {}))
+        await sync.maybe_prune()
+        assert await sync.maybe_prune() is False
+        assert db.pruned == [fvvault.PRUNE_OLDER_THAN_H]
+
+    async def test_po_uplynuti_intervalu_uprace_znova(self):
+        db = QueueDb([])
+        sync = fvvault.VaultSync(db, FakeApi([], {}), prune_every_s=0)
+        await sync.maybe_prune()
+        await sync.maybe_prune()
+        assert len(db.pruned) == 2
+
+    async def test_zlyhanie_upratovania_nezhodi_synchronizaciu(self):
+        db = QueueDb([{"id": 1}])
+
+        async def boom(older_than_h=24):
+            raise RuntimeError("supabase down")
+
+        db.prune_sync = boom
+        sync = fvvault.VaultSync(db, FakeApi([{"name": "Posts"}], {"Posts": [item("a")]}))
+        assert await sync.maybe_prune() is False
+        assert await sync.tick() is True          # fronta beží ďalej
+
+    async def test_zlyhanie_sa_skusi_znova_az_po_intervale(self):
+        """Padajúca Supabase nesmie znamenať mazací pokus každé 4 sekundy."""
+        db = QueueDb([])
+
+        async def boom(older_than_h=24):
+            raise RuntimeError("supabase down")
+
+        db.prune_sync = boom
+        sync = fvvault.VaultSync(db, FakeApi([], {}))
+        assert await sync.maybe_prune() is False
+        assert await sync.maybe_prune() is False   # druhý pokus sa ani nespustí
 
 
 class TestNajstarsiaCakajuca:

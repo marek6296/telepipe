@@ -28,8 +28,34 @@ class Registry:
         rows = await self._t._rpc("claim_models", {"p_replica": replica, "p_capacity": capacity})
         return rows or []
 
-    async def heartbeat(self, replica: str) -> None:
-        await self._t._rpc("heartbeat_models", {"p_replica": replica})
+    async def heartbeat(self, replica: str) -> Optional[set]:
+        """Obnoví lease a vráti množinu modelov, ktoré replika naozaj vlastní.
+
+        `None` = RPC nič nevrátila (staršia verzia funkcie počas rolloutu).
+        Volajúci to musí odlíšiť od prázdnej množiny: „neviem" znamená nechať
+        bežať, „nevlastním nič" znamená všetko zastaviť.
+
+        Tento návrat je fencing token. Bez neho pomalá (nie mŕtva) replika
+        stratí po 90 s lease, iná si tenanta doklaimuje — a pôvodná ho ďalej
+        beží. Dve Telethon sessions na jednom účte je presne ten scenár, kvôli
+        ktorému účty padajú.
+        """
+        raw = await self._t._rpc("heartbeat_models", {"p_replica": replica})
+        if raw is None:
+            return None
+        if isinstance(raw, list):
+            # `returns setof uuid` chodí z PostgREST ako pole reťazcov; keby to
+            # niekedy bolo table-returning, prišli by dicty — pokryjeme oboje.
+            out = set()
+            for item in raw:
+                if isinstance(item, dict):
+                    hodnota = item.get("heartbeat_models") or item.get("id")
+                else:
+                    hodnota = item
+                if hodnota:
+                    out.add(str(hodnota))
+            return out
+        return None
 
     async def release_all(self, replica: str) -> None:
         await self._t._rpc("release_models", {"p_replica": replica})

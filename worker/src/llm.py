@@ -17,6 +17,19 @@ class LlmError(RuntimeError):
     pass
 
 
+def _json_or_empty(response: Any) -> Dict[str, Any]:
+    """Telo odpovede ako slovník. Nečitateľné telo = prázdny slovník.
+
+    Chybová odpoveď nemusí byť JSON (HTML z proxy, prázdne telo pri timeoute)
+    a pri čítaní spotreby to nesmie vadiť — je to bonus, nie podmienka.
+    """
+    try:
+        data = response.json()
+    except Exception:  # noqa: BLE001 - nečitateľné telo nie je chyba volania
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 class Llm:
     """OpenAI-kompatibilný chat klient — funguje pre OpenRouter aj priamo pre xAI."""
 
@@ -48,19 +61,33 @@ class Llm:
             },
             timeout=90.0,
         )
-        # Token usage z posledného volania — číta MeteredLlm (credits.py) po
-        # každom volaní, aby vedel zapísať do ledgeru.
+        # Token usage z posledného LOGICKÉHO volania — číta MeteredLlm
+        # (credits.py) po každom volaní, aby vedel zapísať do ledgeru.
         self.last_usage: Dict[str, int] = {}
 
+    def _reset_usage(self) -> None:
+        """Nové logické volanie = nový súčet. Volá sa na začiatku každej
+        verejnej metódy, nie pri každom HTTP pokuse."""
+        self.last_usage = {"input": 0, "output": 0}
+
     def _capture_usage(self, data: Dict[str, Any]) -> None:
+        """PRIPOČÍTA spotrebu jednej odpovede k súčtu za toto volanie.
+
+        Zámerne sa neprepisuje: `_chat` opakuje pokus po 429/5xx aj po
+        prázdnom contente a poskytovateľ si tokeny z neúspešného pokusu
+        účtuje rovnako. Prepisovaním by sa fakturovala len posledná odpoveď
+        a všetko, čo zhorelo cestou, by šlo na náš účet.
+        """
         usage = data.get("usage") or {}
         try:
-            self.last_usage = {
-                "input": int(usage.get("prompt_tokens", 0) or 0),
-                "output": int(usage.get("completion_tokens", 0) or 0),
-            }
+            pridaj_in = int(usage.get("prompt_tokens", 0) or 0)
+            pridaj_out = int(usage.get("completion_tokens", 0) or 0)
         except (TypeError, ValueError):
-            self.last_usage = {"input": 0, "output": 0}
+            return
+        self.last_usage = {
+            "input": int(self.last_usage.get("input", 0) or 0) + pridaj_in,
+            "output": int(self.last_usage.get("output", 0) or 0) + pridaj_out,
+        }
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -81,17 +108,22 @@ class Llm:
         if self._reasoning_effort:
             payload["reasoning_effort"] = self._reasoning_effort
 
+        # Súčet za CELÉ volanie vrátane opakovaní — viď `_capture_usage`.
+        self._reset_usage()
         last_error: Optional[Exception] = None
         for attempt in range(1, _RETRIES + 1):
             try:
                 r = await self._client.post(self._endpoint, json=payload)
+                # Spotreba sa berie ešte PRED kontrolou stavu: aj 429/5xx nesie
+                # `usage`, keď model prompt spracoval a odpoveď len nedoručil.
+                # Tie tokeny sú minuté a bez tohto by ich nezaplatil nikto.
+                self._capture_usage(_json_or_empty(r))
                 if r.status_code == 429 or r.status_code >= 500:
                     raise httpx.HTTPStatusError(
                         f"LLM {r.status_code}: {r.text[:200]}", request=r.request, response=r
                     )
                 r.raise_for_status()
                 data = r.json()
-                self._capture_usage(data)
                 choices = data.get("choices") or []
                 if not choices:
                     raise LlmError(f"LLM nevrátil žiadne choices: {str(data)[:300]}")
@@ -225,6 +257,7 @@ class Llm:
                 }
             ],
         }
+        self._reset_usage()
         try:
             r = await self._client.post(self._endpoint, json=payload)
             r.raise_for_status()
@@ -266,6 +299,7 @@ class Llm:
             ],
             "max_tokens": 300,
         }
+        self._reset_usage()
         try:
             r = await self._client.post(self._endpoint, json=payload)
             r.raise_for_status()

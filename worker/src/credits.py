@@ -6,6 +6,13 @@ zápis do ledgeru: atlas cena z cenníka, klientovi × multiplier.
 
 Neobmedzené účty (`accounts.unlimited`) kontrolu preskakujú — nikdy sa
 nepauzujú a nič sa im neodpočíta, ale do ledgeru sa zapisujú rovnako.
+
+ÚČTUJE SA AJ PÁD
+----------------
+`Llm._chat` opakuje pokus po 429/5xx a poskytovateľ si tokeny z každého pokusu
+účtuje. Preto sa `last_usage` v `llm.py` SČÍTAVA cez celé logické volanie a
+`_bill` beží aj na chybovej vetve — inak by trojnásobný pokus, ktorý nakoniec
+zlyhal, nezaplatil nikto (okrem nás).
 """
 from __future__ import annotations
 import logging
@@ -63,9 +70,36 @@ class MeteredLlm:
                     except Exception:  # noqa: BLE001 — nedoručená správa nič nemení
                         log.exception("Správa o vyčerpaných kreditoch neodišla")
             raise OutOfCredits(self._model_id)
-        result = await getattr(self._llm, method)(*args, **kwargs)
+        try:
+            result = await getattr(self._llm, method)(*args, **kwargs)
+        except Exception:
+            # Volanie padlo, ale tokeny už zhoreli — `Llm._chat` si spotrebu
+            # zo VŠETKÝCH pokusov sčítava do `last_usage`, takže tu je čo
+            # zaúčtovať. Bez tohto by neúspešné volanie (typicky tri pokusy
+            # po 429) platil Atlas z vlastného. Výnimka ide ďalej nezmenená.
+            await self._bill(method)
+            raise
+        await self._bill(method)
+        return result
+
+    async def _bill(self, method: str) -> None:
+        """Zapíše spotrebu posledného volania do ledgeru. Nikdy nehádže.
+
+        Volá sa aj po páde volania — preto je celé telo best-effort: účtovanie
+        nesmie prekryť pôvodnú chybu ani zhodiť úspešnú odpoveď.
+        """
+        try:
+            await self._bill_inner(method)
+        except Exception:  # noqa: BLE001 — účtovanie nikdy nezhodí volanie
+            log.exception("Zaúčtovanie spotreby zlyhalo")
+
+    async def _bill_inner(self, method: str) -> None:
         usage = getattr(self._llm, "last_usage", None) or {}
-        i, o = int(usage.get("input", 0)), int(usage.get("output", 0))
+        i, o = int(usage.get("input", 0) or 0), int(usage.get("output", 0) or 0)
+        if i <= 0 and o <= 0:
+            # Volanie nedošlo k modelu (DNS, timeout pred odpoveďou) — zapisovať
+            # nulový riadok by len zaplnil ledger bez informácie.
+            return
         price = await self._reg.pricing(self._slug)
         if price.get("input_usd_per_mtok") or price.get("output_usd_per_mtok"):
             atlas = i / 1e6 * float(price["input_usd_per_mtok"]) \
@@ -83,7 +117,6 @@ class MeteredLlm:
                                          i, o, 0, round(atlas, 6), round(charged, 6))
         except Exception:
             log.exception("Zápis usage zlyhal — odpoveď ide ďalej, dorovná sa ďalším volaním")
-        return result
 
     async def reply(self, *a, **kw): return await self._metered("reply", *a, **kw)
     async def structured(self, *a, **kw): return await self._metered("structured", *a, **kw)

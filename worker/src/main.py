@@ -10,7 +10,8 @@ modelov naraz a pre každý beží `TenantRunner` (Task 10) ako `asyncio.Task`.
   2. vyčistí evidenciu runnerov, ktoré skončili samé (`TenantRunner.run()`
      sa vždy vráti čisto — pád na inom mieste je bug, nie dôvod padnúť pool),
   3. doklaimuje voľnú kapacitu a naštartuje nové runnery,
-  4. pošle heartbeat, nech Supabase vie, že replika ešte žije.
+  4. pošle heartbeat a podľa jeho odpovede zastaví tenantov, ktorých už
+     nevlastní (fencing — viď `Pool._fence`).
 
 Fáza fanvue rola (`SERVICE_ROLE=fanvue` vetva z predlohy) sa v tejto fáze
 zámerne NEPORTUJE — fanvue agent sa aktivuje až vo Fáze 3.
@@ -132,8 +133,10 @@ class Pool:
                 self._running[mid] = (runner, task)
                 log.info("model %s: runner naštartovaný", mid)
 
-        # 4. heartbeat — Supabase nech vie, že replika žije
-        await self._reg.heartbeat(self._g.replica_name)
+        # 4. heartbeat — Supabase nech vie, že replika žije, a nech povie,
+        #    ktorých tenantov ešte naozaj vlastní (fencing, viď nižšie)
+        owned = await self._reg.heartbeat(self._g.replica_name)
+        await self._fence(owned)
 
         # 5. stav repliky pre admin monitor (worker_replicas). Zlyhanie
         #    monitoringu nesmie zhodiť tick — replika beží aj bez neho, len ju
@@ -147,6 +150,41 @@ class Pool:
             self._replica_registered = True
         except Exception:  # noqa: BLE001 — monitoring nie je kritická cesta
             log.exception("upsert do worker_replicas zlyhal")
+
+    async def _fence(self, owned) -> None:
+        """Zastaví runnery tenantov, ktorých už replika nevlastní.
+
+        PREČO TO TREBA
+        Lease expiruje po 90 s bez heartbeatu, ale replika, ktorá heartbeat
+        nestihla, nemusí byť mŕtva — stačí zaseknutá sieť alebo dlhé GC.
+        `claim_models` medzitým tenanta pridelí inej replike a tá spustí
+        vlastnú Telethon session. Dve sessions na jednom Telegram účte je
+        presne ten scenár, pred ktorým sa všade inde chránime, len tu doteraz
+        nikto nekontroloval, či heartbeat vôbec niečo obnovil.
+
+        `heartbeat_models` (migrácia 016) preto vracia id riadkov, ktoré
+        skutočne osviežila. Čo v nich nie je, patrí niekomu inému.
+
+        `None` = RPC nič nepovedala (staršia verzia funkcie počas rolloutu) —
+        vtedy sa nerobí nič, lebo „neviem" nesmie znamenať „zastav všetko".
+
+        Lease sa tu ZÁMERNE nepúšťa (`release`): riadok už patrí inej replike
+        a `claimed_by = null` by jej ho vzal spod rúk.
+        """
+        if owned is None:
+            return
+        for mid in list(self._running):
+            if mid in owned:
+                continue
+            runner, task = self._running.pop(mid)
+            log.warning(
+                "model %s: lease prevzala iná replika — zastavujem, nech nebežia "
+                "dve sessions na jednom účte", mid,
+            )
+            with contextlib.suppress(Exception):
+                await runner.stop()
+            task.cancel()
+            await _reap(task)
 
     async def shutdown(self) -> None:
         """Zastaví všetky runnery a pustí celý lease repliky."""

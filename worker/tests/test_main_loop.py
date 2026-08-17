@@ -10,9 +10,14 @@ class FakeReg:
         self.next_rows = []
         self.rows_by_id = {}
         self.replicas = []
+    # `owned` = čo vráti heartbeat (fencing token). None = staršia RPC, ktorá
+    # nič nepovie — vtedy sa nesmie diať nič.
+    owned = None
     async def claim(self, replica, capacity):
         self.claims.append(capacity); return self.next_rows
-    async def heartbeat(self, replica): self.hb += 1
+    async def heartbeat(self, replica):
+        self.hb += 1
+        return self.owned
     async def release_all(self, replica): self.released.append("ALL")
     async def model_row(self, mid): return self.rows_by_id.get(mid)
     async def release(self, mid): self.released.append(mid)
@@ -144,6 +149,77 @@ async def test_replica_upsert_failure_does_not_break_tick():
     assert reg.hb == 1
     assert len(FakeRunner.instances) == 1
     assert not pool._replica_registered              # pri ďalšom pokuse zopakuje started_at
+
+# ---------------------------------------------------------------------------
+# Fencing — heartbeat povie, koho replika ešte naozaj vlastní
+# ---------------------------------------------------------------------------
+#
+# Lease vyprší po 90 s bez heartbeatu, ale replika, ktorá ho nestihla, nemusí
+# byť mŕtva — stačí zaseknutá sieť. Iná replika si tenanta medzitým prevezme
+# a spustí vlastnú Telethon session. Dve sessions na jednom Telegram účte je
+# najrýchlejšia cesta k banu, takže sa runner musí zastaviť sám.
+
+
+async def test_stolen_tenant_is_stopped_within_one_tick():
+    FakeRunner.instances.clear()
+    reg = FakeReg(); reg.next_rows = [ROW]
+    pool = make_pool(reg)
+    reg.owned = {"m-1"}
+    await pool.tick()
+    assert "m-1" in pool._running
+
+    # Iná replika si ho prevzala — náš heartbeat už jeho riadok neobnovil.
+    reg.rows_by_id["m-1"] = ROW
+    reg.next_rows = []
+    reg.owned = set()
+    await pool.tick()
+    assert "m-1" not in pool._running
+    assert FakeRunner.instances[0].stopped
+
+
+async def test_stolen_tenant_lease_is_not_released():
+    """`release` by novému majiteľovi vynulovalo `claimed_by` — riadok už
+    nie je náš a siahať naň by znamenalo vziať mu ho spod rúk."""
+    FakeRunner.instances.clear()
+    reg = FakeReg(); reg.next_rows = [ROW]
+    pool = make_pool(reg)
+    reg.owned = {"m-1"}
+    await pool.tick()
+    reg.rows_by_id["m-1"] = ROW
+    reg.next_rows = []
+    reg.owned = set()
+    reg.released.clear()
+    await pool.tick()
+    assert reg.released == []
+
+
+async def test_owned_tenant_keeps_running():
+    """Bežný stav sa nesmie zmeniť — heartbeat potvrdí, čo beží."""
+    FakeRunner.instances.clear()
+    reg = FakeReg(); reg.next_rows = [ROW]
+    pool = make_pool(reg)
+    reg.owned = {"m-1"}
+    await pool.tick()
+    reg.rows_by_id["m-1"] = ROW
+    reg.next_rows = []
+    await pool.tick()
+    assert "m-1" in pool._running
+    assert not FakeRunner.instances[0].stopped
+
+
+async def test_silent_heartbeat_stops_nothing():
+    """Staršia verzia RPC nevráti nič. „Neviem" nesmie znamenať „zastav
+    všetko" — inak by rollout zhodil všetky modelky naraz."""
+    FakeRunner.instances.clear()
+    reg = FakeReg(); reg.next_rows = [ROW]
+    pool = make_pool(reg)
+    reg.owned = None
+    await pool.tick()
+    reg.rows_by_id["m-1"] = ROW
+    reg.next_rows = []
+    await pool.tick()
+    assert "m-1" in pool._running
+
 
 async def test_shutdown_releases_all():
     FakeRunner.instances.clear()

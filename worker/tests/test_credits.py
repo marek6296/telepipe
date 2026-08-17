@@ -145,3 +145,80 @@ async def test_record_usage_failure_does_not_break_reply():
     reg.record_usage = boom
     m = MeteredLlm(llm, reg, model_id="m-1", model_slug="s")
     assert await m.reply("sys", []) == "ahoj"   # odpoveď prežije výpadok ledgeru
+
+
+# ---------------------------------------------------------------------------
+# Neúspešné volanie sa tiež účtuje
+# ---------------------------------------------------------------------------
+#
+# `Llm._chat` opakuje pokus po 429/5xx a spotrebu zo VŠETKÝCH pokusov sčítava
+# do `last_usage`. Keby sa účtovalo len po úspechu, tri pokusy zakončené pádom
+# by nezaplatil nikto — a padajúci poskytovateľ je presne ten stav, keď sa to
+# deje často.
+
+
+class PadajuciLlm:
+    """Spáli tokeny a potom padne — presne ako `_chat` po troch pokusoch."""
+
+    def __init__(self, usage=None):
+        self.last_usage = usage if usage is not None else {"input": 300, "output": 70}
+
+    async def reply(self, *a, **kw):
+        raise RuntimeError("LLM zlyhal po 3 pokusoch")
+
+
+async def test_failed_call_still_bills_burned_tokens():
+    reg = FakeRegistry()
+    m = MeteredLlm(PadajuciLlm(), reg, model_id="m-1", model_slug="x-ai/grok-4.5")
+    with pytest.raises(RuntimeError):
+        await m.reply("sys", [])
+    kind, i, o, atlas, charged = reg.usage_rows[0]
+    assert kind == "chat" and i == 300 and o == 70
+    assert atlas == pytest.approx(300 / 1e6 * 3.0 + 70 / 1e6 * 15.0)
+
+
+async def test_failed_call_propagates_original_error():
+    """Účtovanie nesmie prekryť dôvod pádu — runner sa podľa neho rozhoduje."""
+    reg = FakeRegistry()
+    m = MeteredLlm(PadajuciLlm(), reg, model_id="m-1", model_slug="s")
+    with pytest.raises(RuntimeError, match="3 pokusoch"):
+        await m.reply("sys", [])
+
+
+async def test_failed_call_without_usage_writes_nothing():
+    """Volanie, ktoré k modelu vôbec nedošlo (DNS, timeout) — nulový riadok by
+    len zaplnil ledger bez informácie."""
+    reg = FakeRegistry()
+    m = MeteredLlm(PadajuciLlm({"input": 0, "output": 0}), reg, model_id="m-1", model_slug="s")
+    with pytest.raises(RuntimeError):
+        await m.reply("sys", [])
+    assert reg.usage_rows == []
+
+
+async def test_ledger_failure_on_error_path_keeps_original_error():
+    reg = FakeRegistry()
+    async def boom(*a, **kw): raise RuntimeError("db down")
+    reg.record_usage = boom
+    m = MeteredLlm(PadajuciLlm(), reg, model_id="m-1", model_slug="s")
+    with pytest.raises(RuntimeError, match="3 pokusoch"):
+        await m.reply("sys", [])
+
+
+async def test_out_of_credits_bills_nothing():
+    """Volanie sa vôbec nestalo, takže niet čo účtovať."""
+    reg = FakeRegistry(balance=0.0)
+    m = MeteredLlm(FakeLlm(), reg, model_id="m-1", model_slug="s")
+    with pytest.raises(OutOfCredits):
+        await m.reply("sys", [])
+    assert reg.usage_rows == []
+
+
+async def test_accumulated_usage_bills_the_sum():
+    """Dva neúspešné pokusy + úspech: do ledgeru ide súčet, nie posledný pokus."""
+    reg = FakeRegistry()
+    llm = FakeLlm()
+    llm.last_usage = {"input": 300, "output": 70}   # 100+100+100 / 10+10+50
+    m = MeteredLlm(llm, reg, model_id="m-1", model_slug="x-ai/grok-4.5")
+    await m.reply("sys", [])
+    _, i, o, _, _ = reg.usage_rows[0]
+    assert (i, o) == (300, 70)

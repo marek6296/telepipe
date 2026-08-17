@@ -102,3 +102,49 @@ async def test_set_model_status():
     await reg.set_status("m-1", "paused", "out_of_credits")
     assert seen["method"] == "PATCH" and "models" in seen["url"]
     assert seen["body"] == {"status": "paused", "status_reason": "out_of_credits"}
+
+
+# ---------------------------------------------------------------------------
+# heartbeat — fencing token
+# ---------------------------------------------------------------------------
+#
+# `heartbeat_models` (migrácia 016) vracia id riadkov, ktoré naozaj obnovila.
+# Bez toho by pomalá (nie mŕtva) replika po strate lease ďalej bežala tenanta,
+# ktorého už spustila iná — dve Telethon sessions na jednom účte.
+
+
+async def test_heartbeat_returns_owned_ids():
+    seen = {}
+    def handler(req):
+        seen["url"] = str(req.url); seen["body"] = json.loads(req.content)
+        return httpx.Response(200, json=["m-1", "m-2"])
+    reg = Registry(_mock(handler))
+    assert await reg.heartbeat("replika-a") == {"m-1", "m-2"}
+    assert "/rpc/heartbeat_models" in seen["url"]
+    assert seen["body"] == {"p_replica": "replika-a"}
+
+
+async def test_heartbeat_empty_means_owns_nothing():
+    """Prázdna množina je informácia: replika nevlastní nič a runnery musia
+    ísť dole. Nesmie sa zamieňať s „neviem"."""
+    def handler(req):
+        return httpx.Response(200, json=[])
+    reg = Registry(_mock(handler))
+    assert await reg.heartbeat("replika-a") == set()
+
+
+async def test_heartbeat_null_is_unknown_not_empty():
+    """Staršia verzia RPC (`returns void`) počas rolloutu — von musí ísť None,
+    aby pool nezastavil všetko naraz."""
+    def handler(req):
+        return httpx.Response(200, json=None)
+    reg = Registry(_mock(handler))
+    assert await reg.heartbeat("replika-a") is None
+
+
+async def test_heartbeat_accepts_row_shape():
+    """Keby sa RPC niekedy zmenila na table-returning, chodili by slovníky."""
+    def handler(req):
+        return httpx.Response(200, json=[{"heartbeat_models": "m-1"}, {"id": "m-2"}])
+    reg = Registry(_mock(handler))
+    assert await reg.heartbeat("replika-a") == {"m-1", "m-2"}

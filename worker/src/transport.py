@@ -38,6 +38,17 @@ class SupabaseTransport:
         r = await self._client.patch(path, params=params, json=body)
         r.raise_for_status()
 
+    async def _delete(self, path: str, params: Dict[str, str]) -> None:
+        """Zmazanie riadkov. Filtre sú POVINNÉ — PostgREST bez nich zmaže tabuľku.
+
+        Volajúci ich vždy dáva (`model_id` + podmienka), takže tu je to len
+        poistka: prázdny `params` by bol tichý `delete from …` bez `where`.
+        """
+        if not params:
+            raise ValueError("_delete bez filtra by zmazal celú tabuľku")
+        r = await self._client.delete(path, params=params)
+        r.raise_for_status()
+
     async def _post(self, path: str, body: Any, upsert: bool = False) -> List[Dict[str, Any]]:
         prefer = "return=representation"
         if upsert:

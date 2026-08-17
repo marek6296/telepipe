@@ -13,6 +13,9 @@ najlacnejší spôsob, ako sa prezradiť.
 Priečinkom sa prideľuje úloha, nie názov: `sfw` sa posiela zadarmo, `nsfw`
 za peniaze, `post` je na feed, `ignore` sa nepoužije. Názvy si Marek robí
 vo vaulte tak, ako mu vyhovuje.
+
+Rola priečinka je ale len VÝCHODISKO — jednotlivá fotka ho smie prebiť
+(`effective_spicy` nižšie). Priečinok je hrubé triedenie, výnimka je vždy.
 """
 from __future__ import annotations
 
@@ -31,6 +34,29 @@ def role_of(folder_name: str, folders: Sequence[Dict[str, Any]]) -> str:
             role = str(row.get("role") or "ignore")
             return role if role in ROLES else "ignore"
     return "ignore"
+
+
+def effective_spicy(media: Dict[str, Any], folder_role: str) -> bool:
+    """Je táto fotka ostrá? Rola priečinka rozhoduje LEN keď fotka mlčí.
+
+    ODKLON OD PREDLOHY (zámerný). V šablóne (`/Users/marek/telegram`,
+    `fanvue_agent._pick_photo`) určoval ostrosť výhradne priečinok a príznak
+    na fotke sa pri každom výbere prepísal — takže „Explicit" v dashboarde
+    nikdy nič neovplyvnil. Priečinok je hrubé triedenie a výnimka je vždy:
+    jedna odvážnejšia fotka v „daily" sa nesmie poslať zadarmo a jedna
+    nevinná v „premium" nemá dôvod predávať sa ako ostrá.
+
+    Tri stavy, preto samostatný stĺpec:
+      * `spicy_override is None` — o fotke nikto nerozhodol → platí priečinok,
+      * `True` / `False` — výslovné rozhodnutie majiteľa, prebíja priečinok.
+
+    `fv_media.spicy` je len odvodená (efektívna) hodnota pre dashboard; tú
+    dopočítava trigger v migrácii 016 podľa tohto istého pravidla.
+    """
+    override = media.get("spicy_override")
+    if override is None:
+        return str(folder_role or "") == "nsfw"
+    return bool(override)
 
 
 def flatten(vault_item: Dict[str, Any], folder: str) -> Optional[Dict[str, Any]]:

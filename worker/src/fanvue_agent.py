@@ -841,15 +841,23 @@ class FanvueAgent:
             log.warning("Zbierka fotiek sa nenačítala: %s", exc)
             return None
 
-        rola = "nsfw" if ostra else "sfw"
+        # ODKLON OD PREDLOHY (zámerný, viď `fvmedia.effective_spicy`).
+        # Šablóna brala kandidátov len z priečinkov so sediacou rolou a potom
+        # celému výberu prepísala `item["spicy"] = ostra` — per-fotkový príznak
+        # „Explicit" z dashboardu tým nikdy nič neovplyvnil. Tu sa berú fotky
+        # z OBOCH posielateľných rolí, každej sa dopočíta skutočná ostrosť
+        # (priečinok = východisko, `spicy_override` na fotke ho prebíja)
+        # a triedi až `fvmedia.pick(spicy=…)`. Bez toho by ostrá fotka
+        # zaradená do sfw priečinka odišla zadarmo.
         zbierka: List[Dict[str, Any]] = []
         for folder in folders:
-            if fvmedia.role_of(str(folder.get("name") or ""), folders) == rola:
-                zbierka.extend(await self._db.media_in(str(folder.get("name"))))
-
-        # Vo `fv_media` je ostrosť vlastnosťou fotky, tu ju určuje priečinok.
-        for item in zbierka:
-            item["spicy"] = ostra
+            meno = str(folder.get("name") or "")
+            rola = fvmedia.role_of(meno, folders)
+            if rola not in ("sfw", "nsfw"):
+                continue
+            for item in await self._db.media_in(meno):
+                item["spicy"] = fvmedia.effective_spicy(item, rola)
+                zbierka.append(item)
 
         vybrana = fvmedia.pick(
             zbierka, uz_videl, spicy=ostra, hint=fan["text"], paid=ostra

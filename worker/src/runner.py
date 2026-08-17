@@ -141,7 +141,14 @@ class TenantRunner:
             await self._reg.release(self.model_id)
 
     async def _start_fanvue(self, cfg, g, llm) -> None:
-        """Best-effort spustenie Fanvue agenta. Nikdy nehádže."""
+        """Best-effort rozbehnutie dozoru nad Fanvue. Nikdy nehádže.
+
+        Dozor (`fanvue_tenant.FanvueSupervisor`) beží celý život tenanta a
+        priebežne pozerá na riadok `fanvue`: pripojenie účtu ani prepnutie
+        vypínača v dashboarde tak nepotrebuje reštart modelky. Reštart by
+        znamenal aj odpojenie Telethon session, čo je cena, ktorú prepnutie
+        vypínača nemá stáť.
+        """
         try:
             from fanvue_tenant import start_fanvue
 

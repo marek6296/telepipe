@@ -42,8 +42,9 @@ a spustiť agenta sú dve vedomé rozhodnutia, nie jedno.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from crypto import decrypt, encrypt
@@ -96,6 +97,9 @@ class TenantFanvueDb:
 
     async def _post(self, path: str, body: Any, upsert: bool = False) -> None:
         await self._t._post(path, body, upsert=upsert)
+
+    async def _delete(self, path: str, params: Dict[str, str]) -> None:
+        await self._t._delete(path, params)
 
     def _own(self, row: Dict[str, Any]) -> Dict[str, Any]:
         """Riadok na zápis s `model_id`. Zapisuje sa cez service kľúč (RLS
@@ -438,6 +442,25 @@ class TenantFanvueDb:
             },
         )
 
+    async def prune_sync(self, older_than_h: int = 24) -> None:
+        """Zmaže dobehnuté požiadavky staršie než `older_than_h`.
+
+        Fronta je krátkodobá pracovná pamäť: dashboard z nej číta jedinú vec —
+        ako dopadol POSLEDNÝ klik. Riadok spred týždňa už nikto neuvidí, ale
+        pri modelke, ktorá synchronizuje denne, by tabuľka rástla donekonečna
+        (nikto ju doteraz nemazal). Nedokončené riadky sa NEmažú ani keď sú
+        staré — `finished_at is null` je zámok tlačidla a jeho tiché zmiznutie
+        by zamaskovalo zaseknutú synchronizáciu.
+        """
+        hranica = datetime.now(timezone.utc) - timedelta(hours=max(1, int(older_than_h)))
+        await self._delete(
+            SYNC,
+            {
+                "model_id": self._mine,
+                "finished_at": f"lt.{hranica.isoformat()}",
+            },
+        )
+
     async def mark_vault_synced(self) -> None:
         """Kedy naposledy vault dobehol. Ide bokom od frontu, aby to karta
         vedela ukázať aj vtedy, keď je zoznam požiadaviek dávno prečítaný."""
@@ -452,27 +475,183 @@ class TenantFanvueDb:
 # Spustenie agenta vedľa Telegramu
 # ---------------------------------------------------------------------------
 
+# Ako často sa prezerá riadok `fanvue`. Pripojenie účtu ani prepnutie vypínača
+# nie je nič, na čo by človek čakal so stopkami, ale reštartovať kvôli tomu
+# tenanta (a tým aj Telethon session) je horšie než jeden dotaz za pol minúty.
+WATCH_S = 30.0
 
-async def start_fanvue(cfg, g, transport, llm, cleanup: list) -> Optional[asyncio.Task]:
-    """Spustí Fanvue pre tenanta. Vráti úlohu agenta, alebo None.
 
-    Bežia tu DVE úlohy a majú rôzne podmienky:
+class FanvueSupervisor:
+    """Drží Fanvue tenanta v súlade s riadkom `fanvue`.
 
-      * **načítanie vaultu** (`fvvault.VaultSync`) stačí pripojený účet
-        (`fanvue.connected`). Priradiť priečinkom rolu a fotkám cenu musí ísť
-        SKÔR, než sa agent zapne — inak by prvá zapnutá modelka buď mlčala
-        (nemá čo poslať), alebo poslala fotku z priečinka, o ktorom ešte nikto
-        nepovedal, na čo je;
-      * **odpisovanie** (`FanvueAgent`) navyše potrebuje `fanvue.enabled` —
-        vypínač v dashboarde, default false. Pripojiť účet a rozbehnúť
-        odpisovanie sú dve vedomé rozhodnutia, nie jedno.
+    PREČO TO NIE JE JEDNORAZOVÝ ŠTART
+    ---------------------------------
+    Pôvodne sa stav prečítal RAZ pri štarte tenanta. Kto pripojil Fanvue až
+    potom, nedostal ani agenta, ani načítanie vaultu — a nedozvedel sa prečo,
+    lebo v dashboarde bolo všetko „pripojené". Ožilo to až reštartom celej
+    modelky, čo znamená aj odpojenie Telethonu, teda cenu, ktorú prepnutie
+    vypínača nemá stáť. Preto sa riadok kontroluje priebežne.
 
-    Nad oboma je ešte podmienka, že worker o Fanvue appke vôbec vie
-    (FANVUE_CLIENT_ID + FANVUE_CLIENT_SECRET).
+    Dve úlohy, dve rôzne podmienky:
+      * **načítanie vaultu** (`fvvault.VaultSync`) stačí `connected`. Priradiť
+        priečinkom rolu a fotkám cenu musí ísť SKÔR, než sa agent zapne — inak
+        by prvá zapnutá modelka buď mlčala (nemá čo poslať), alebo poslala
+        fotku z priečinka, o ktorom ešte nikto nepovedal, na čo je;
+      * **odpisovanie** (`FanvueAgent`) navyše potrebuje `enabled` — vypínač
+        v dashboarde, default false. Pripojiť účet a rozbehnúť odpisovanie sú
+        dve vedomé rozhodnutia, nie jedno.
+
+    `tick()` je idempotentný: čo už beží, sa nespúšťa druhý raz, a čo bežať
+    nemá, sa zruší. Nič z toho nehádže — Fanvue nesmie zhodiť Telegram.
+    """
+
+    def __init__(self, cfg, g, transport, llm, poll_s: float = WATCH_S) -> None:
+        self._cfg = cfg
+        self._g = g
+        self._transport = transport
+        self._llm = llm
+        self._poll_s = poll_s
+        self._db = TenantFanvueDb(transport, cfg.model_id, g.encryption_key)
+        self._api = None
+        self.vault_task: Optional[asyncio.Task] = None
+        self.agent_task: Optional[asyncio.Task] = None
+        # Aby sa do logu nepísalo to isté každých 30 sekúnd.
+        self._last_state: Optional[tuple] = None
+
+    @property
+    def model_id(self) -> str:
+        return getattr(self._cfg, "model_id", "?")
+
+    async def run(self) -> None:
+        """Nekonečná slučka kontrol. Končí len zrušením.
+
+        Spí PRED prvou kontrolou: prvý `tick()` už spravil `start_fanvue`
+        synchrónne a zopakovať ho hneď by bol len dotaz navyše pri štarte
+        každej modelky.
+        """
+        while True:
+            await asyncio.sleep(self._poll_s)
+            try:
+                await self.tick()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - dozor nesmie umrieť
+                log.exception("model %s: kolo dozoru nad Fanvue zlyhalo: %s",
+                              self.model_id, exc)
+
+    async def tick(self) -> None:
+        """Jedna kontrola: dorovná bežiace úlohy podľa riadku `fanvue`."""
+        try:
+            row = await self._db.settings()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - výpadok DB nič nevypína
+            # Zámerne sa NIČ nezastavuje: nedostupná Supabase neznamená, že
+            # niekto Fanvue odpojil, a vypnúť agenta kvôli jednému 500-ku by
+            # bolo horšie než nechať ho bežať do ďalšieho kola.
+            log.warning("model %s: stav Fanvue sa nenačítal (%s)", self.model_id, exc)
+            return
+
+        connected = bool(row.get("connected"))
+        enabled = connected and bool(row.get("enabled"))
+
+        if not connected:
+            await self._stop_agent()
+            await self._stop_vault()
+            await self._close_api()
+        else:
+            self._ensure_api()
+            self._ensure_vault()
+            if enabled:
+                self._ensure_agent()
+            else:
+                await self._stop_agent()
+
+        stav = (connected, enabled)
+        if stav != self._last_state:
+            self._last_state = stav
+            if enabled:
+                log.info("model %s: Fanvue agent beží ako @%s",
+                         self.model_id, row.get("handle") or "?")
+            elif connected:
+                log.info("model %s: Fanvue pripojený, odpisovanie vypnuté — beží len vault",
+                         self.model_id)
+            else:
+                log.info("model %s: Fanvue nie je pripojený", self.model_id)
+
+    async def close(self) -> None:
+        """Upratovanie po tenantovi. `runner._drain_cleanup` volá `close()`."""
+        await self._stop_agent()
+        await self._stop_vault()
+        await self._close_api()
+
+    # ---------- jednotlivé úlohy ----------
+
+    @staticmethod
+    def _zije(task: Optional[asyncio.Task]) -> bool:
+        return task is not None and not task.done()
+
+    def _ensure_api(self) -> None:
+        if self._api is None:
+            from fanvue_api import Fanvue
+
+            self._api = Fanvue(self._db, self._g.fanvue_client_id, self._g.fanvue_client_secret)
+
+    def _ensure_vault(self) -> None:
+        if self._zije(self.vault_task):
+            return
+        import fvvault
+
+        self.vault_task = asyncio.create_task(fvvault.VaultSync(self._db, self._api).run())
+
+    def _ensure_agent(self) -> None:
+        if self._zije(self.agent_task):
+            return
+        # Import cez modul (nie `from … import FanvueAgent`), aby sa v testoch
+        # dal podvrhnúť monkeypatchom na module.
+        import fanvue_agent
+
+        self.agent_task = asyncio.create_task(
+            fanvue_agent.FanvueAgent(self._db, self._api, self._llm).run()
+        )
+
+    async def _stop_agent(self) -> None:
+        await self._zrus(self.agent_task)
+        self.agent_task = None
+
+    async def _stop_vault(self) -> None:
+        await self._zrus(self.vault_task)
+        self.vault_task = None
+
+    @staticmethod
+    async def _zrus(task: Optional[asyncio.Task]) -> None:
+        if task is not None and not task.done():
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
+
+    async def _close_api(self) -> None:
+        api, self._api = self._api, None
+        if api is not None:
+            with contextlib.suppress(Exception):
+                await api.close()
+
+
+async def start_fanvue(cfg, g, transport, llm, cleanup: list) -> Optional["FanvueSupervisor"]:
+    """Rozbehne dozor nad Fanvue pre tenanta. None = worker o appke nevie.
+
+    Vráti sa DOZOR, nie úloha agenta: agent môže vzniknúť aj zaniknúť za behu
+    (majiteľ prepne vypínač), takže jedna úloha by bola pravda len v okamihu
+    štartu. Prvý `tick()` beží synchrónne, aby pripojená modelka nečakala na
+    prvý interval; potom prevezme slučka.
+
+    Podmienka nad všetkým je, že worker o Fanvue appke vôbec vie
+    (FANVUE_CLIENT_ID + FANVUE_CLIENT_SECRET) — bez nej sa do DB ani nepozrie.
 
     `llm` je ten istý `MeteredLlm` ako pre Telegram — Fanvue tak platí z toho
-    istého kreditu a bez zostatku sa neodpisuje ani tam. Úlohy aj HTTP klient
-    idú do `cleanup`, ktorý runner odbaví pri `stop()`.
+    istého kreditu a bez zostatku sa neodpisuje ani tam. Do `cleanup` ide úloha
+    dozoru a hneď za ňou samotný dozor: runner ide zoznamom odpredu, takže sa
+    najprv zruší slučka a až potom sa `close()`-om pozatvárajú jej deti.
 
     Nič sa tu nechytá: volajúci (runner) to obaľuje `try/except` presne ako
     kontrolného bota — Fanvue nesmie zhodiť odpisovanie na Telegrame.
@@ -481,31 +660,8 @@ async def start_fanvue(cfg, g, transport, llm, cleanup: list) -> Optional[asynci
         log.debug("model %s: Fanvue appka nie je nastavená — preskakujem", cfg.model_id)
         return None
 
-    from fanvue_agent import FanvueAgent
-    from fanvue_api import Fanvue
-    from fvvault import VaultSync
-
-    db = TenantFanvueDb(transport, cfg.model_id, g.encryption_key)
-    row = await db.settings()
-    if not row.get("connected"):
-        return None
-
-    api = Fanvue(db, g.fanvue_client_id, g.fanvue_client_secret)
-    # Poradie je dôležité: `_drain_cleanup` ide zoznamom odpredu, takže sa
-    # najprv zrušia úlohy a až potom zatvorí klient, ktorý používajú.
-    sync = asyncio.create_task(VaultSync(db, api).run())
-    cleanup.append(sync)
-
-    if not row.get("enabled"):
-        cleanup.append(api)
-        log.info(
-            "model %s: Fanvue pripojený, odpisovanie vypnuté — beží len vault",
-            cfg.model_id,
-        )
-        return None
-
-    task = asyncio.create_task(FanvueAgent(db, api, llm).run())
-    cleanup.append(task)
-    cleanup.append(api)
-    log.info("model %s: Fanvue agent beží ako @%s", cfg.model_id, row.get("handle") or "?")
-    return task
+    sup = FanvueSupervisor(cfg, g, transport, llm)
+    await sup.tick()
+    cleanup.append(asyncio.create_task(sup.run()))
+    cleanup.append(sup)
+    return sup

@@ -8,11 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timezone
 
 import httpx
 import pytest
 from crypto import encrypt
-from fanvue_tenant import TenantFanvueDb, start_fanvue
+from fanvue_tenant import FanvueSupervisor, TenantFanvueDb, start_fanvue
 from transport import SupabaseTransport
 
 KEY = "JoFAPhHkY+0QClNlXm2VoUanwKdZuNJFxrU1qTN0iPY="
@@ -69,14 +70,18 @@ def _db(rows, calls):
 
 
 def _zrus(cleanup):
-    """Zruší všetky úlohy z cleanupu — presne ako `runner._drain_cleanup`.
+    """Zruší všetko z cleanupu — presne ako `runner._drain_cleanup`.
 
-    `start_fanvue` spúšťa dve úlohy (vault + agent) a nezrušený `while True`
-    by v testoch prežil svoj test a zamiešal sa do ďalšieho.
+    Dozor drží dve deti (vault + agent) a nezrušený `while True` by v testoch
+    prežil svoj test a zamiešal sa do ďalšieho.
     """
     for item in cleanup:
         if isinstance(item, asyncio.Task):
             item.cancel()
+        elif hasattr(item, "vault_task"):        # FanvueSupervisor
+            for dieta in (item.vault_task, item.agent_task):
+                if dieta is not None:
+                    dieta.cancel()
 
 
 # ---------------------------------------------------------------------------
@@ -471,78 +476,87 @@ def fake_agent(monkeypatch):
 
 
 class TestStart:
-    async def test_nepripojeny_ucet_nespusti_nic(self):
+    async def test_nepripojeny_ucet_nespusti_ziadnu_pracu(self, fake_agent):
+        """Nič sa nerozbehne — ale DOZOR beží ďalej, viď `TestDozor`."""
         cleanup = []
-        task = await start_fanvue(
+        sup = await start_fanvue(
             _Cfg(), _globals(), _transport({"/fanvue": [_row(connected=False)]}, []), None, cleanup
         )
-        assert task is None and cleanup == []
-
-    async def test_vypnute_odpisovanie_agenta_nespusti(self):
-        """`enabled` je vypínač ODPISOVANIA — účet môže byť pripojený a ticho."""
-        cleanup = []
-        task = await start_fanvue(
-            _Cfg(), _globals(), _transport({"/fanvue": [_row(enabled=False)]}, []), None, cleanup
-        )
         try:
-            assert task is None
-            # Vault sa načítava aj tak: priradiť priečinkom rolu musí ísť SKÔR,
-            # než sa agent zapne.
-            assert any(isinstance(item, asyncio.Task) for item in cleanup)
+            assert sup is not None
+            assert sup.vault_task is None and sup.agent_task is None
+            assert fake_agent.made == []
         finally:
             _zrus(cleanup)
 
-    async def test_vypnute_odpisovanie_pusti_len_vault(self, fake_agent):
+    async def test_vypnute_odpisovanie_agenta_nespusti(self, fake_agent):
+        """`enabled` je vypínač ODPISOVANIA — účet môže byť pripojený a ticho."""
         cleanup = []
-        task = await start_fanvue(
+        sup = await start_fanvue(
             _Cfg(), _globals(), _transport({"/fanvue": [_row(enabled=False)]}, []), None, cleanup
         )
         try:
-            assert task is None
+            assert sup.agent_task is None
+            # Vault sa načítava aj tak: priradiť priečinkom rolu musí ísť SKÔR,
+            # než sa agent zapne.
+            assert sup.vault_task is not None
             assert fake_agent.made == [], "agent sa nesmel spustiť"
         finally:
             _zrus(cleanup)
 
     async def test_pripojeny_ucet_pusti_aj_nacitanie_vaultu(self, fake_agent):
         cleanup = []
-        task = await start_fanvue(
+        sup = await start_fanvue(
             _Cfg(), _globals(), _transport({"/fanvue": [_row()]}, []), object(), cleanup
         )
         try:
-            tasks = [i for i in cleanup if isinstance(i, asyncio.Task)]
-            assert len(tasks) == 2, "vault aj agent musia bežať vedľa seba"
+            assert sup.vault_task is not None and sup.agent_task is not None
         finally:
             _zrus(cleanup)
 
     async def test_bez_appky_sa_do_db_ani_nepozera(self):
         calls = []
-        task = await start_fanvue(
+        sup = await start_fanvue(
             _Cfg(),
             _globals(fanvue_client_id="", fanvue_client_secret=""),
             _transport({"/fanvue": [_row()]}, calls),
             None,
             [],
         )
-        assert task is None and calls == []
+        assert sup is None and calls == []
 
-    async def test_chybajuci_riadok_nevadi(self):
-        assert await start_fanvue(_Cfg(), _globals(), _transport({"/fanvue": []}, []), None, []) is None
+    async def test_chybajuci_riadok_nevadi(self, fake_agent):
+        cleanup = []
+        sup = await start_fanvue(
+            _Cfg(), _globals(), _transport({"/fanvue": []}, []), None, cleanup
+        )
+        try:
+            assert sup.vault_task is None and sup.agent_task is None
+        finally:
+            _zrus(cleanup)
+
+    async def test_dozor_a_upratovanie_idu_do_cleanupu_v_poradi(self, fake_agent):
+        """Runner ide cleanupom odpredu: najprv sa zruší slučka dozoru a až
+        potom sa `close()`-om pozatvárajú jej deti (klient, ktorý používajú)."""
+        cleanup = []
+        sup = await start_fanvue(
+            _Cfg(), _globals(), _transport({"/fanvue": [_row()]}, []), object(), cleanup
+        )
+        try:
+            assert isinstance(cleanup[0], asyncio.Task)
+            assert cleanup[1] is sup
+            assert hasattr(sup, "close")
+        finally:
+            _zrus(cleanup)
 
     async def test_pripojeny_a_zapnuty_agent_bezi(self, fake_agent):
         cleanup = []
-        llm = object()
-        task = await start_fanvue(
-            _Cfg(), _globals(), _transport({"/fanvue": [_row()]}, []), llm, cleanup
+        sup = await start_fanvue(
+            _Cfg(), _globals(), _transport({"/fanvue": [_row()]}, []), object(), cleanup
         )
         try:
-            assert task is not None
+            assert sup.agent_task is not None
             await fake_agent.wait()
-            # Úlohy musia ísť do cleanupu PRED klientom, inak by sa zatvoril
-            # skôr, než ho prestanú používať.
-            assert task in cleanup
-            klient = cleanup[-1]
-            assert hasattr(klient, "close")
-            assert cleanup.index(task) < cleanup.index(klient)
         finally:
             _zrus(cleanup)
 
@@ -550,7 +564,7 @@ class TestStart:
         """Fanvue musí platiť z toho istého kreditu ako Telegram."""
         llm = object()
         cleanup = []
-        task = await start_fanvue(
+        await start_fanvue(
             _Cfg(), _globals(), _transport({"/fanvue": [_row()]}, []), llm, cleanup
         )
         try:
@@ -560,6 +574,180 @@ class TestStart:
             assert isinstance(agent.db, TenantFanvueDb) and agent.db.model_id == MODEL
         finally:
             _zrus(cleanup)
+
+
+# ---------------------------------------------------------------------------
+# Dozor nad prepínačmi za behu
+# ---------------------------------------------------------------------------
+#
+# Kto pripojil Fanvue až po štarte workera, nedostal doteraz ani agenta, ani
+# načítanie vaultu — a nedozvedel sa prečo, lebo v dashboarde bolo všetko
+# „pripojené". Ožilo to až reštartom modelky, čo znamená aj odpojenie Telethonu.
+# Tá cena za prepnutie jedného vypínača je príliš vysoká.
+
+
+class _MenlivyRiadok:
+    """Transport, ktorého riadok `fanvue` sa dá medzi tickami meniť."""
+
+    def __init__(self, row):
+        self.row = row
+        self.calls = []
+
+    def transport(self):
+        return _transport_z_callable(lambda: [self.row] if self.row else [], self.calls)
+
+
+def _transport_z_callable(rows_fn, calls):
+    def handler(req):
+        path = str(req.url.path).replace("/rest/v1", "")
+        try:
+            body = json.loads(req.content) if req.content else None
+        except ValueError:
+            body = None
+        calls.append({"method": req.method, "url": str(req.url), "body": body})
+        if req.method != "GET":
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json=rows_fn() if path == "/fanvue" else [])
+
+    t = SupabaseTransport("https://x.supabase.co", "sk")
+    t._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url="https://x.supabase.co/rest/v1"
+    )
+    return t
+
+
+class TestDozor:
+    async def test_pripojenie_za_behu_rozbehne_vault_aj_agenta(self, fake_agent):
+        """Náprava nálezu: pripojenie po štarte workera si doteraz vyžiadalo
+        reštart celej modelky."""
+        zdroj = _MenlivyRiadok(_row(connected=False))
+        sup = FanvueSupervisor(_Cfg(), _globals(), zdroj.transport(), object())
+        try:
+            await sup.tick()
+            assert sup.vault_task is None and sup.agent_task is None
+
+            zdroj.row = _row()               # majiteľ práve pripojil a zapol
+            await sup.tick()
+            assert sup.vault_task is not None
+            assert sup.agent_task is not None
+            await fake_agent.wait()
+        finally:
+            await sup.close()
+
+    async def test_vypnutie_za_behu_zastavi_agenta_a_vault_necha(self, fake_agent):
+        """Vypínač je len o odpisovaní — vault sa načítava aj potichu."""
+        zdroj = _MenlivyRiadok(_row())
+        sup = FanvueSupervisor(_Cfg(), _globals(), zdroj.transport(), object())
+        try:
+            await sup.tick()
+            agent = sup.agent_task
+            assert agent is not None
+
+            zdroj.row = _row(enabled=False)
+            await sup.tick()
+            assert sup.agent_task is None
+            assert agent.cancelled() or agent.done()
+            assert sup.vault_task is not None
+        finally:
+            await sup.close()
+
+    async def test_odpojenie_zastavi_vsetko(self, fake_agent):
+        zdroj = _MenlivyRiadok(_row())
+        sup = FanvueSupervisor(_Cfg(), _globals(), zdroj.transport(), object())
+        try:
+            await sup.tick()
+            vault, agent = sup.vault_task, sup.agent_task
+
+            zdroj.row = _row(connected=False)
+            await sup.tick()
+            assert sup.vault_task is None and sup.agent_task is None
+            assert vault.done() and agent.done()
+        finally:
+            await sup.close()
+
+    async def test_opakovane_ticky_nespustia_druhu_kopiu(self, fake_agent):
+        """Dva agenti na jednom účte by odpísali dvakrát na tú istú správu."""
+        zdroj = _MenlivyRiadok(_row())
+        sup = FanvueSupervisor(_Cfg(), _globals(), zdroj.transport(), object())
+        try:
+            for _ in range(4):
+                await sup.tick()
+            assert len(fake_agent.made) == 1
+        finally:
+            await sup.close()
+
+    async def test_opakovane_ticky_drzia_tie_iste_ulohy(self, fake_agent):
+        zdroj = _MenlivyRiadok(_row())
+        sup = FanvueSupervisor(_Cfg(), _globals(), zdroj.transport(), object())
+        try:
+            await sup.tick()
+            vault, agent = sup.vault_task, sup.agent_task
+            await sup.tick()
+            assert sup.vault_task is vault and sup.agent_task is agent
+        finally:
+            await sup.close()
+
+    async def test_vypnutie_a_zapnutie_agenta_zopakuje(self, fake_agent):
+        zdroj = _MenlivyRiadok(_row())
+        sup = FanvueSupervisor(_Cfg(), _globals(), zdroj.transport(), object())
+        try:
+            await sup.tick()
+            zdroj.row = _row(enabled=False)
+            await sup.tick()
+            zdroj.row = _row()
+            await sup.tick()
+            assert sup.agent_task is not None
+            assert len(fake_agent.made) == 2
+        finally:
+            await sup.close()
+
+    async def test_vypadok_db_nic_nevypina(self, fake_agent):
+        """Nedostupná Supabase neznamená, že niekto Fanvue odpojil."""
+        stav = {"padaj": False}
+
+        def rows():
+            if stav["padaj"]:
+                raise httpx.ConnectError("supabase down")
+            return [_row()]
+
+        t = _transport_z_callable(rows, [])
+        sup = FanvueSupervisor(_Cfg(), _globals(), t, object())
+        try:
+            await sup.tick()
+            vault, agent = sup.vault_task, sup.agent_task
+            stav["padaj"] = True
+            await sup.tick()                 # nesmie vyhodiť ani nič zrušiť
+            assert sup.vault_task is vault and sup.agent_task is agent
+        finally:
+            await sup.close()
+
+    async def test_close_uprace_vsetko(self, fake_agent):
+        zdroj = _MenlivyRiadok(_row())
+        sup = FanvueSupervisor(_Cfg(), _globals(), zdroj.transport(), object())
+        await sup.tick()
+        vault, agent = sup.vault_task, sup.agent_task
+        await sup.close()
+        assert vault.done() and agent.done()
+        assert sup.vault_task is None and sup.agent_task is None
+
+    async def test_zlyhany_tick_slucku_nezhodi(self, fake_agent, monkeypatch):
+        zdroj = _MenlivyRiadok(_row())
+        sup = FanvueSupervisor(_Cfg(), _globals(), zdroj.transport(), object(), poll_s=0)
+        volania = {"n": 0}
+
+        async def obcas_padne():
+            volania["n"] += 1
+            if volania["n"] == 1:
+                raise RuntimeError("bum")
+
+        monkeypatch.setattr(sup, "tick", obcas_padne)
+        task = asyncio.create_task(sup.run())
+        for _ in range(30):
+            await asyncio.sleep(0)
+            if volania["n"] >= 3:
+                break
+        task.cancel()
+        assert volania["n"] >= 3, "slučka sa zastavila po prvej chybe"
 
 
 # ---------------------------------------------------------------------------
@@ -613,6 +801,52 @@ class TestFrontaSync:
         assert f"model_id=eq.{MODEL}" in calls[-1]["url"]
         assert calls[-1]["body"]["media_synced_at"]
 
+    async def test_prune_maze_len_dobehnute_a_stare(self):
+        """Fronta je krátkodobá pracovná pamäť — dashboard z nej číta výsledok
+        POSLEDNÉHO kliku. Nikto ju doteraz nemazal a pri dennej synchronizácii
+        rástla donekonečna."""
+        calls = []
+        await _db({}, calls).prune_sync(24)
+        posledny = calls[-1]
+        assert posledny["method"] == "DELETE"
+        assert posledny["url"].split("?")[0].endswith("/fanvue_sync_requests")
+        assert f"model_id=eq.{MODEL}" in posledny["url"]
+        assert "finished_at=lt." in posledny["url"]
+
+    async def test_prune_nesiaha_na_nedokoncene(self):
+        """`finished_at is null` je zámok tlačidla — jeho tiché zmiznutie by
+        zamaskovalo zaseknutú synchronizáciu."""
+        calls = []
+        await _db({}, calls).prune_sync(24)
+        assert "finished_at=is.null" not in calls[-1]["url"]
+
+    async def test_prune_hranica_je_v_minulosti(self):
+        from urllib.parse import parse_qs, urlparse
+
+        calls = []
+        await _db({}, calls).prune_sync(24)
+        hranica = parse_qs(urlparse(calls[-1]["url"]).query)["finished_at"][0]
+        kedy = datetime.fromisoformat(hranica.removeprefix("lt."))
+        odstup = datetime.now(timezone.utc) - kedy
+        assert 23.9 * 3600 < odstup.total_seconds() < 24.1 * 3600
+
+    async def test_prune_nikdy_nemaze_cerstve(self):
+        """Nezmyselný vstup (0 h) by inak zmazal aj to, na čo sa práve pozerá
+        dashboard — dolná hranica je hodina."""
+        from urllib.parse import parse_qs, urlparse
+
+        calls = []
+        await _db({}, calls).prune_sync(0)
+        hranica = parse_qs(urlparse(calls[-1]["url"]).query)["finished_at"][0]
+        kedy = datetime.fromisoformat(hranica.removeprefix("lt."))
+        assert (datetime.now(timezone.utc) - kedy).total_seconds() > 3500
+
+    async def test_delete_bez_filtra_je_chyba(self):
+        """PostgREST bez filtra zmaže tabuľku. Poistka v transporte."""
+        t = _transport({}, [])
+        with pytest.raises(ValueError):
+            await t._delete("/fanvue_sync_requests", {})
+
     @pytest.mark.parametrize(
         "call",
         [
@@ -620,6 +854,7 @@ class TestFrontaSync:
             lambda db: db.start_sync(1),
             lambda db: db.finish_sync(1, ok=True),
             lambda db: db.mark_vault_synced(),
+            lambda db: db.prune_sync(24),
         ],
     )
     async def test_model_id_je_v_kazdom_volani(self, call):

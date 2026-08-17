@@ -18,8 +18,9 @@ sa zapíše späť do toho istého riadku, takže tlačidlo vie ukázať aj „4
 Vault drží fotky, my držíme to, čo o nich vault nevie: čo na nich je, koľko
 stoja, či sa smú posielať a komu už odišli. Preto sa existujúcemu riadku
 osviežuje LEN to, čo je fakt na strane Fanvue — `folder`, `kind`, `thumb_url`.
-`caption`, `fits`, `price_cents`, `active`, `spicy`, `sent_count` a `posted_at`
-sú naše a synchronizácia sa ich nedotkne. (`fvmedia.sync` z predlohy to riešila
+`caption`, `fits`, `price_cents`, `active`, `spicy_override`, `sent_count`
+a `posted_at` sú naše a synchronizácia sa ich nedotkne. (`spicy` je odvodená
+hodnota, ktorú dopočítava trigger z migrácie 016.) (`fvmedia.sync` z predlohy to riešila
 tak, že známe položky preskočila úplne — lenže potom sa nikdy neosviežil náhľad
 ani presun fotky do iného priečinka.)
 
@@ -32,6 +33,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -43,6 +45,13 @@ log = logging.getLogger(__name__)
 # dlhší interval by pôsobil, že sa nič nedeje; kratší by bol dotaz navyše
 # každú sekundu pre modelku, ktorá nesynchronizuje mesiace.
 POLL_S = 4.0
+
+# Ako často sa upratuje fronta a čo sa považuje za staré. Fronta je krátkodobá
+# pracovná pamäť (dashboard z nej číta výsledok posledného kliku), takže denný
+# odstup stačí a upratovanie nesmie behať každé štyri sekundy — bol by to dotaz
+# navyše pri každom kole každej modelky.
+PRUNE_EVERY_S = 3600.0
+PRUNE_OLDER_THAN_H = 24
 
 # Stĺpce, ktoré sa smú osviežiť na už známej fotke. Zvyšok je naše rozhodnutie
 # a synchronizácia doň nesiaha — viď hlavička súboru.
@@ -171,10 +180,22 @@ class VaultSync:
     z priečinka, o ktorom ešte nikto nepovedal, na čo je.
     """
 
-    def __init__(self, db, api, poll_s: float = POLL_S) -> None:
+    def __init__(
+        self,
+        db,
+        api,
+        poll_s: float = POLL_S,
+        prune_every_s: float = PRUNE_EVERY_S,
+        prune_older_than_h: int = PRUNE_OLDER_THAN_H,
+    ) -> None:
         self._db = db
         self._api = api
         self._poll_s = poll_s
+        self._prune_every_s = prune_every_s
+        self._prune_older_than_h = prune_older_than_h
+        # None = ešte sa neupratovalo. Prvé kolo teda uprace hneď — riadky
+        # z minulého behu workera už nikto nečíta.
+        self._pruned_at: Optional[float] = None
 
     async def run(self) -> None:
         log.info("Fanvue vault sync beží, fronta sa kontroluje každé %.0f s", self._poll_s)
@@ -185,7 +206,28 @@ class VaultSync:
                 raise
             except Exception as exc:  # noqa: BLE001 - slučka nesmie umrieť
                 log.exception("Kolo synchronizácie vaultu zlyhalo: %s", exc)
+            await self.maybe_prune()
             await asyncio.sleep(self._poll_s)
+
+    async def maybe_prune(self) -> bool:
+        """Uprace dobehnuté požiadavky, ak je na to čas. `False` = ešte nie.
+
+        Nikto ich doteraz nemazal a pri dennej synchronizácii tabuľka rastie
+        donekonečna. Zlyhanie sa len zaloguje: upratovanie nie je dôvod, aby
+        prestala fungovať samotná synchronizácia.
+        """
+        teraz = time.monotonic()
+        if self._pruned_at is not None and teraz - self._pruned_at < self._prune_every_s:
+            return False
+        self._pruned_at = teraz
+        try:
+            await self._db.prune_sync(self._prune_older_than_h)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - upratovanie nie je kritická cesta
+            log.warning("Upratovanie fronty synchronizácie zlyhalo: %s", exc)
+            return False
+        return True
 
     async def tick(self) -> bool:
         """Jedna požiadavka. `False` = fronta bola prázdna.
