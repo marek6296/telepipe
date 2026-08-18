@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
+  ChevronDown,
   CircleCheck,
   Copy,
   CreditCard,
@@ -11,7 +12,11 @@ import {
   InfinityIcon,
   Loader2,
   Mail,
+  ScanLine,
+  Send,
+  Smartphone,
   TriangleAlert,
+  Wallet,
 } from "lucide-react";
 
 import { Callout } from "@/components/app/ui";
@@ -96,6 +101,107 @@ function StepLabel({ n, children }: { n: number; children: React.ReactNode }) {
       </span>
       {children}
     </p>
+  );
+}
+
+/**
+ * Sprievodca pre nováčika. Krypto vie väčšina klientov len z počutia — bez
+ * tohto by pri QR kóde nevedeli, čo majú spraviť. `<details>` je natívny,
+ * prístupný a nepotrebuje stav; kto krypto pozná, nechá ho zbalený.
+ */
+function NewToCrypto({ label }: { label: string }) {
+  const wallets = [
+    {
+      icon: Smartphone,
+      name: "Revolut",
+      note: "Najjednoduchšie, ak ho už máš",
+      how: "Karta → Krypto → kúp trochu (napr. USDT) → Poslať → vlož adresu nižšie.",
+    },
+    {
+      icon: Wallet,
+      name: "MetaMask",
+      note: "Zadarmo, appka do mobilu za 5 minút",
+      how: "Nainštaluj → v appke kúp krypto kartou → Send → vlož adresu nižšie.",
+    },
+    {
+      icon: CreditCard,
+      name: "Burza (Binance, Coinbase)",
+      note: "Ak už niekde krypto máš",
+      how: "Kúp krypto → Withdraw / Send → vlož adresu a vyber správnu sieť.",
+    },
+  ];
+
+  return (
+    <details className="group rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-hover)]/40 open:bg-transparent">
+      <summary className="app-tap flex cursor-pointer list-none items-center justify-between gap-3 p-4 [&::-webkit-details-marker]:hidden">
+        <span className="flex items-center gap-2.5">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--app-border-strong)]">
+            <Wallet className="h-3.5 w-3.5 text-[var(--app-text-2)]" strokeWidth={1.75} aria-hidden />
+          </span>
+          <span>
+            <span className="block text-[13px] font-medium text-[var(--app-text)]">
+              Prvýkrát platíš kryptom? Zvládneš to za pár minút
+            </span>
+            <span className="block text-[11.5px] text-[var(--app-text-4)]">
+              Ako si spraviť peňaženku a poslať platbu — krok za krokom
+            </span>
+          </span>
+        </span>
+        <ChevronDown
+          className="h-4 w-4 shrink-0 text-[var(--app-text-3)] transition-transform group-open:rotate-180"
+          strokeWidth={1.75}
+          aria-hidden
+        />
+      </summary>
+
+      <div className="space-y-4 px-4 pb-4">
+        <div>
+          <p className="mb-2.5 text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
+            1 · Kde krypto vezmeš
+          </p>
+          <div className="grid gap-2.5 sm:grid-cols-3">
+            {wallets.map((wallet) => (
+              <div key={wallet.name} className="rounded-lg border border-[var(--app-border)] p-3">
+                <p className="flex items-center gap-2 text-[13px] font-medium text-[var(--app-text)]">
+                  <wallet.icon className="h-4 w-4 text-[var(--app-text-2)]" strokeWidth={1.75} aria-hidden />
+                  {wallet.name}
+                </p>
+                <p className="mt-1 text-[11px] text-[var(--app-text-4)]">{wallet.note}</p>
+                <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--app-text-2)]">{wallet.how}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <p className="mb-2.5 text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
+            2 · Ako pošleš platbu
+          </p>
+          <ol className="space-y-2">
+            {[
+              { Icon: ScanLine, text: "V peňaženke daj Send / Poslať a naskenuj QR kód — alebo skopíruj adresu tlačidlom Copy." },
+              { Icon: Wallet, text: `Vyber ${label} a správnu sieť (píše sa hneď pri adrese). Sieť musí sedieť, inak sa platba stratí.` },
+              { Icon: Send, text: "Zadaj sumu a odošli. Coiny sa pripíšu samy, zvyčajne do pár minút — stránku môžeš zavrieť." },
+            ].map(({ Icon, text }, index) => (
+              <li key={index} className="flex items-start gap-2.5">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[var(--app-border-strong)] text-[10px] font-semibold text-[var(--app-text-2)]">
+                  {index + 1}
+                </span>
+                <span className="flex items-center gap-2 text-[12.5px] leading-relaxed text-[var(--app-text-2)]">
+                  <Icon className="hidden h-3.5 w-3.5 shrink-0 text-[var(--app-text-4)] sm:inline" strokeWidth={1.75} aria-hidden />
+                  {text}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        <p className="rounded-md border border-[var(--app-border)] px-3 py-2 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+          Bez obáv: adresa je len tvoja a nikdy nevyprší. Keď sa pomýliš v sume, nič sa nedeje —
+          coiny sa počítajú presne z toho, čo naozaj dorazí.
+        </p>
+      </div>
+    </details>
   );
 }
 
@@ -218,6 +324,11 @@ export function BillingPanel({
 
   return (
     <div className="p-5">
+      {/* Sprievodca pre nováčika — hore, aby ho videl skôr než začne. */}
+      <div className="mb-4">
+        <NewToCrypto label={selectedCurrency?.label ?? currency} />
+      </div>
+
       {/* Krok 1 + 2 — dve rovnako široké polovice, rovnaká výška radu. */}
       <div className="grid gap-4 md:grid-cols-2">
         <div className="flex flex-col rounded-lg border border-[var(--app-border)] p-4">
@@ -361,8 +472,9 @@ export function BillingPanel({
                 height={216}
                 className="w-full rounded-lg border border-[var(--app-border)] bg-white p-2"
               />
-              <p className="mt-2 text-center text-[11px] text-[var(--app-text-4)]">
-                QR contains the address only
+              <p className="mt-2 flex items-center justify-center gap-1.5 text-center text-[11px] text-[var(--app-text-4)]">
+                <ScanLine className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+                V peňaženke daj „Send“ a naskenuj
               </p>
             </div>
 
@@ -429,12 +541,12 @@ export function BillingPanel({
               <div className="min-w-0">
                 <p className="flex items-center gap-2 text-[13px] font-medium text-[var(--app-text)]">
                   <CreditCard className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-                  Don&apos;t have crypto?
+                  Nemáš žiadne krypto? Kúp ho kartou
                 </p>
                 <p className="mt-1 max-w-xl text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-                  Open Guardarian, choose {address.payCurrency}, enter about ${amountValid ? usd : 50},
-                  and paste the permanent address above. Card availability, limits, fees, and
-                  identity checks depend on the provider and your country.
+                  Otvor Guardarian, vyber {address.payCurrency}, zadaj asi ${amountValid ? usd : 50} a
+                  vlož adresu vyššie ako príjemcu. Dostupnosť karty, limity, poplatky a overenie
+                  totožnosti závisia od providera a tvojej krajiny.
                 </p>
               </div>
               <a
