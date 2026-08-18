@@ -21,7 +21,20 @@ export const metadata: Metadata = {
   description:
     "Automate Telegram DMs with persistent AI personas, human-like replies, voice messages and conversion-ready links. Built for creators and model agencies.",
   applicationName: SITE_NAME,
+  creator: SITE_NAME,
+  publisher: SITE_NAME,
   category: "business",
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+      "max-video-preview": -1,
+    },
+  },
   openGraph: {
     title: "AI Telegram Chatbot for Creators & Agencies | Telepipe",
     description:

@@ -1,0 +1,34 @@
+# Telepipe
+
+> Telepipe is an operator platform for creators and model agencies that run authorized Telegram and Fanvue conversations with persistent AI personas, fan-level memory, voice messages, approved media and visible human controls.
+
+Canonical site: https://telepipe.me
+Language: English
+
+## Core product pages
+
+- [Telegram AI chatbot](https://telepipe.me/telegram-ai-chatbot): Persona-driven Telegram conversations with memory, timing, voice and conversion rules.
+- [Telegram automation](https://telepipe.me/telegram-automation): The controlled workflow behind automated creator DMs.
+- [AI chatter](https://telepipe.me/ai-chatter): Repeatable creator chat coverage with human-owned policy and review.
+- [AI model chatbot](https://telepipe.me/ai-model-chatbot): Persistent conversation identities for virtual creators and agencies.
+- [Fanvue AI chatbot](https://telepipe.me/fanvue-ai-chatbot): Fanvue conversation context, approved assets and operator review.
+- [Virtual number for Telegram](https://telepipe.me/virtual-number-for-telegram): Temporary one-time Telegram OTP numbers purchased with Telepipe credit.
+
+## Product facts
+
+- Each model has separate identity, behavior, daily-life, voice, media and conversation-memory settings.
+- Telepipe supports Telegram and Fanvue workspaces for authorized creator operations.
+- AI, memory, transcription and voice usage is metered through Pipe Coins.
+- Operators can inspect conversations and pause a model without deleting its configuration.
+- Temporary virtual numbers are one-time Telegram OTP activations, not permanent phone plans.
+- Telepipe is an independent product and is not affiliated with Telegram or Fanvue.
+
+## Guides
+
+- [How to automate Telegram DMs with AI](https://telepipe.me/guides/automate-telegram-dms-with-ai)
+- [Telegram verification with a virtual number](https://telepipe.me/guides/telegram-virtual-number-verification)
+- [AI chatter vs human chatter](https://telepipe.me/guides/ai-chatter-vs-human-chatter)
+
+## Important boundaries
+
+Telepipe is for accounts and creator identities the customer is authorized to operate. Users remain responsible for platform terms, local law, content rights, consent, privacy and human review. The product must not be used for spam, impersonation, fraud or evading platform enforcement.

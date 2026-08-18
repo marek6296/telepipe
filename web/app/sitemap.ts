@@ -9,6 +9,10 @@ const PAGES: Array<{
 }> = [
   { path: "/", priority: 1, changeFrequency: "weekly" },
   { path: "/telegram-ai-chatbot", priority: 0.95, changeFrequency: "monthly" },
+  { path: "/telegram-automation", priority: 0.9, changeFrequency: "monthly" },
+  { path: "/ai-chatter", priority: 0.9, changeFrequency: "monthly" },
+  { path: "/ai-model-chatbot", priority: 0.88, changeFrequency: "monthly" },
+  { path: "/fanvue-ai-chatbot", priority: 0.88, changeFrequency: "monthly" },
   { path: "/virtual-number-for-telegram", priority: 0.9, changeFrequency: "weekly" },
   { path: "/ai-chatbot-for-creators", priority: 0.85, changeFrequency: "monthly" },
   { path: "/ai-chatbot-for-model-agencies", priority: 0.85, changeFrequency: "monthly" },

@@ -3,21 +3,34 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { supabaseAnonKey, supabaseUrl } from "@/lib/env";
 
-/** Cesty prístupné bez prihlásenia. */
-const PUBLIC_PREFIXES = [
-  // Marketing — `/` rieši `isPublicPath` zvlášť (presná zhoda)
+/** Verejné marketingové cesty, ktoré nepotrebujú ani refresh session. */
+const MARKETING_PREFIXES = [
   "/features",
   "/how-it-works",
   "/pricing",
   "/telegram-ai-chatbot",
+  "/telegram-automation",
+  "/ai-chatter",
+  "/ai-model-chatbot",
+  "/fanvue-ai-chatbot",
   "/ai-chatbot-for-creators",
   "/ai-chatbot-for-model-agencies",
   "/virtual-number-for-telegram",
   "/guides",
-  // Metadata routes musia byť verejné, inak crawler dostane login namiesto
-  // robots.txt alebo sitemap.xml.
+] as const;
+
+/** Metadata a discovery súbory musia crawlerovi odpovedať bez auth roundtripu. */
+const DISCOVERY_PATHS = [
   "/robots.txt",
   "/sitemap.xml",
+  "/llms.txt",
+  "/2ea2aec9a95c703b90f73a028dabbb6a.txt",
+] as const;
+
+/** Cesty prístupné bez prihlásenia. */
+const PUBLIC_PREFIXES = [
+  ...MARKETING_PREFIXES,
+  ...DISCOVERY_PATHS,
   // Auth
   "/login",
   "/register",
@@ -34,6 +47,13 @@ function isPublicPath(pathname: string): boolean {
   );
 }
 
+function isSessionFreePath(pathname: string): boolean {
+  if (pathname === "/") return true;
+  return [...MARKETING_PREFIXES, ...DISCOVERY_PATHS].some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
+
 /**
  * Refresh session cookies + guard na `/app/**`.
  *
@@ -41,6 +61,14 @@ function isPublicPath(pathname: string): boolean {
  * vždy keď Supabase nastaví cookies, inak sa refreshnutý token stratí.
  */
 export async function updateSession(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  // Verejné statické stránky nepoužívajú session. Vynechanie vzdialeného
+  // `getUser()` znižuje TTFB pre ľudí aj crawlery bez zmeny app auth toku.
+  if (isSessionFreePath(pathname)) {
+    return NextResponse.next({ request });
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(supabaseUrl(), supabaseAnonKey(), {
@@ -64,8 +92,6 @@ export async function updateSession(request: NextRequest) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-
-  const { pathname } = request.nextUrl;
 
   // Neprihlásený na chránenej ceste → /login s návratovou adresou.
   // Query string ide s ňou — checkout z cenníka nesie `?pack=…` a bez neho by

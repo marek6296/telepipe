@@ -6,11 +6,15 @@ const PRODUCT_LINKS = [
   { href: "/how-it-works", label: "How it works" },
   { href: "/pricing", label: "Pricing" },
   { href: "/telegram-ai-chatbot", label: "Telegram AI chatbot" },
+  { href: "/fanvue-ai-chatbot", label: "Fanvue AI chatbot" },
   { href: "/virtual-number-for-telegram", label: "Telegram virtual number" },
 ];
 
 const RESOURCE_LINKS = [
   { href: "/guides", label: "Guides" },
+  { href: "/telegram-automation", label: "Telegram automation" },
+  { href: "/ai-chatter", label: "AI chatter" },
+  { href: "/ai-model-chatbot", label: "AI model chatbot" },
   { href: "/ai-chatbot-for-creators", label: "For creators" },
   { href: "/ai-chatbot-for-model-agencies", label: "For agencies" },
 ];

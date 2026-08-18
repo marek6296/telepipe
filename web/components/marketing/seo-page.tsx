@@ -64,7 +64,17 @@ export function SeoPage({
     "@context": "https://schema.org",
     "@graph": [
       {
+        "@type": "WebPage",
+        "@id": `${SITE_URL}${path}#webpage`,
+        url: `${SITE_URL}${path}`,
+        name: title,
+        description: lead,
+        isPartOf: { "@id": `${SITE_URL}/#website` },
+        inLanguage: "en",
+      },
+      {
         "@type": "BreadcrumbList",
+        "@id": `${SITE_URL}${path}#breadcrumb`,
         itemListElement: [
           {
             "@type": "ListItem",
@@ -82,6 +92,7 @@ export function SeoPage({
       },
       {
         "@type": "FAQPage",
+        "@id": `${SITE_URL}${path}#faq`,
         mainEntity: faq.map((item) => ({
           "@type": "Question",
           name: item.q,
