@@ -155,9 +155,52 @@ function NewToCrypto({ label }: { label: string }) {
       </summary>
 
       <div className="space-y-4 px-4 pb-4">
+        {/* Najjednoduchšia cesta — kartou cez Guardarian, bez vlastnej
+            peňaženky aj bez účtu. Krypto ide rovno na našu adresu. */}
+        <div className="rounded-lg border border-[var(--app-text-4)] bg-[var(--app-surface-hover)] p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="flex items-center gap-2 text-[13px] font-semibold text-[var(--app-text)]">
+              <CreditCard className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+              Najjednoduchšie — zaplať kartou
+              <span className="rounded-full border border-[var(--app-border-strong)] px-2 py-0.5 text-[10px] font-medium text-[var(--app-text-3)]">
+                bez peňaženky aj bez účtu
+              </span>
+            </p>
+            <a
+              href={CARD_ONRAMP_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="app-btn app-btn-secondary h-8 shrink-0 px-3 text-[12px]"
+            >
+              Otvoriť Guardarian
+              <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+            </a>
+          </div>
+          <p className="mt-1.5 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+            Guardarian nepotrebuje registráciu — len rýchle overenie totožnosti (zákonná
+            povinnosť u každého). Krypto pošle rovno na tvoju adresu u nás.
+          </p>
+          <ol className="mt-3 space-y-2">
+            {[
+              `Nižšie vyber menu (${label}) a klikni „Show my address“ — dostaneš svoju stálu adresu.`,
+              "Otvor Guardarian a tú adresu vlož ako príjemcu (recipient wallet address).",
+              "Vyber tú istú menu, zadaj sumu a zaplať kartou cez bankovú appku. Over totožnosť.",
+              "Krypto dorazí za pár minút rovno k nám a coiny sa pripíšu samy.",
+            ].map((text, index) => (
+              <li key={index} className="flex items-start gap-2.5">
+                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[var(--app-border-strong)] text-[10px] font-semibold text-[var(--app-text-2)]">
+                  {index + 1}
+                </span>
+                <span className="text-[12.5px] leading-relaxed text-[var(--app-text-2)]">{text}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+
+        {/* Alternatíva — kto už krypto niekde má, pošle ho z vlastnej peňaženky. */}
         <div>
           <p className="mb-2.5 text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
-            1 · Kde krypto vezmeš
+            Alebo ak už krypto niekde máš
           </p>
           <div className="grid gap-2.5 sm:grid-cols-3">
             {wallets.map((wallet) => (
@@ -171,13 +214,7 @@ function NewToCrypto({ label }: { label: string }) {
               </div>
             ))}
           </div>
-        </div>
-
-        <div>
-          <p className="mb-2.5 text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
-            2 · Ako pošleš platbu
-          </p>
-          <ol className="space-y-2">
+          <ol className="mt-3 space-y-2">
             {[
               { Icon: ScanLine, text: "V peňaženke daj Send / Poslať a naskenuj QR kód — alebo skopíruj adresu tlačidlom Copy." },
               { Icon: Wallet, text: `Vyber ${label} a správnu sieť (píše sa hneď pri adrese). Sieť musí sedieť, inak sa platba stratí.` },
