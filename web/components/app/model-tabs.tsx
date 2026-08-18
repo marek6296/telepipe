@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, useReducedMotion } from "framer-motion";
@@ -76,22 +75,25 @@ export function ModelTabs({
     subTabs,
   } = activeModelTab(pathname, modelId, modelType);
 
-  const backgroundRoutes = useMemo(
-    () =>
-      tabs
-        .flatMap((tab) => {
-          const subTabsForTab = modelTypeSubTabs(modelType, tab);
-          return subTabsForTab.length > 0
-            ? subTabsForTab.map((sub) => subTabHref(modelId, tab, sub))
-            : [`/app/m/${modelId}/${tab}`];
-        })
-        .filter((href) => href !== pathname),
-    [modelId, modelType, pathname, tabs],
-  );
+  const routesForTab = (tab: ModelTabSlug) => {
+    const subTabsForTab = modelTypeSubTabs(modelType, tab);
+    return subTabsForTab.length > 0
+      ? subTabsForTab.map((sub) => subTabHref(modelId, tab, sub))
+      : [`/app/m/${modelId}/${tab}`];
+  };
+
+  const currentTabRoutes = activeTab ? routesForTab(activeTab) : [];
+  const otherTabEntries = tabs
+    .filter((tab) => tab !== activeTab)
+    .map((tab) => routesForTab(tab)[0]);
+  const remainingRoutes = tabs.flatMap(routesForTab);
+  const backgroundRoutes = Array.from(
+    new Set([...currentTabRoutes, ...otherTabEntries, ...remainingRoutes]),
+  ).filter((href) => href !== pathname);
 
   // Aktívna karta je už na obrazovke. Po prvom vykreslení potichu zahrejeme
   // ostatné karty modelky, aby ďalší preklik pôsobil ako v natívnej aplikácii.
-  useBackgroundPrefetch(backgroundRoutes, 260);
+  useBackgroundPrefetch(backgroundRoutes, 0, false);
 
   return (
     <div className="mb-8">

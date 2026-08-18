@@ -578,54 +578,9 @@ body {
   }
 }
 
-.app-skeleton {
-  overflow: hidden;
-  border-radius: 6px;
-  background: #181818;
-  background-image: linear-gradient(
-    100deg,
-    transparent 18%,
-    rgba(255, 255, 255, 0.055) 42%,
-    rgba(255, 255, 255, 0.09) 50%,
-    rgba(255, 255, 255, 0.055) 58%,
-    transparent 82%
-  );
-  background-position: 140% 0;
-  background-size: 220% 100%;
-  animation: app-skeleton-sweep 1.45s ease-in-out infinite;
-}
-
-.app-loading-enter {
-  animation: app-loading-in 0.2s ease-out both;
-}
-
-@keyframes app-skeleton-sweep {
-  to {
-    background-position: -120% 0;
-  }
-}
-
-@keyframes app-loading-in {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .app-card-interactive,
-  .app-loading-enter {
+  .app-card-interactive {
     transition: none;
-    animation: none;
-  }
-
-  .app-skeleton {
-    animation: none;
-    background-image: none;
   }
 }
 

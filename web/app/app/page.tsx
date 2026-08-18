@@ -1,4 +1,3 @@
-import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Bot } from "lucide-react";
@@ -10,11 +9,6 @@ import {
   type SeriesPoint,
   type SpendPoint,
 } from "@/components/app/dashboard-charts";
-import {
-  ChartsSkeleton,
-  ModelCardsSkeleton,
-  StatsSkeleton,
-} from "@/components/app/loading-skeletons";
 import { ModelCard } from "@/components/app/model-card";
 import { ResetStatsButton } from "@/components/app/reset-stats-button";
 import { Card, CardHeader, EmptyState, PageHeader, StatTile } from "@/components/app/ui";
@@ -58,12 +52,14 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
   const baseline = account?.stats_since ? new Date(account.stats_since).getTime() : null;
 
   const modelIds = models.map((model) => model.id);
-  // Drahšie bloky sa začnú načítavať naraz, ale neblokujú prvý obraz. Každý
-  // Suspense blok sa doplní samostatne hneď, keď sú jeho dáta hotové.
-  const statsPromise = getModelStats(modelIds);
-  const connectedPromise = getConnectedMap(models);
-  const pausedPromise = getPausedMap(modelIds);
-  const eventsPromise = recentUsage(range.days * 2, baseline);
+  // Dopyty bežia paralelne, ale nová route sa vymení až ako hotový celok.
+  // Používateľ tak zostáva na starej obrazovke namiesto prebliknutia skeletonov.
+  const [stats, connected, paused, events] = await Promise.all([
+    getModelStats(modelIds),
+    getConnectedMap(models),
+    getPausedMap(modelIds),
+    recentUsage(range.days * 2, baseline),
+  ]);
 
   return (
     <>
@@ -96,44 +92,24 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
         <ResetStatsButton since={account?.stats_since ?? null} />
       </div>
 
-      <Suspense fallback={<StatsSkeleton />}>
-        <DashboardStats models={models} range={range} statsPromise={statsPromise} eventsPromise={eventsPromise} />
-      </Suspense>
-
-      <Suspense fallback={<ChartsSkeleton />}>
-        <DashboardCharts models={models} range={range} eventsPromise={eventsPromise} />
-      </Suspense>
-
-      <Suspense
-        fallback={
-          <div className="mt-10">
-            <ModelCardsSkeleton count={Math.min(2, Math.max(1, models.length))} />
-          </div>
-        }
-      >
-        <DashboardModels
-          models={models}
-          statsPromise={statsPromise}
-          connectedPromise={connectedPromise}
-          pausedPromise={pausedPromise}
-        />
-      </Suspense>
+      <DashboardStats models={models} range={range} stats={stats} events={events} />
+      <DashboardCharts models={models} range={range} events={events} />
+      <DashboardModels models={models} stats={stats} connected={connected} paused={paused} />
     </>
   );
 }
 
-async function DashboardStats({
+function DashboardStats({
   models,
   range,
-  statsPromise,
-  eventsPromise,
+  stats,
+  events,
 }: {
   models: ModelRow[];
   range: Range;
-  statsPromise: ReturnType<typeof getModelStats>;
-  eventsPromise: Promise<UsageRow[]>;
+  stats: Awaited<ReturnType<typeof getModelStats>>;
+  events: UsageRow[];
 }) {
-  const [stats, events] = await Promise.all([statsPromise, eventsPromise]);
   const totalChats = models.reduce((sum, model) => sum + (stats[model.id]?.chats ?? 0), 0);
   const totalConverted = models.reduce(
     (sum, model) => sum + (stats[model.id]?.converted ?? 0),
@@ -172,16 +148,15 @@ async function DashboardStats({
   );
 }
 
-async function DashboardCharts({
+function DashboardCharts({
   models,
   range,
-  eventsPromise,
+  events,
 }: {
   models: ModelRow[];
   range: Range;
-  eventsPromise: Promise<UsageRow[]>;
+  events: UsageRow[];
 }) {
-  const events = await eventsPromise;
   const buckets = bucketsFor(range);
   const spendSeries = dailySpend(events, buckets);
   const { data: messageSeries, series } = dailyMessagesByModel(events, models, buckets);
@@ -206,16 +181,16 @@ async function DashboardCharts({
   );
 }
 
-async function DashboardModels({
+function DashboardModels({
   models,
-  statsPromise,
-  connectedPromise,
-  pausedPromise,
+  stats,
+  connected,
+  paused,
 }: {
   models: ModelRow[];
-  statsPromise: ReturnType<typeof getModelStats>;
-  connectedPromise: ReturnType<typeof getConnectedMap>;
-  pausedPromise: ReturnType<typeof getPausedMap>;
+  stats: Awaited<ReturnType<typeof getModelStats>>;
+  connected: Awaited<ReturnType<typeof getConnectedMap>>;
+  paused: Awaited<ReturnType<typeof getPausedMap>>;
 }) {
   if (models.length === 0) {
     return (
@@ -229,12 +204,6 @@ async function DashboardModels({
       </div>
     );
   }
-
-  const [stats, connected, paused] = await Promise.all([
-    statsPromise,
-    connectedPromise,
-    pausedPromise,
-  ]);
 
   return (
     <div className="mt-10">
