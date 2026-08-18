@@ -161,6 +161,66 @@ def test_tenant_config_model_flags_default_when_null(monkeypatch):
     assert t.voice_only_ids == frozenset()
 
 
+class TestKontaktovyFilterZRiadku:
+    """`skip_contacts` a `contact_exceptions` sú per modelka (migrácia 023b).
+
+    Kým sa čítali z env, platila na celej replike jedna hodnota — a keďže na
+    Railway nastavená nebola, default `true` ticho umlčal každého, koho má
+    modelka v kontaktoch. Marekov kamarát tak napísal Simone a nedostal
+    odpoveď. Zdroj pravdy je odteraz riadok; env je len záchranka.
+    """
+
+    @staticmethod
+    def _cfg(monkeypatch, **env):
+        for k, v in {**ENV, **env}.items():
+            monkeypatch.setenv(k, v)
+        return Config.from_env()
+
+    @staticmethod
+    def _row(**extra):
+        return {
+            "id": "m-c", "account_id": "a-1", "name": "Lola",
+            "tg_api_id": 1, "tg_api_hash": "hash", "owner_chat_id": 777,
+            **extra,
+        }
+
+    def test_riadok_prebije_env(self, monkeypatch):
+        cfg = self._cfg(monkeypatch, SKIP_CONTACTS="false", CONTACT_EXCEPTIONS="1")
+        t = TenantConfig.from_row(
+            self._row(skip_contacts=True, contact_exceptions=[42, 43]), cfg
+        )
+        assert t.skip_contacts is True
+        assert t.contact_exceptions == frozenset({42, 43})
+
+    def test_false_v_riadku_nespadne_na_env(self, monkeypatch):
+        """`False` je hodnota, nie „nič" — inak by env prebilo vypnutý filter."""
+        cfg = self._cfg(monkeypatch, SKIP_CONTACTS="true")
+        t = TenantConfig.from_row(self._row(skip_contacts=False), cfg)
+        assert t.skip_contacts is False
+
+    def test_prazdne_pole_je_hodnota(self, monkeypatch):
+        """Prázdny zoznam výnimiek znamená „žiadne", nie „vezmi tie z env"."""
+        cfg = self._cfg(monkeypatch, CONTACT_EXCEPTIONS="693039915")
+        t = TenantConfig.from_row(self._row(contact_exceptions=[]), cfg)
+        assert t.contact_exceptions == frozenset()
+
+    def test_chybajuce_stlpce_padnu_na_env(self, monkeypatch):
+        """Rollout: worker môže bežať skôr, než migrácia dobehne."""
+        cfg = self._cfg(monkeypatch, SKIP_CONTACTS="false", CONTACT_EXCEPTIONS="7,8")
+        t = TenantConfig.from_row(self._row(), cfg)
+        assert t.skip_contacts is False
+        assert t.contact_exceptions == frozenset({7, 8})
+
+    def test_null_stlpce_padnu_na_env(self, monkeypatch):
+        """PostgREST vie poslať aj explicitné null (starý riadok pred seedom)."""
+        cfg = self._cfg(monkeypatch, SKIP_CONTACTS="true", CONTACT_EXCEPTIONS="9")
+        t = TenantConfig.from_row(
+            self._row(skip_contacts=None, contact_exceptions=None), cfg
+        )
+        assert t.skip_contacts is True
+        assert t.contact_exceptions == frozenset({9})
+
+
 def test_tenant_config_missing_enc_is_empty_string(monkeypatch):
     """Model v draft stave nemusí mať ešte session/token — nesmie to spadnúť."""
     for k, v in ENV.items():

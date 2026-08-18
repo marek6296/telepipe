@@ -150,6 +150,73 @@ def test_other_contacts_still_skipped():
     assert scheduled == []
 
 
+class TestKontaktovyFilterZRiadkuModelky:
+    """Rozhoduje `models`, nie env — celá cesta od stĺpca po preskočenie.
+
+    `TestKontaktovyFilterZRiadku` v `test_config.py` overuje, že sa stĺpce
+    prečítajú. Tu ide o to, čo z toho v skutočnosti vyplynie: že kamarát v
+    kontaktoch odpoveď dostane alebo nedostane podľa toho, čo má modelka
+    NASTAVENÉ — a že majiteľa to nikdy nezastaví.
+    """
+
+    ENV = {
+        "SUPABASE_URL": "https://x.supabase.co", "SUPABASE_SERVICE_KEY": "sk",
+        "LLM_API_KEY": "ak", "ENCRYPTION_KEY": "u" * 43 + "=",
+    }
+
+    def _cfg(self, monkeypatch, **columns):
+        from config import Config as GlobalConfig, TenantConfig
+
+        for k, v in self.ENV.items():
+            monkeypatch.setenv(k, v)
+        # Env hovorí opak toho, čo bude v riadku — nech je vidieť, kto vyhráva.
+        monkeypatch.setenv("SKIP_CONTACTS", "false")
+        monkeypatch.setenv("CONTACT_EXCEPTIONS", "")
+        row = {
+            "id": "m-1", "account_id": "a-1", "name": "Lucia",
+            "tg_api_id": 1, "tg_api_hash": "hash", "owner_chat_id": 999,
+            **columns,
+        }
+        return TenantConfig.from_row(row, GlobalConfig.from_env())
+
+    def test_kontakt_sa_preskoci_ked_to_modelka_hovori(self, monkeypatch):
+        cfg = self._cfg(monkeypatch, skip_contacts=True, contact_exceptions=[])
+        _, scheduled = run(FakeSender(555, contact=True), cfg=cfg)
+        assert scheduled == []
+
+    def test_kontakt_dostane_odpoved_ked_to_modelka_dovoli(self, monkeypatch):
+        cfg = self._cfg(monkeypatch, skip_contacts=False, contact_exceptions=[])
+        _, scheduled = run(FakeSender(555, contact=True), cfg=cfg)
+        assert scheduled == [555]
+
+    def test_vynimka_z_riadku_pusti_kamarata(self, monkeypatch):
+        """Presne Radimov prípad: v kontaktoch, filter zapnutý, výnimka platí."""
+        cfg = self._cfg(
+            monkeypatch, skip_contacts=True, contact_exceptions=[6977754097]
+        )
+        _, scheduled = run(FakeSender(6977754097, contact=True), cfg=cfg)
+        assert scheduled == [6977754097]
+
+    def test_ostatne_kontakty_ostavaju_chranene(self, monkeypatch):
+        cfg = self._cfg(
+            monkeypatch, skip_contacts=True, contact_exceptions=[6977754097]
+        )
+        _, scheduled = run(FakeSender(5427365965, contact=True), cfg=cfg)
+        assert scheduled == []
+
+    def test_majitel_prejde_vzdy(self, monkeypatch):
+        """Ani najprísnejšie nastavenie nesmie zastaviť testovanie z vlastného
+        účtu — majiteľ filter obchádza, preto Marek odpovede dostával."""
+        cfg = self._cfg(
+            monkeypatch,
+            skip_contacts=True,
+            contact_exceptions=[],
+            owner_as_client=True,
+        )
+        _, scheduled = run(FakeSender(999, contact=True), cfg=cfg)
+        assert scheduled == [999]
+
+
 class TestZablokovany:
     """Koho Marek zablokuje, tomu sa neodpisuje ani po tom, čo už napísal."""
 

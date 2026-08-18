@@ -176,6 +176,11 @@ class Config:
             voice_ambience=os.getenv("VOICE_AMBIENCE", ""),
             context_messages=_int("CONTEXT_MESSAGES", 12),
             summary_every=_int("SUMMARY_EVERY", 15),
+            # ZÁLOHA, NIE NASTAVENIE. Od migrácie 023b sú `skip_contacts` a
+            # `contact_exceptions` stĺpce v `models` a riadok vyhráva (viď
+            # `TenantConfig.from_row`). Tieto dve premenné sa uplatnia už len
+            # vtedy, keď riadok tie stĺpce ešte nemá. Meniť ich na Railway teda
+            # nie je spôsob, ako niekomu niečo zapnúť — to sa robí v dashboarde.
             skip_contacts=os.getenv("SKIP_CONTACTS", "true").lower() != "false",
             contact_exceptions=_ids("CONTACT_EXCEPTIONS"),
             link_min_messages=_int("LINK_MIN_MESSAGES", 6),
@@ -318,8 +323,31 @@ class TenantConfig:
             voice_ambience=g.voice_ambience,
             context_messages=g.context_messages,
             summary_every=g.summary_every,
-            skip_contacts=g.skip_contacts,
-            contact_exceptions=g.contact_exceptions,
+            # Kontaktový filter je PER MODELKA (migrácia 023b), nie per replika.
+            #
+            # Prečo sa to zmenilo: `SKIP_CONTACTS` a `CONTACT_EXCEPTIONS` sa
+            # čítali z procesného prostredia, takže jedna hodnota platila pre
+            # všetkých tenantov naraz. Na Railway neboli nastavené vôbec →
+            # default `true` → každá modelka ticho ignorovala všetkých, koho má
+            # v kontaktoch. Marekov kamarát tak Simone napísal a nedostal
+            # odpoveď, kým Marek odpovede dostával (majiteľ filter obchádza).
+            # „Ktorí moji známi ju smú vyskúšať" je vec jedného účtu — dvaja
+            # klienti majú inú rodinu — takže to musí byť v riadku.
+            #
+            # RIADOK VYHRÁVA. Env ostáva len ako záchranka pre riadok, ktorý tie
+            # stĺpce ešte nemá (nasadenie workera pred migráciou, alebo starý
+            # PostgREST cache). `is None` je tu podstatné: `False` aj prázdne
+            # pole sú PLATNÉ hodnoty a nesmú spadnúť na env.
+            skip_contacts=(
+                g.skip_contacts
+                if row.get("skip_contacts") is None
+                else bool(row["skip_contacts"])
+            ),
+            contact_exceptions=(
+                g.contact_exceptions
+                if row.get("contact_exceptions") is None
+                else frozenset(row["contact_exceptions"])
+            ),
             link_min_messages=g.link_min_messages,
             link_cooldown_hours=g.link_cooldown_hours,
             link_max_pushes=g.link_max_pushes,
