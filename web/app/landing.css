@@ -327,21 +327,6 @@
     0 28px 70px rgba(0, 0, 0, 0.7);
 }
 
-/* Karta so shaderom — shader vypĺňa celú kartu, obsah sedí na vnorenom
-   tmavom paneli. Rám je hairline, aby sa karta neroztiekla do pozadia. */
-.lp-shader-card {
-  background: #060606;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6);
-}
-
-.lp-shader-panel {
-  background: rgba(8, 8, 8, 0.74);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  backdrop-filter: blur(14px) saturate(0);
-  -webkit-backdrop-filter: blur(14px) saturate(0);
-}
-
 /* ---------------------------------------------------------------------------
    Formuláre — sklenené inputy s bielym focusom (zlatý ring je preč)
 --------------------------------------------------------------------------- */
