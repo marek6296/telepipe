@@ -9,6 +9,15 @@ const PUBLIC_PREFIXES = [
   "/features",
   "/how-it-works",
   "/pricing",
+  "/telegram-ai-chatbot",
+  "/ai-chatbot-for-creators",
+  "/ai-chatbot-for-model-agencies",
+  "/virtual-number-for-telegram",
+  "/guides",
+  // Metadata routes musia byť verejné, inak crawler dostane login namiesto
+  // robots.txt alebo sitemap.xml.
+  "/robots.txt",
+  "/sitemap.xml",
   // Auth
   "/login",
   "/register",

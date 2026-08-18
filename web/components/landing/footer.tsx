@@ -5,6 +5,14 @@ const PRODUCT_LINKS = [
   { href: "/features", label: "Features" },
   { href: "/how-it-works", label: "How it works" },
   { href: "/pricing", label: "Pricing" },
+  { href: "/telegram-ai-chatbot", label: "Telegram AI chatbot" },
+  { href: "/virtual-number-for-telegram", label: "Telegram virtual number" },
+];
+
+const RESOURCE_LINKS = [
+  { href: "/guides", label: "Guides" },
+  { href: "/ai-chatbot-for-creators", label: "For creators" },
+  { href: "/ai-chatbot-for-model-agencies", label: "For agencies" },
 ];
 
 export function LandingFooter() {
@@ -25,11 +33,27 @@ export function LandingFooter() {
           </p>
         </div>
 
-        <div className="flex gap-14">
+        <div className="flex flex-wrap gap-10 sm:gap-14">
           <div>
             <p className="lp-eyebrow text-[10.5px]">Product</p>
             <ul className="mt-4 space-y-2.5 text-[13.5px]">
               {PRODUCT_LINKS.map((link) => (
+                <li key={link.href}>
+                  <Link
+                    href={link.href}
+                    className="text-white/50 transition-colors hover:text-white"
+                  >
+                    {link.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <div>
+            <p className="lp-eyebrow text-[10.5px]">Resources</p>
+            <ul className="mt-4 space-y-2.5 text-[13.5px]">
+              {RESOURCE_LINKS.map((link) => (
                 <li key={link.href}>
                   <Link
                     href={link.href}

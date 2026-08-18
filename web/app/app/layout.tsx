@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/app/app-shell";
@@ -5,6 +6,15 @@ import { isAdminRole } from "@/lib/admin-ui";
 import { toNumber } from "@/lib/format";
 import { getAccount, listModels } from "@/lib/models";
 import { getUser } from "@/lib/supabase/server";
+
+export const metadata: Metadata = {
+  robots: {
+    index: false,
+    follow: false,
+    noarchive: true,
+    nocache: true,
+  },
+};
 
 /**
  * Layout klientskej appky. Guard je síce už v `proxy.ts`, ale na dáta sa

@@ -235,6 +235,13 @@
   border-color: var(--lp-border-strong);
 }
 
+/* Dlhé SEO články pod foldom sa vyrenderujú až keď sa k nim viewport blíži.
+   Server stále pošle celý text crawlerom; šetríme iba browser paint/layout. */
+.lp-seo-section {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 420px;
+}
+
 .lp-panel {
   background: #0e0e0e;
   border: 1px solid var(--lp-border-strong);

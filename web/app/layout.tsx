@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { Poppins } from "next/font/google";
 import "./globals.css";
 
+import { SITE_NAME, SITE_URL } from "@/lib/seo";
+
 // Poppins cez next/font — self-hosted, žiadny externý request
 const poppins = Poppins({
   variable: "--font-poppins",
@@ -11,20 +13,29 @@ const poppins = Poppins({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://telepipe.app"),
+  metadataBase: new URL(SITE_URL),
   title: {
-    default: "Telepipe — Your models never sleep",
-    template: "%s · Telepipe",
+    default: "AI Telegram Chatbot for Creators & Agencies | Telepipe",
+    template: `%s | ${SITE_NAME}`,
   },
   description:
-    "Telepipe turns Telegram DMs into paying subscribers. AI chat personas with voice messages, running 24/7 for creator agencies.",
-  applicationName: "Telepipe",
+    "Automate Telegram DMs with persistent AI personas, human-like replies, voice messages and conversion-ready links. Built for creators and model agencies.",
+  applicationName: SITE_NAME,
+  category: "business",
   openGraph: {
-    title: "Telepipe — Your models never sleep",
+    title: "AI Telegram Chatbot for Creators & Agencies | Telepipe",
     description:
-      "AI chat personas that reply to fans 24/7 and turn conversations into subscribers.",
+      "Persistent AI chat personas that handle Telegram conversations, voice messages and follow-ups around the clock.",
+    url: "/",
     type: "website",
-    siteName: "Telepipe",
+    siteName: SITE_NAME,
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "AI Telegram Chatbot for Creators & Agencies | Telepipe",
+    description:
+      "Persistent AI chat personas that handle Telegram conversations, voice messages and follow-ups around the clock.",
   },
 };
 

@@ -2,17 +2,14 @@ import type { Metadata } from "next";
 
 import { FeatureGrid } from "@/components/marketing/feature-grid";
 import { CtaBand, PageHeader } from "@/components/marketing/page-shell";
+import { marketingMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Features",
+export const metadata: Metadata = marketingMetadata({
+  title: "AI Chatbot Features for Telegram & Fanvue",
   description:
     "What Telepipe actually does: an AI persona with long-term memory, human-like typing rhythm, ElevenLabs voice notes, a Telegram agent, a Fanvue agent with vault selling, and Pipe Coins you can see spent to the coin.",
-  openGraph: {
-    title: "Features · Telepipe",
-    description:
-      "Persona with memory, human rhythm, voice notes, Telegram and Fanvue agents, Pipe Coins with no subscription.",
-  },
-};
+  path: "/features",
+});
 
 export default function FeaturesPage() {
   return (

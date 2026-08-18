@@ -3,17 +3,14 @@ import type { Metadata } from "next";
 import { CtaBand, PageHeader } from "@/components/marketing/page-shell";
 import { PricingTable } from "@/components/marketing/pricing-table";
 import { COINS_PER_REPLY, COINS_PER_USD } from "@/lib/coins";
+import { marketingMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "Pricing",
+export const metadata: Metadata = marketingMetadata({
+  title: "AI Telegram Chatbot Pricing",
   description:
     "No subscription. Buy Pipe Coins — $50 for 50,000, $100 for 110,000, $250 for 300,000 — and spend them as your models work. Every reply, transcription and voice second metered to the coin.",
-  openGraph: {
-    title: "Pricing · Telepipe",
-    description:
-      "No plans, no renewals. Buy Pipe Coins and spend them as she works. Bigger packs, better rate.",
-  },
-};
+  path: "/pricing",
+});
 
 /**
  * FAQ hovorí o coinoch, nie o balíkoch predplatného — a čísla v ňom sú odmerané,

@@ -2,17 +2,14 @@ import type { Metadata } from "next";
 
 import { CtaBand, PageHeader } from "@/components/marketing/page-shell";
 import { StepsInteractor, type Step } from "@/components/marketing/steps-interactor";
+import { marketingMetadata } from "@/lib/seo";
 
-export const metadata: Metadata = {
-  title: "How it works",
+export const metadata: Metadata = marketingMetadata({
+  title: "How Telepipe AI Telegram Automation Works",
   description:
     "Three steps to a model that never sleeps: connect Telegram with a phone code, set up her persona, voice and photos, and let her reply 24/7 — dropping the link only when the chat is warm.",
-  openGraph: {
-    title: "How it works · Telepipe",
-    description:
-      "Connect Telegram, set up your model, and let her reply around the clock.",
-  },
-};
+  path: "/how-it-works",
+});
 
 const STEPS: Step[] = [
   {
