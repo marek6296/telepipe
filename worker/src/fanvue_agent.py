@@ -216,20 +216,50 @@ def build_prompt(
     now_local: Optional[datetime] = None,
     blok: Optional[Any] = None,
     pokyn_obsah: str = "",
+    behavior: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """Systémový prompt pre Fanvue. Persona je tá istá osoba, pravidlá iné."""
+    """Systémový prompt pre Fanvue. Persona je tá istá OSOBA aj HLAS ako na
+    Telegrame (rovnaké `CORE_RULES` písanie, štýl, ukážky a slang) — mení sa len
+    OBSAH: tu už nikoho neťaháme na Fanvue (je tu), ideme sexting a predaj
+    vault obsahu. Bez toho znela roboticky, lebo mala len holý msg_style."""
+    import persona as persona_mod
+
     meno = persona.get("name") or "ona"
     faza = phase(row, settings)
+    behavior = behavior or {}
     riadky: List[str] = [
         f"Si {meno}. Toto je tvoj chat na Fanvue — s človekom, ktorý ti UŽ PLATÍ.",
         "",
         "KTO SI:",
         str(persona.get("backstory") or "").strip(),
         "",
-        "AKO PÍŠEŠ:",
+        "AKO PÍŠEŠ (rovnako ľudsky ako v súkromnej správe, nie roboticky):",
         str(persona.get("msg_style") or "").strip(),
         str(persona.get("tone") or "").strip(),
         "",
+        persona_mod.CORE_RULES,
+    ]
+
+    # Slang podľa nastavenia modelky — ten istý zdroj ako Telegram.
+    slang_rule = persona_mod.SLANG_RULES.get(str(behavior.get("slang") or ""))
+    if slang_rule:
+        riadky += ["", "SLANG:", slang_rule]
+    if behavior.get("no_diacritics"):
+        riadky += ["", "Píš BEZ diakritiky (ako sa bežne píše do mobilu)."]
+
+    # Ukážky jej štýlu — najsilnejší anchor pre hlas. Na Telegrame ich má, tu
+    # chýbali, a preto Fanvue znelo ako iná osoba.
+    ukazky = str(persona.get("examples") or "").strip()
+    if ukazky:
+        riadky += [
+            "",
+            "TAKTO PÍŠEŠ (ukážky tvojho štýlu, neopisuj ich doslova):",
+            ukazky,
+        ]
+
+    riadky += [
+        "",
+        "NA FANVUE NAVYŠE:",
         fvflow.STYLE,
         "",
         "JAZYK:",
@@ -271,6 +301,15 @@ def build_prompt(
             "TERAZ NIČ NEPONÚKAJ A NIČ NEPREDÁVAJ. Kým nevieš, čo chce, "
             "je každá ponuka strela naslepo.",
         ]
+        if not tg:
+            riadky.append(
+                "Nenápadne zisti, či ťa už nepozná odinakiaľ — možno ste už "
+                "písali (napr. na Telegrame). Nepýtaj sa priamo, veď to "
+                "prirodzene (v duchu „do we know each other?“ alebo „how'd you "
+                "find me“), aby si odhalila, či je to niekto, koho už poznáš. "
+                "Keď z odpovede pochopíš, že áno, tvár sa, že vieš kto je, nie "
+                "že tápeš."
+            )
     else:
         riadky += ["", "UŽ HO POZNÁŠ:"]
         chce = str(row.get("wants") or "").strip()
@@ -664,6 +703,7 @@ class FanvueAgent:
             fvflow.guidance(
                 row, settings, moment, foto_ok, pyta_fotku, kde, dlzi
             ),
+            behavior=behavior,
         )
         history = await self._db.history(fan["uuid"])
 

@@ -49,7 +49,7 @@ EARLY_PHASE = 20
 # Pravidlá, ktoré platia vždy — nezávisle od nastavenia persony.
 _CORE_RULES = """\
 AKO PÍSAŤ
-- Si v priamej správe na Telegrame. Píš ako človek na mobile: krátko, nedbalo.
+- Si v priamej správe, píš ako človek na mobile: krátko, nedbalo.
 - Žiadne odrážky, nadpisy ani markdown. Iba obyčajný text.
 - ŽIADNE typografické znaky. Nikdy nepoužívaj dlhú pomlčku, úvodzovky, bodkočiarku
   ani tri tečky ako znak. Na mobile to nikto nepíše a je to najväčší prezradzovač.
@@ -107,6 +107,10 @@ KTO SI
 Si AI postava a netajíš to. Ak sa ťa priamo spýta, či si AI, povedz to jednoducho
 a bez drámy a pokračuj v normálnom rozhovore. Sama to ale nespomínaj v každej správe."""
 
+# Verejný alias — Fanvue prompt (fanvue_agent.build_prompt) používa tie isté
+# písacie mechaniky, aby modelka znela na oboch platformách rovnako ľudsky.
+CORE_RULES = _CORE_RULES
+
 _SLANG_RULES = {
     "none": (
         "Žiadny chatový slang a žiadne skratky. NIKDY nepíš „rn“, „ngl“, „tbh“, "
@@ -123,6 +127,9 @@ _SLANG_RULES = {
         "Aj tak to nepreháňaj — nesmie to byť nečitateľné ani detinské."
     ),
 }
+
+# Verejný alias — Fanvue prompt používa ten istý slang podľa `behavior.slang`.
+SLANG_RULES = _SLANG_RULES
 
 _HEAT_RULES = {
     "mild": (
