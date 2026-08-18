@@ -28,8 +28,11 @@ log = logging.getLogger(__name__)
 KIND_BY_METHOD = {"reply": "chat", "structured": "assist", "summarize": "summary",
                   "describe_image": "vision", "transcribe_voice": "audio"}
 
+# Rovnaká jednotka aj slovník ako v appke (`web/lib/credits.ts`) — majiteľ číta
+# obe hlášky a nesmie z nich mať pocit, že ide o dva rôzne zostatky.
 OUT_OF_CREDITS_MSG = (
-    "Out of credits — replies are paused. Top up your balance to resume."
+    "You are out of Pipe Coins — she has stopped replying. "
+    "Top up your balance and she picks up where she left off."
 )
 
 # Chýbajúci cenník je konfiguračná chyba, nie udalosť — warning stačí raz za

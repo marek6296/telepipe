@@ -205,7 +205,8 @@ export async function generateScheduleDraftAction(
     const result = await chatJson(messages, { maxTokens: 6000, temperature: 0.8 });
 
     // Účtujeme vždy, aj pri páde: poskytovateľ si tokeny z každého pokusu berie.
-    await recordUsage(model.id, "chat", llmModel(), result.usage);
+    // `builder`, nie `chat` — `chat` je len odoslaná odpoveď fanúšikovi (025).
+    await recordUsage(model.id, "builder", llmModel(), result.usage);
 
     if (!result.ok) return { error: result.error ?? "The AI helper did not answer." };
 

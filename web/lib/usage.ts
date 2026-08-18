@@ -20,8 +20,15 @@ export type UsageEvent = {
   created_at: string;
 };
 
+/**
+ * `chat` znamená jednu správu, ktorú modelka naozaj odoslala — nič iné. Všetko
+ * ostatné má vlastný druh, aby dlaždica „Replies sent" na dashboarde počítala
+ * odpovede, a nie volania modelu (migrácia 025).
+ */
 export const KIND_LABEL: Record<string, string> = {
   chat: "Replies",
+  assist: "Thinking behind a reply",
+  builder: "AI helper",
   summary: "Memory summaries",
   vision: "Photos she looked at",
   audio: "Voice notes she listened to",
@@ -30,6 +37,8 @@ export const KIND_LABEL: Record<string, string> = {
 
 export const KIND_HINT: Record<string, string> = {
   chat: "Every message she writes back.",
+  assist: "Checking her memory and re-reading her draft before she sends it.",
+  builder: "Writing a persona or a daily schedule for you here in the app.",
   summary: "Rewriting what she remembers about a fan.",
   vision: "Understanding a photo a fan sent her.",
   audio: "Transcribing a fan's voice message.",
@@ -39,6 +48,8 @@ export const KIND_HINT: Record<string, string> = {
 /** Odtiene bielej — graf je monochróm, série sa líšia jasom, nie farbou. */
 export const KIND_COLOR: Record<string, string> = {
   chat: "#fafafa",
+  assist: "#8a8a94",
+  builder: "#3f3f46",
   summary: "#a1a1aa",
   vision: "#d4d4d8",
   audio: "#52525b",

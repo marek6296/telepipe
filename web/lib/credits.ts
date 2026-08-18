@@ -61,7 +61,7 @@ export const OUT_OF_CREDITS_MSG =
  */
 export async function recordUsage(
   modelId: string,
-  kind: "chat" | "summary" | "vision" | "audio" | "voice",
+  kind: "chat" | "assist" | "builder" | "summary" | "vision" | "audio" | "voice",
   slug: string,
   usage: { input: number; output: number },
 ): Promise<UsageCost | null> {

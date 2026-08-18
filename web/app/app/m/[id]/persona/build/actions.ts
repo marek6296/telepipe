@@ -25,8 +25,12 @@ import { getModel } from "@/lib/models";
  * obyčajné karty. Do stĺpcov sa odtiaľto nezapisuje priamo nikdy.
  *
  * ČO SA MERIA: každé volanie modelu (aj to, ktoré vrátilo nepoužiteľný JSON)
- * ide do `usage_events` ako `kind='chat'` s reálnou spotrebou — tokeny už
- * zhoreli, nech ich neplatíme my. Rovnaké pravidlo ako `MeteredLlm` vo workeri.
+ * ide do `usage_events` s reálnou spotrebou — tokeny už zhoreli, nech ich
+ * neplatíme my. Rovnaké pravidlo ako `MeteredLlm` vo workeri.
+ *
+ * Druh je `builder`, NIE `chat`: `chat` je vyhradený pre správu, ktorú modelka
+ * naozaj odoslala fanúšikovi, a dashboard z neho počíta „Replies sent". Kým sa
+ * wizard účtoval ako chat, jeden beh dotazníka vyzeral ako odoslaná odpoveď.
  */
 
 export type GenerateResult = {
@@ -72,7 +76,7 @@ export async function generatePersonaDraftAction(
     const result = await chatJson(messages, { maxTokens: 5000, temperature: 0.85 });
 
     // Účtujeme vždy, aj pri páde: poskytovateľ si tokeny z každého pokusu berie.
-    await recordUsage(model.id, "chat", llmModel(), result.usage);
+    await recordUsage(model.id, "builder", llmModel(), result.usage);
 
     if (!result.ok) return { error: result.error ?? "The AI helper did not answer." };
 
