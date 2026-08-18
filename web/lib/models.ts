@@ -87,10 +87,20 @@ export async function requireUser(): Promise<User> {
 // layout + stránku bez toho, aby miešal dáta medzi používateľmi.
 export const getAccount = cache(async function getAccount(): Promise<AccountRow | null> {
   const supabase = await createClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("accounts")
     .select("id, email, credit_balance_usd, created_at, role, plan, stats_since")
     .maybeSingle();
+
+  // Chyba dotazu NIE JE „účet neexistuje". Kým sa sem vracalo len `data`,
+  // zabudnutý column grant na novom stĺpci (`stats_since`, migrácia 027) sa
+  // tváril ako odhlásený človek: karta Voice hlásila „No ElevenLabs key",
+  // hoci kľúč v databáze bol, a v hlavičke svietila nula coinov. Hodinu sa
+  // hľadalo v šifrovaní niečo, čo bolo obyčajné „permission denied for
+  // column". Nech to nabudúce spadne nahlas a hneď na správnom mieste.
+  if (error) {
+    throw new Error(`Could not load your account: ${error.message}`);
+  }
   return (data as AccountRow | null) ?? null;
 });
 
