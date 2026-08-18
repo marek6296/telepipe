@@ -384,3 +384,62 @@ class TestPrikyvnutie:
 
     def test_prazdne_nie(self):
         assert not humanize.is_filler("")
+
+
+class TestDrzost:
+    """Drzosť na ňu vs. sexting — hranica, na ktorej stojí sekcia o hrdosti.
+
+    Falošný poplach uprostred sextingu by zabil náladu presne vo chvíli, keď
+    má byť horúca. Preto zoznam chytá len jednoznačné útoky NA ŇU.
+    """
+
+    def test_utoky_chyta(self):
+        for veta in (
+            "fuck you", "fuck off", "stfu", "shut up bitch", "shut the fuck up",
+            "youre so stupid", "you're pathetic", "you are ugly",
+            "i hate you", "go to hell", "screw you", "kys",
+            "stupid bitch", "fucking whore", "fake bitch",
+            "this is a waste of my time",
+        ):
+            assert humanize.is_hostile(veta), veta
+
+    def test_sexting_a_komplimenty_nechyta(self):
+        for veta in (
+            "fuck me", "i want to fuck you so bad",  # smerom K nej, nie útok
+            "you drive me crazy", "youre so hot", "i love you",
+            "youre beautiful", "damn girl", "you dirty girl",
+            "im so stupid haha",       # nadáva sebe, nie jej
+            "that movie was trash",    # nadáva filmu
+        ):
+            assert not humanize.is_hostile(veta), veta
+
+    def test_prazdne_nie(self):
+        assert not humanize.is_hostile("")
+        assert not humanize.is_hostile(None)
+
+
+class TestReakciaNaText:
+    """Emoji na jeho bubline — kedy vôbec sedí. ČI sa pošle, rieši volajúci."""
+
+    def test_smiech_vyhrava(self):
+        assert humanize.text_reaction("hahaha that was so funny") == "🤣"
+        assert humanize.text_reaction("lol ok 😂") == "🤣"
+
+    def test_hot_pred_milym(self):
+        assert humanize.text_reaction("damn girl you look so hot 😈") == "🔥"
+
+    def test_mile_veci(self):
+        assert humanize.text_reaction("i miss you") == "❤️"
+        assert humanize.text_reaction("good night cutie") == "❤️"
+
+    def test_bezna_sprava_nic(self):
+        assert humanize.text_reaction("what are you doing today") == ""
+        assert humanize.text_reaction("ok") == ""
+
+    def test_znacky_medii_nie(self):
+        assert humanize.text_reaction("[poslal fotku: pes na gauči]") == ""
+
+    def test_drzost_nedostane_srdiecko(self):
+        # „i hate you" obsahuje „you“ vzory milých viet nechytia, ale poistka
+        # proti reakcii na útok musí platiť pre celý zoznam drzostí.
+        assert humanize.text_reaction("fuck you i love you") == ""

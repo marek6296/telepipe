@@ -310,3 +310,42 @@ class TestZnovudorucenie:
         assert len(db.messages) == 1
         assert scheduled == [555]
         assert db.users[555]["last_msg_id"] == 1002
+
+
+class TestReakciaNaSpravu:
+    """Občasné emoji na jeho texte — pripraví sa v handleri, odpáli po prečítaní."""
+
+    def _bot(self, db):
+        bot = UserBot(make_config(), db, FakeLlm("odpoved"), FakeClient(), _noop)
+        bot._schedule_reply = lambda tg_id: None  # type: ignore[method-assign]
+        return bot
+
+    def test_vtipna_sprava_dostane_reakciu(self, monkeypatch):
+        import userbot as U
+
+        db = FakeDb(user_row(tg_id=555))
+        bot = self._bot(db)
+        monkeypatch.setattr(U.random, "random", lambda: 0.0)  # šanca vždy padne
+        asyncio.run(bot._handle(FakeEvent(FakeSender(555), "hahaha lol that was funny", msg_id=4001)))
+        assert bot._text_reaction.get(555) == (4001, "🤣")
+
+    def test_bezna_sprava_reakciu_nema(self, monkeypatch):
+        import userbot as U
+
+        db = FakeDb(user_row(tg_id=555))
+        bot = self._bot(db)
+        monkeypatch.setattr(U.random, "random", lambda: 0.0)
+        asyncio.run(bot._handle(FakeEvent(FakeSender(555), "what are you doing", msg_id=4002)))
+        assert 555 not in bot._text_reaction
+
+    def test_odstup_medzi_reakciami(self, monkeypatch):
+        """Druhá vtipná správa krátko po prvej už reakciu nedostane."""
+        import userbot as U
+
+        db = FakeDb(user_row(tg_id=555))
+        bot = self._bot(db)
+        monkeypatch.setattr(U.random, "random", lambda: 0.0)
+        asyncio.run(bot._handle(FakeEvent(FakeSender(555), "hahaha lol", msg_id=4003)))
+        bot._text_reaction.clear()
+        asyncio.run(bot._handle(FakeEvent(FakeSender(555), "lmaooo so funny", msg_id=4004)))
+        assert 555 not in bot._text_reaction

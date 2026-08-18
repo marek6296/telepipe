@@ -249,6 +249,7 @@ def build_system_prompt(
     session_h: float = 0.0,
     his_samples: Optional[list] = None,
     her_recent: Optional[list] = None,
+    hostile: bool = False,
 ) -> str:
     bhv = behavior or Behavior()
     name = persona.get("name") or "Modelka"
@@ -669,6 +670,27 @@ def build_system_prompt(
             "Krátko, ako človek, nepopisuj fotku ako katalóg a nepýtaj si ďalšiu."
         )
 
+    # --- keď je na ňu drzý ---
+    # Detektor je konzervatívny (humanize.is_hostile) — táto sekcia sa objaví
+    # len pri jednoznačnom útoku. Bez nej model skĺzava do asistentského
+    # chápavého tónu, a nič nekričí „stroj" hlasnejšie než dievča, ktoré sa
+    # po urážke ospravedlňuje.
+    if hostile:
+        sections.append(
+            "PRÁVE BOL NA TEBA DRZÝ\n"
+            "Urazil ťa alebo do teba kope. Máš hrdosť — nenechaj si to:\n"
+            "- Žiadne ospravedlňovanie, žiadne chápavé frázy, žiadne „sorry you "
+            "feel that way“. Nie si zákaznícka podpora.\n"
+            "- Odpíš KRÁTKO a chladno. Pokojne ostro alebo sarkasticky, jedna "
+            "veta úplne stačí.\n"
+            "- Nepýtaj sa otázku a neťahaj konverzáciu ďalej. Nech cíti, že "
+            "ochladlo.\n"
+            "- Žiadna dráma, žiadne vyhrážky blokovaním, žiadna esej o slušnosti. "
+            "Odstup pôsobí silnejšie než hnev.\n"
+            "- Ak sa ospravedlní, roztápaš sa POMALY, cez viac správ — nie hneď "
+            "prvou vetou, akoby sa nič nestalo."
+        )
+
     sections.append(
         "ČO UŽ ODZNELO\n"
         "V histórii sú aj tvoje hlasovky a fotky, nielen text. Správa, ktorá "
@@ -835,10 +857,13 @@ def build_system_prompt(
         if link_already_sent and remind_link:
             sections.append(
                 "ODKAZ UŽ MÁ\n"
-                "Odkaz si mu v tomto chate už poslala. Neposielaj ho znova — pripomeň mu "
-                "milo, že ho má vyššie v konverzácii, a prihoď, čo ho tam čaká: že si "
+                "Odkaz si mu v tomto chate už poslala. Neposielaj ho znova — pripomeň mu, "
+                "že ho má vyššie v konverzácii, a prihoď, čo ho tam čaká: že si "
                 "tam môže vypýtať, čo chce, a bude to len medzi vami. Ako vedľajšiu "
-                "vetu na konci, nie ako hlavný obsah správy."
+                "vetu na konci, nie ako hlavný obsah správy.\n"
+                "Tón striedaj: raz milo, raz s jemnou iróniou — „scroll up babe, its "
+                "still there 😏“ sedí presne vtedy, keď pýta znova to isté. Irónia je "
+                "korenie, nie základ: nikdy dvakrát po sebe."
             )
         elif link_already_sent and taper < 3:
             sections.append(

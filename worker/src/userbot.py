@@ -85,6 +85,12 @@ SYSTEM_IDS = frozenset({777000, 42777, 4244000, 333000})
 # je to zopár kilobajtov.
 _SEEN_LIMIT = 500
 
+# Reakcia emoji na jeho TEXT — ako keď človek dá srdiečko na správu, ktorá ho
+# potešila, aj keď na ňu odpovedá. Šanca je nízka a medzi reakciami je odstup
+# zámerne: reakcia na každú druhú správu je rovnaký stroj ako žiadna.
+TEXT_REACT_CHANCE = 0.15
+TEXT_REACT_GAP_MIN = 45
+
 
 def _is_system_account(entity: User) -> bool:
     return (
@@ -121,6 +127,10 @@ class UserBot:
         self._library_warned: Dict[int, datetime] = {}
         # Fotka, ktorá čaká na reakciu — dá sa až keď si ju naozaj otvorí.
         self._photo_reaction: Dict[int, tuple] = {}
+        # To isté pre text: (msg_id, emoji) pripravené v handleri, odpálené až
+        # po prečítaní. Plus kedy naposledy — reakcie majú byť občas, nie vždy.
+        self._text_reaction: Dict[int, tuple] = {}
+        self._last_text_react: Dict[int, datetime] = {}
         # Dokedy mlčíme, lebo si to vypýtal sám Telegram (FloodWait).
         self._flood_until: Optional[datetime] = None
         # Id správ, ktoré sme už spracovali. Telegram po reconnecte doručí
@@ -291,6 +301,23 @@ class UserBot:
             return
 
         await self._db.add_message(tg_id, "user", text)
+
+        # Občasná reakcia na jeho text. Až TU, za zámkom správy — reagovať na
+        # správu, ktorú si zabrala iná replika, by znamenalo dve reakcie.
+        # Fotky majú vlastnú vetvu vyššie a majú prednosť.
+        if not event.photo and message_id:
+            emoji = humanize.text_reaction(text)
+            naposledy = self._last_text_react.get(tg_id)
+            if (
+                emoji
+                and (naposledy is None
+                     or datetime.now(timezone.utc) - naposledy
+                     > timedelta(minutes=TEXT_REACT_GAP_MIN))
+                and random.random() < TEXT_REACT_CHANCE
+            ):
+                self._text_reaction[tg_id] = (message_id, emoji)
+                self._last_text_react[tg_id] = datetime.now(timezone.utc)
+
         user["msg_count"] = int(user.get("msg_count") or 0) + 1
         patch: Dict[str, Any] = {
             "msg_count": user["msg_count"],
@@ -508,10 +535,14 @@ class UserBot:
         elif not testing:
             await asyncio.sleep(bhv.read_delay(behavior, factor=factor))
         await self._mark_read(tg_id)
-        # Chat je od tejto chvíle prečítaný, takže reakcia na fotku už sedí.
+        # Chat je od tejto chvíle prečítaný, takže reakcia už sedí. Fotka má
+        # prednosť pred textom; obe sa vyberú, nech textová nevisí do budúcna.
         caka = self._photo_reaction.pop(tg_id, None)
+        na_text = self._text_reaction.pop(tg_id, None)
         if caka:
             asyncio.create_task(self._react_to_photo(tg_id, *caka))
+        elif na_text:
+            asyncio.create_task(self._react(tg_id, na_text[0], na_text[1], "správu"))
 
         # 2) občas nechá len „videné“ a odpíše až po pár minútach
         seen_wait = 0.0 if (testing or quick) else bhv.seen_only_delay(behavior)
@@ -789,6 +820,8 @@ class UserBot:
             ),
             # Nepočul hlasovku — zopakuje to textom, nie ďalšou nahrávkou.
             misheard=nerozumel,
+            # Urazil ju — namiesto chápavej asistentky odpovie hrdé dievča.
+            hostile=humanize.is_hostile(last_user_text),
             busy=den.busy(dnesny_blok),
             # O hlasovke sa v prompte hovorí len vtedy, keď ju naozaj smie
             # poslať — inak by si ju pýtala a tichý kód by ju zakaždým zahodil.
@@ -1599,14 +1632,18 @@ class UserBot:
         return f"[v hlasovke povedal] {prepis}"
 
     async def _react_to_photo(self, tg_id: int, msg_id: int, explicit: bool) -> None:
-        """Reakcia priamo na jeho fotku: ❤️ na bežnú, 🔥 na horúcu.
+        """Srdiečko na bežnú fotku, plamienok na horúcu."""
+        await self._react(tg_id, msg_id, "🔥" if explicit else "❤️", "fotku")
 
-        Nie je to odpoveď, len reakcia — príde skôr než text a chat vďaka nej
-        pôsobí živo. Zlyhanie sa ticho ignoruje, fotka aj tak dostane odpoveď.
+    async def _react(self, tg_id: int, msg_id: int, emoji: str, co: str) -> None:
+        """Reakcia priamo na jeho správu — fotku aj text.
+
+        Nie je to odpoveď, len emoji na jeho bubline — príde skôr než text
+        a chat vďaka nej pôsobí živo. Zlyhanie sa ticho ignoruje, odpoveď
+        odíde tak či tak.
         """
         if not msg_id:
             return
-        emoji = "🔥" if explicit else "❤️"
         try:
             await asyncio.sleep(random.uniform(3, 15))
             await self._client(
@@ -1616,9 +1653,9 @@ class UserBot:
                     reaction=[ReactionEmoji(emoticon=emoji)],
                 )
             )
-            log.info("%s: reakcia %s na fotku", tg_id, emoji)
+            log.info("%s: reakcia %s na %s", tg_id, emoji, co)
         except Exception as exc:  # noqa: BLE001 - reakcia je bonus, nie povinnosť
-            log.warning("%s: reakciu na fotku sa nepodarilo dať: %s", tg_id, exc)
+            log.warning("%s: reakciu na %s sa nepodarilo dať: %s", tg_id, co, exc)
 
     async def _refresh_blocked(self, force: bool = False) -> None:
         """Načíta zoznam zablokovaných z Telegramu.

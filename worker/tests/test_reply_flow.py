@@ -518,6 +518,16 @@ class TestDeferSurvivesRestart:
 class TestSweepNajdeZabudnutych:
     """Nikto nesmie ostať bez odpovede — ani keď sa `pending_reply` stratí."""
 
+    # Rozklad nočného radu (backlog_ready) tu NIE JE témou — a je závislý od
+    # skutočných hodín: okno defaultného chovania sa otvára o polnoci LA času
+    # a prvých ~75 minút sweeper ľudí schválne púšťa postupne. Bez tohto by
+    # celá trieda padala každý deň medzi 9:00 a 10:15 nášho času.
+    @pytest.fixture(autouse=True)
+    def _rad_je_vzdy_na_nom(self, monkeypatch):
+        import outreach
+
+        monkeypatch.setattr(outreach, "backlog_ready", lambda *a, **k: True)
+
     @staticmethod
     def _bot(**prepis):
         row = user_row(
@@ -751,6 +761,14 @@ class TestStareSpravySaNedobiehaju:
     odpísala aj na správu spred štyroch dní. Naživo tak po restarte odišla
     odpoveď na pozdrav, ktorý bol 104 hodín starý.
     """
+
+    # Rovnaká poistka ako v TestSweepNajdeZabudnutych — rozklad nočného radu
+    # je závislý od skutočných hodín a nie je témou týchto testov.
+    @pytest.fixture(autouse=True)
+    def _rad_je_vzdy_na_nom(self, monkeypatch):
+        import outreach
+
+        monkeypatch.setattr(outreach, "backlog_ready", lambda *a, **k: True)
 
     def test_stara_sprava_uz_nedostane_odpoved(self):
         bot, db, _llm, client, _ = build(

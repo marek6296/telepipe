@@ -187,3 +187,23 @@ class TestHorucaHlasovka:
         )
         assert "POZRIADNE HORÚCA" in out
         assert "NIKDY nepouži to, čo si už raz povedala" in out
+
+
+class TestDrzost:
+    """Keď je na ňu drzý, prompt jej káže hrdosť, nie asistentské chápanie."""
+
+    def _prompt(self, hostile):
+        return build_system_prompt(
+            {"name": "Simona", "backstory": "", "tone": "", "msg_style": "",
+             "boundaries": "", "funnel_rules": "", "cta_link": "", "extra_rules": ""},
+            {"tg_id": 1, "msg_count": 7, "funnel_stage": "warm"},
+            allow_link=False, asked_if_ai=False, hostile=hostile,
+        )
+
+    def test_sekcia_sa_objavi_pri_utoku(self):
+        out = self._prompt(True)
+        assert "PRÁVE BOL NA TEBA DRZÝ" in out
+        assert "roztápaš sa POMALY" in out
+
+    def test_bez_utoku_sekcia_nie_je(self):
+        assert "DRZÝ" not in self._prompt(False)

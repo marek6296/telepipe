@@ -174,7 +174,13 @@ class Config:
             voice_api_url=os.getenv("VOICE_API_URL", ""),
             voice_api_key=os.getenv("VOICE_API_KEY", ""),
             voice_ambience=os.getenv("VOICE_AMBIENCE", ""),
-            context_messages=_int("CONTEXT_MESSAGES", 12),
+            # 24, nie 12: dvanásť správ je šesť výmen — téma spred desiatich
+            # minút už z okna vypadla a vracala sa len cez archívne FTS, keď
+            # sadli kľúčové slová. Odmerané na živej prevádzke: priemerný vstup
+            # je ~2,4 k tokenov a maximum 8,9 k, takže zdvojnásobenie okna
+            # (~ +300 tokenov) je hlboko pod limitmi modelu; stojí to rádovo
+            # tisícinu centa na odpoveď a kontinuita je na tom najviac vidieť.
+            context_messages=_int("CONTEXT_MESSAGES", 24),
             summary_every=_int("SUMMARY_EVERY", 15),
             # ZÁLOHA, NIE NASTAVENIE. Od migrácie 023b sú `skip_contacts` a
             # `contact_exceptions` stĺpce v `models` a riadok vyhráva (viď
@@ -248,7 +254,7 @@ class TenantConfig:
     voice_api_key: str = ""
     voice_ambience: str = ""
 
-    context_messages: int = 12
+    context_messages: int = 24
     summary_every: int = 15
     skip_contacts: bool = True
     contact_exceptions: frozenset = frozenset()

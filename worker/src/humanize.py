@@ -574,6 +574,72 @@ def is_filler(text: str) -> bool:
     return all(w in _FILLER_WORDS for w in slova)
 
 
+# Naozajstná drzosť, nie sexting. Rozdiel je celý v tomto zozname: „fuck you"
+# je útok, „fuck me" je pozvánka — a keby sa to pomiešalo, ochladla by presne
+# vo chvíli, keď má byť horúca. Preto sú tu len jednoznačné útoky NA ŇU a
+# vzory vyžadujú adresáta („you're stupid", nie hocijaké „stupid").
+_HOSTILE_RE = re.compile(
+    # „fuck you" je útok len keď pred ním nie je túžba: „(want) to fuck you",
+    # „wanna/gonna fuck u" a „can i fuck you" sú sexting. Lookbehindy chytajú
+    # predchádzajúce slovo (to/…na/i) — každý má pevnú šírku, ako Python žiada.
+    r"(?<!to )(?<!na )(?<!i )\bf+u+c*k+ (you|u|off)\b"
+    r"|\bstfu\b|\bshut (the fuck |tf )?up\b"
+    r"|\bkys\b|\bkill yourself\b|\bgo to hell\b|\bscrew you\b"
+    r"|\bpiece of (shit|trash|garbage)\b"
+    r"|\bi (fucking |actually )?hate (you|u)\b"
+    r"|\b(you'?re|youre|you are|ur) (so |such |just )?(a |an )?"
+    r"(stupid|dumb|ugly|pathetic|worthless|disgusting|trash|garbage|useless)\b"
+    r"|\b(stupid|dumb|ugly|fuckin\w*|fake) (bitch|whore|slut|cunt|hoe|cow)\b"
+    r"|\bwaste of (my )?(time|money)\b",
+    re.IGNORECASE,
+)
+
+
+def is_hostile(text: str) -> bool:
+    """Urazil ju alebo do nej kope? Riadi sekciu o drzosti v prompte.
+
+    Zámerne konzervatívne: falošný poplach uprostred sextingu by zabil náladu,
+    zmeškaný útok stojí len jednu neutrálnu odpoveď navyše.
+    """
+    return bool(_HOSTILE_RE.search(text or ""))
+
+
+# Reakcia (emoji na jeho správe) namiesto slov — presne to, čo robí človek,
+# keď ho správa potešila, ale odpoveď má len jednu. Poradie je dôležité:
+# smiech vyhráva nad všetkým (haha správy bývajú aj milé), horúce nad milým.
+_REACT_FUNNY_RE = re.compile(r"\b(a?ha(ha)+h?|lo+l|lmf?ao+|rofl|dead)\b|😂|🤣", re.IGNORECASE)
+_REACT_HOT_RE = re.compile(
+    r"\b(so hot|so sexy|damn girl|smoking hot)\b|😈|🥵|🔞", re.IGNORECASE
+)
+_REACT_SWEET_RE = re.compile(
+    r"\b(miss (you|u)|love (you|u|that|this)|(you look |youre |you're |so )"
+    r"(beautiful|gorgeous|stunning)|sweet dreams|good ?night|cutie)\b|❤️|😘|🥰",
+    re.IGNORECASE,
+)
+
+
+def text_reaction(text: str) -> str:
+    """Emoji reakcia na JEHO text. Prázdny reťazec = žiadna.
+
+    Toto rozhoduje len ČI by reakcia sedela — či sa naozaj pošle, rozhoduje
+    volajúci (šanca + odstup medzi reakciami). Reakcia na každú správu je
+    rovnaký stroj ako žiadna.
+    """
+    raw = (text or "").strip()
+    # Značky médií ([poslal fotku…]) nie sú jeho slová — fotky majú vlastnú vetvu.
+    if len(raw) < 2 or raw.startswith("["):
+        return ""
+    if is_hostile(raw):
+        return ""
+    if _REACT_FUNNY_RE.search(raw):
+        return "🤣"
+    if _REACT_HOT_RE.search(raw):
+        return "🔥"
+    if _REACT_SWEET_RE.search(raw):
+        return "❤️"
+    return ""
+
+
 def is_bare_greeting(text: str) -> bool:
     """Je to len pozdrav bez akéhokoľvek obsahu?
 

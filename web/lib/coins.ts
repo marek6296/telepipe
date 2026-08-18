@@ -105,12 +105,15 @@ export function formatCoins(coinCount: number): string {
  *     (all-in: chat + summary + audio, teda aj pamäť a prepis hlasoviek)
  *     × multiplier 2.0  =  $0.0155  =  15.5 coinov
  *
- * Inzerujeme 16 — zaokrúhlené NAHOR, nech odhad počtu odpovedí radšej
- * podstrelíme než nafúkneme. Pri $50 = 50 000 coinov to je ~3 100 odpovedí.
- * Keď sa cenník modelov pohne, prepočítaj znova a uprav toto číslo aj
- * komentár; marketing sa drží jeho, nie naopak.
+ * Tých 15.5 platilo pri kontextovom okne 12 správ. Okno je od 2026-08-18
+ * dvojnásobné (worker `config.py`, CONTEXT_MESSAGES 24) — dlhšia pamäť je
+ * viac vstupných tokenov na každé volanie, odhadom +10–15 % na odpoveď,
+ * teda ~17–18 coinov. Inzerujeme 18: zaokrúhlené NAHOR, nech odhad počtu
+ * odpovedí radšej podstrelíme než nafúkneme. Pri $50 = 50 000 coinov to je
+ * ~2 700 odpovedí. Keď sa cenník modelov alebo okno pohne, prepočítaj znova
+ * a uprav toto číslo aj komentár; marketing sa drží jeho, nie naopak.
  */
-export const COINS_PER_REPLY = 16;
+export const COINS_PER_REPLY = 18;
 
 /** Koľko odpovedí sa dá za daný počet coinov očakávať (zaokrúhlené nadol). */
 export function estimatedReplies(coinCount: number): number {

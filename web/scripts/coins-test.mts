@@ -98,13 +98,20 @@ function throws(fn: () => void, message: string): void {
   // nahor — nie medián riadku `kind='chat'` (do toho padá aj `structured` a
   // wizard, viď komentár v coins.ts). Podstreliť ho znamená sľubovať klientovi
   // viac odpovedí, než za svoje coiny dostane.
+  // Hranica je 17: nameraných 15.5 pri okne 12 správ + odhad +10–15 % za
+  // dvojnásobné kontextové okno (CONTEXT_MESSAGES 24, worker config.py).
+  // Keď sa okno alebo cenník modelov pohne, prepočítaj v coins.ts a uprav
+  // aj túto hranicu.
   check(
-    COINS_PER_REPLY >= 15.5,
+    COINS_PER_REPLY >= 17,
     "the advertised per-reply cost is not below the measured all-in cost per sent reply",
   );
-  eq(estimatedReplies(50_000), 3125, "$50 buys roughly 3 100 replies");
-  eq(estimatedReplies(110_000), 6875, "$100 buys roughly 6 900 replies");
-  eq(estimatedReplies(300_000), 18750, "$250 buys roughly 18 700 replies");
+  // Konkrétne počty sa odvodzujú z konštanty — test stráži, že sa marketing
+  // (stránka /pricing číta to isté číslo) nerozíde s prepočtom, nie konkrétnu
+  // hodnotu konštanty samotnú. Tú stráži hranica vyššie.
+  eq(estimatedReplies(50_000), Math.floor(50_000 / COINS_PER_REPLY), "$50 reply estimate derives from the constant");
+  eq(estimatedReplies(110_000), Math.floor(110_000 / COINS_PER_REPLY), "$100 reply estimate derives from the constant");
+  eq(estimatedReplies(300_000), Math.floor(300_000 / COINS_PER_REPLY), "$250 reply estimate derives from the constant");
 }
 
 /* ------------------------------------------------- INVARIANT: balík nesmie prerobiť */
