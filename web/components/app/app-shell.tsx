@@ -228,14 +228,13 @@ function SidebarContent({
     <>
       <div className="flex h-14 shrink-0 items-center border-b border-[var(--app-border)] px-5">
         <Link href="/app" className="flex items-center" aria-label="Telepipe">
-          {/* Jediné miesto v appke, kde zlatá ostáva. */}
           <Image
             src="/logo-white.png"
             alt="Telepipe"
             width={148}
             height={47}
             priority
-            className="h-5 w-auto"
+            className="brand-logo-neutral h-5 w-auto"
           />
         </Link>
       </div>

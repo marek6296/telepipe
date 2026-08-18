@@ -95,12 +95,7 @@
   /* To isté pôvodné 3D logo, iba bez farby. Žiadny nový gradient cez masku:
      zachováme prirodzené svetlá, tiene aj kovovú hĺbku originálneho PNG. */
   background: url("/logo-white.png") center / contain no-repeat;
-  filter:
-    grayscale(1)
-    saturate(0)
-    brightness(0.68)
-    contrast(1.12)
-    drop-shadow(0 0 5px rgba(255, 255, 255, 0.08));
+  filter: var(--brand-logo-neutral-filter);
   opacity: 0.96;
 }
 

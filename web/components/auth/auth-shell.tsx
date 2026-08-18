@@ -5,7 +5,7 @@ import { ArrowLeft, Quote } from "lucide-react";
 
 /**
  * Dvojstĺpcový layout — vľavo formulár, vpravo vizuálny panel s ukážkovými
- * testimonialmi. Split ostáva, farby idú do monochrómu (zlatá len v logu).
+ * testimonialmi. Split aj značka ostávajú monochromatické.
  */
 export function AuthShell({ children }: { children: ReactNode }) {
   return (
@@ -23,7 +23,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
               width={148}
               height={47}
               priority
-              className="h-7 w-auto"
+              className="brand-logo-neutral h-7 w-auto"
             />
           </Link>
           <Link
@@ -58,7 +58,7 @@ export function AuthShell({ children }: { children: ReactNode }) {
                 alt="Telepipe"
                 width={220}
                 height={70}
-                className="h-9 w-auto"
+                className="brand-logo-neutral h-9 w-auto"
               />
               <h2 className="mt-10 max-w-md text-[clamp(1.65rem,2.4vw,2.4rem)] font-semibold leading-[1.12] lp-tight">
                 <span className="lp-text-dim">Your models never sleep.</span>

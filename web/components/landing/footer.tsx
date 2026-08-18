@@ -17,7 +17,7 @@ export function LandingFooter() {
             alt="Telepipe"
             width={148}
             height={47}
-            className="h-7 w-auto"
+            className="brand-logo-neutral h-7 w-auto"
           />
           <p className="mt-4 text-[13.5px] leading-relaxed text-white/35">
             AI chat agents that keep every fan talking — and turn conversations
