@@ -9,19 +9,22 @@
 
 ## 1. Cieľ
 
-Pridať k modelke tri režimy odpovedania, ktoré platia **naraz pre Telegram aj Fanvue**:
+Pridať tri režimy odpovedania, **nastaviteľné samostatne pre Telegram a pre Fanvue** (nie jedno spoločné prepnutie — klient si vyberie, na ktorom kanáli chce poloautomat):
 
-- **Off** — modelka nereaguje vôbec.
+- **Off** — modelka na danom kanáli nereaguje vôbec.
 - **Auto** — súčasné správanie (AI píše sama: text, hlasovky, fotky podľa persóny a rozvrhu).
-- **Semi** — nový režim: každá odpoveď namiesto odoslania príde majiteľovi do Telegram control bota, kde ju schváli, upraví alebo nahradí (text / fotka / hlasovka). Voliteľne sa po 15 minútach bez rozhodnutia odošle sama.
+- **Semi** — nový režim: každá odpoveď namiesto odoslania príde majiteľovi do Telegram control bota, kde ju schváli, upraví alebo nahradí (text / fotka / hlasovka). Voliteľne sa po nastavenom počte minút bez rozhodnutia odošle sama.
+
+Príklad: klient môže mať Telegram = Auto a Fanvue = Semi — vtedy chodia na schválenie len Fanvue správy, Telegram beží sám.
 
 Kľúčová vlastnosť: **v Semi režime sa každá odoslaná vec (vybraný návrh, vlastná správa, fotka, hlasovka) ukladá do histórie ako správa modelky s plným kontextom**, takže prepnutie späť na Auto je plynulé a persóna stále chápe celú konverzáciu — vrátane správ, ktoré majiteľ napísal ručne.
 
 ## 2. Kto čo ovláda
 
-- Režim je **per modelka** (`model_id`), riadi obidva kanály jedným nastavením.
-- Nastaviteľný na **webe** (prepínač pri modelke) aj v **Telegram control bote** (nahradí terajšie tlačidlo pauzy: Off / Auto / Semi).
-- Schvaľovanie prebieha **výhradne v Telegram control bote** (aj pre Fanvue správy — chodia do toho istého bota). Web slúži len na prepnutie režimu, nie na schvaľovanie.
+- Režim je **per modelka a per kanál**: samostatný pre Telegram, samostatný pre Fanvue.
+- Nastaviteľný na **webe** — v **Telegram sekcii** modelky sa zapína Telegram režim, v **Fanvue sekcii** sa zapína Fanvue režim (dve nezávislé nastavenia).
+- Nastaviteľný aj v **Telegram control bote** — hlavné menu ukáže oba kanály zvlášť (napr. „Telegram: Auto / Fanvue: Semi") s vlastným prepínačom pre každý. Nahradí terajšie jediné tlačidlo pauzy.
+- Schvaľovanie prebieha **výhradne v Telegram control bote** — aj pre Fanvue správy, tie chodia do toho istého Telegram bota (control bot je jediné miesto schvaľovania pre oba kanály). Web slúži len na prepnutie režimu, nie na schvaľovanie.
 - Per-fan `human_takeover` ("✋ Prevziať chat") ostáva a má prednosť: pre takého fanúšika sa negenerujú ani návrhy.
 
 ## 3. Schvaľovacia karta
@@ -76,31 +79,46 @@ Cena a vlastný popis využívajú existujúci `_awaiting` value-entry pattern c
 
 Ak AI sama inklinovala k hlasovke alebo fotke (dnes to rozhoduje inline v `_reply_locked` / `_reply`), karta to zobrazí ako **tip** („AI navrhuje skôr hlasovku"), ale rozhoduje majiteľ.
 
-## 6. Auto-odoslanie po 15 minútach (voliteľné)
+## 6. Auto-odoslanie po nastavenom čase (voliteľné, per kanál)
 
-Samostatný prepínač pri modelke, **účinný len v Semi režime**:
+Nastavenie pri modelke, **zvlášť pre Telegram a zvlášť pre Fanvue**, účinné len v Semi režime daného kanála. Hodnota je **počet minút** (nie fixne 15):
 
-- **Zapnuté** → ak sa `pending` nerozhodne do **15 minút** (fixne), worker odošle **prvý (AI-top) návrh** rovnakou send-cestou, ako keby ho vybral majiteľ. „Rozhodne ona, ktorý pošle" = poradie návrhov je rozhodnutie AI.
-- **Vypnuté** → `pending` čaká na rozhodnutie neobmedzene.
+- **Nastavené číslo (napr. 15, 30, 60)** → ak sa `pending` nerozhodne do toľkých minút, worker odošle **prvý (AI-top) návrh** rovnakou send-cestou, ako keby ho vybral majiteľ. „Rozhodne ona, ktorý pošle" = poradie návrhov je rozhodnutie AI.
+- **Vypnuté (prázdne / 0)** → `pending` čaká na rozhodnutie neobmedzene.
 
-Odpočet stráži poller vo workeri (rovnaká kadencia ako `voice_jobs` poller / sweeper), takže beží aj keď je web aj Telegram zavretý.
+Klient si teda vie nastaviť napr. Telegram = po 15 min, Fanvue = nikdy (čaká vždy). Web pri zapnutí ponúkne rozumný predvyplnený default (15), ale je editovateľný. Odpočet stráži poller vo workeri (rovnaká kadencia ako `voice_jobs` poller / sweeper), takže beží aj keď je web aj Telegram zavretý.
 
-## 7. Supersede pri novej správe
+## 7. Supersede pri novej správe (musí byť spoľahlivé)
 
-Keď fanúšik napíše ďalšiu správu, kým je `pending` v stave `awaiting`:
-- stará karta sa zruší (`pending` → `superseded`, control message sa upraví na „(neaktuálne)"),
-- AI vygeneruje nový `pending` k aktuálnej konverzácii.
+Keď fanúšik napíše ďalšiu správu (alebo viac správ), kým je `pending` v stave `awaiting`, majiteľ nesmie schvaľovať zastarané návrhy. Postup:
 
-Platí v oboch prípadoch (s aj bez 15-min fallbacku), aby majiteľ nikdy neschvaľoval zastarané návrhy. Nadväzuje na existujúcu debounce logiku.
+1. Nová prichádzajúca správa sa uloží do histórie (ako dnes) a spustí debounce (`_schedule_reply`), takže viac správ za sebou sa spočíta do jednej dávky — nevznikne 5 kariet za 5 správ.
+2. Pred vytvorením nového `pending` sa **atomicky uzavrú všetky otvorené `awaiting` pre danú konverzáciu** (`supersede_open(channel, conv_key)` → `awaiting` → `superseded`).
+3. Control message starej karty sa upraví na „(neaktuálne — prišla nová správa)" a tlačidlá sa odstránia, nech na ňu majiteľ omylom neklikne.
+4. AI vygeneruje nové návrhy z **aktuálneho** kontextu (vrátane nových správ) a pošle novú kartu.
+
+Zabezpečenie proti race: `supersede_open` a `claim_pending_reply` bežia cez DB (atomický patch so `status='awaiting'` podmienkou), takže ani keď majiteľ klikne starú kartu presne vo chvíli príchodu novej správy, nemôže sa poslať zastaraná odpoveď — claim zlyhá, lebo riadok už nie je `awaiting`. Platí v oboch prípadoch (s aj bez časového fallbacku).
 
 ## 8. Dátový model
 
-### 8.1 `settings` (rozšírenie)
-- `reply_mode text not null default 'auto' check (reply_mode in ('off','auto','semi'))`
-- `semi_auto_fallback boolean not null default false` — 15-min auto-odoslanie, účinné len pri `reply_mode='semi'`.
-- `ai_paused` ostáva ako systémová núdzová pauza (flood) — nezávislá od `reply_mode`.
+### 8.1 Per-kanálový režim (rozšírenie existujúcich tabuliek)
 
-Rozhodovanie workera: automaticky posielaj len ak `reply_mode='auto'` a nie `ai_paused`. Pri `reply_mode='semi'` choď do schvaľovacieho toku. Pri `reply_mode='off'` neposielaj nič.
+Režim je per kanál, preto žije pri každom kanáli zvlášť:
+
+**Telegram → tabuľka `settings`:**
+- `tg_reply_mode text not null default 'auto' check (tg_reply_mode in ('off','auto','semi'))`
+- `tg_fallback_minutes integer` — počet minút do auto-odoslania; `NULL`/0 = vypnuté. `check (tg_fallback_minutes is null or tg_fallback_minutes > 0)`.
+- `ai_paused` ostáva ako systémová núdzová pauza (flood) — nezávislá od `tg_reply_mode`.
+
+**Fanvue → tabuľka `fanvue`** (co-located s `enabled`, tokenom):
+- `reply_mode text not null default 'auto' check (reply_mode in ('off','auto','semi'))`
+- `fallback_minutes integer` — to isté pre Fanvue; `NULL`/0 = vypnuté.
+- `enabled` (pripojenie/beh agenta) ostáva; `reply_mode` riadi len správanie odpovedí. Supervisor beží pri pripojenom Fanvue; `reply_mode='semi'` musí bežať, aby vedel generovať návrhy.
+
+Rozhodovanie workera **na každom kanáli nezávisle**:
+- `auto` a (Telegram: nie `ai_paused`) → posielaj automaticky ako dnes.
+- `semi` → schvaľovací tok.
+- `off` → neposielaj na tomto kanáli nič.
 
 ### 8.2 `pending_replies` (nová tabuľka)
 Durabilná fronta čakajúcich rozhodnutí (vzor podľa `voice_jobs`), aby prežila presun modelky na inú repliku workera.
@@ -113,7 +131,7 @@ pending_replies (
   conv_key      text not null,        -- tg_id (text) alebo fan_uuid
   status        text not null default 'awaiting'
                   check (status in ('awaiting','sent','skipped','superseded')),
-                  -- awaiting → sent (manuálne alebo 15-min fallback) | skipped (Preskočiť)
+                  -- awaiting → sent (manuálne alebo časový fallback) | skipped (Preskočiť)
                   --         → superseded (fanúšik napísal novú správu)
   suggestions   jsonb not null,       -- ["…","…","…"] zoradené od najlepšieho
   incoming_preview text not null default '',  -- správa fanúšika (pre kartu)
@@ -135,28 +153,31 @@ RPC: `claim_pending_reply` (atomické `awaiting`→`sent`, aby poller a callback
 ## 9. Zmeny v kóde
 
 ### Worker
-- **nový modul `pending.py`**: `create_pending(...)`, `get_pending(id)`, `claim_pending(id)`, `supersede_open(channel, conv_key)`, `fallback_due(max_age=15min)` — vráti `awaiting` staršie ako 15 min pre modelky so `semi_auto_fallback=true`.
+- **nový modul `pending.py`**: `create_pending(...)`, `get_pending(id)`, `claim_pending(id)`, `supersede_open(channel, conv_key)`, `fallback_due()` — vráti `awaiting`, ktoré prekročili svoj per-kanálový `*_fallback_minutes` (Telegram: `settings.tg_fallback_minutes`, Fanvue: `fanvue.fallback_minutes`; `NULL` = nikdy).
 - **`llm.py`**: nová metóda `suggest(system, history, n=3)` — jedno volanie, 3 varianty, parsované do zoznamu (zoradené od najlepšieho).
-- **`userbot.py`**: v `_reply_locked` odbočka pri `reply_mode='semi'` — namiesto send bloku: `supersede_open` → `suggest` → `create_pending` → `control.notify` karta → `pending_reply=True` → return. Nový vstup `send_approved(pending, choice)` znovupoužije existujúci send blok (`send_message` + `add_message` + `_post_send_update`).
-- **`fanvue_agent.py`**: rovnaká odbočka v `_reply`; send cez `Fanvue.send`, kontext cez `fv_messages`.
-- **`control_bot.py`**: celé schvaľovacie UI — render karty, callbacky (výber návrhu, vlastná správa, foto-wizard, cena, hlasovka + jej preview), tri-state v hlavnom menu, obnova `awaiting` po štarte repliky. Nové callback heady (napr. `ap:` approve-pick, `ac:` approve-custom, `af:` foto, `av:` voice).
-- **poller** (nový `start_approval_poller` alebo napojenie na existujúci sweeper): pre modelky so `semi_auto_fallback=true` odosli `awaiting` staršie ako 15 min prvým návrhom.
+- **`userbot.py`**: v `_reply_locked` odbočka pri `settings.tg_reply_mode='semi'` — namiesto send bloku: `supersede_open` → `suggest` → `create_pending(channel='telegram')` → `control.notify` karta → `pending_reply=True` → return. Nový vstup `send_approved(pending, choice)` znovupoužije existujúci send blok (`send_message` + `add_message` + `_post_send_update`).
+- **`fanvue_agent.py`**: rovnaká odbočka v `_reply` pri `fanvue.reply_mode='semi'`; send cez `Fanvue.send`, kontext cez `fv_messages`, `create_pending(channel='fanvue')`.
+- **`control_bot.py`**: celé schvaľovacie UI — render karty, callbacky (výber návrhu, vlastná správa, foto-wizard, cena, hlasovka + jej preview), **oba per-kanálové režimy v hlavnom menu** (Telegram + Fanvue zvlášť), obnova `awaiting` po štarte repliky. Nové callback heady (napr. `ap:` approve-pick, `ac:` approve-custom, `af:` foto, `av:` voice, `rm:` reply-mode toggle s argumentom kanála).
+- **poller** (nový `start_approval_poller` alebo napojenie na existujúci sweeper): odošle `awaiting` prekročené `fallback_due()` prvým návrhom.
 
 ### Web
-- Prepínač **Off / Auto / Semi** + prepínač **15-min auto-odoslanie** pri modelke (číta/zapisuje `settings.reply_mode`, `settings.semi_auto_fallback`). Umiestnenie: sekcia nastavení modelky (napr. pri persóne/behavior alebo dedikovaná „Replies" karta).
-- Read helper na `reply_mode` (dnes sa číta `ai_paused` cez `getPausedMap`).
+- **Telegram sekcia modelky** (`/app/m/[id]/telegram/settings`): prepínač **Off / Auto / Semi** + pole **minúty do auto-odoslania** (prázdne = vypnuté) — zapisuje `settings.tg_reply_mode`, `settings.tg_fallback_minutes`.
+- **Fanvue sekcia modelky** (`/app/m/[id]/fanvue/settings`): rovnaký prepínač + pole — zapisuje `fanvue.reply_mode`, `fanvue.fallback_minutes`. Nezávislé od Telegramu.
+- Read helper na oba režimy (dnes sa číta `ai_paused` cez `getPausedMap`).
+- Column-grant guard: nové stĺpce na `settings`/`fanvue` treba explicitne povoliť pre `authenticated` (migrácia 017 gotcha — table grant neexistuje, len po stĺpcoch).
 
 ## 10. Invarianty / čo sa nesmie pokaziť
 
-- **Auto režim ostáva bajt-za-bajt ako dnes** — odbočka sa aktivuje len pri `reply_mode='semi'`.
+- **Auto režim ostáva bajt-za-bajt ako dnes** — odbočka sa aktivuje len pri `…reply_mode='semi'` daného kanála.
+- **Kanály sú nezávislé** — Telegram v Semi nesmie ovplyvniť Fanvue v Auto a naopak.
 - **Každá odoslaná vec v Semi sa uloží ako `role='assistant'`** so správnym markerom a prebehne `_post_send_update` (clear `pending_reply`, `last_reply_at`, funnel, pamäť/summary) — inak by sa po návrate na Auto rozbila kontinuita persóny.
 - **Vlastná (ručne napísaná) správa** sa ukladá rovnako → persóna sa z nej učí.
 - **Flood a blokovaný fanúšik** sú tvrdé gates aj v Semi (chránia účet).
-- **Idempotencia odoslania**: `claim_pending_reply` zaručí, že poller (15 min) a manuálne kliknutie nemôžu poslať dvakrát.
+- **Idempotencia odoslania**: `claim_pending_reply` zaručí, že časový poller a manuálne kliknutie nemôžu poslať dvakrát.
 
 ## 11. Zámerne mimo v1 (YAGNI)
 
-- Nastaviteľná dĺžka fallbacku (fixne 15 min).
 - Schvaľovanie na webe (len prepínač režimu; schvaľuje sa v Telegrame).
 - Preview textových návrhov na webe.
 - Telegram Stars / platené fotky na Telegrame (Telegram DM nemá paywall — platené len Fanvue).
+- Iný počet návrhov než 3.
