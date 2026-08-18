@@ -116,6 +116,15 @@ CALLS = {
     "claim_voice_job": ((9,), {}),
     "finish_voice_job": ((9,), {}),
     "add_voice_job": (({"text": "ahoj"},), {}),
+    "tg_reply_mode": ((), {}),
+    "set_tg_reply_mode": (("semi",), {}),
+    "set_tg_fallback_minutes": ((15,), {}),
+    "create_pending": ((), {"channel": "telegram", "conv_key": "7", "suggestions": ["a"]}),
+    "get_pending": (("00000000-0000-0000-0000-000000000000",), {}),
+    "claim_pending": (("00000000-0000-0000-0000-000000000000",), {}),
+    "mark_pending": (("00000000-0000-0000-0000-000000000000", "skipped"), {}),
+    "supersede_open": (("telegram", "7"), {}),
+    "awaiting_pending": ((), {}),
     "stats": ((), {}),
 }
 

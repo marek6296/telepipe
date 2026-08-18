@@ -61,6 +61,7 @@ BEHAVIOR = "/behavior"
 SCHEDULE = "/model_schedule"
 VOICE_CLIPS = "/voice_clips"
 VOICE_JOBS = "/voice_jobs"
+PENDING = "/pending_replies"
 ACCOUNTS = "/accounts"
 
 # Ako dlho platí raz načítaný kľúč účtu. Päť minút je kompromis: v dashboarde
@@ -351,6 +352,118 @@ class TenantDb:
 
     async def set_paused(self, paused: bool) -> None:
         await self._patch(SETTINGS, {"model_id": self._mine}, {"ai_paused": paused})
+
+    # ---------- režim odpovedania (Telegram) ----------
+
+    async def tg_reply_mode(self) -> Dict[str, Any]:
+        """Telegram režim + čas fallbacku. `mode` ∈ off|auto|semi (default auto),
+        `fallback_minutes` = int alebo None (nikdy)."""
+        rows = await self._get(
+            SETTINGS,
+            {"model_id": self._mine, "select": "tg_reply_mode,tg_fallback_minutes"},
+        )
+        row = rows[0] if rows else {}
+        mins = row.get("tg_fallback_minutes")
+        return {
+            "mode": str(row.get("tg_reply_mode") or "auto"),
+            "fallback_minutes": int(mins) if mins not in (None, "") else None,
+        }
+
+    async def set_tg_reply_mode(self, mode: str) -> None:
+        """Nastaví Telegram režim. Pri auto/semi zároveň zhodí núdzovú pauzu
+        (`ai_paused`) — majiteľ vedome zapína, takže flood-pauza z minulosti
+        nesmie ticho blokovať."""
+        body: Dict[str, Any] = {"tg_reply_mode": mode}
+        if mode in ("auto", "semi"):
+            body["ai_paused"] = False
+        await self._patch(SETTINGS, {"model_id": self._mine}, body)
+
+    async def set_tg_fallback_minutes(self, minutes: Optional[int]) -> None:
+        await self._patch(
+            SETTINGS, {"model_id": self._mine}, {"tg_fallback_minutes": minutes}
+        )
+
+    # ---------- schvaľovacia fronta (semi-auto) ----------
+
+    async def create_pending(
+        self,
+        *,
+        channel: str,
+        conv_key: str,
+        suggestions: List[str],
+        incoming_preview: str = "",
+    ) -> Optional[Dict[str, Any]]:
+        """Zapíše nový čakajúci návrh. Vráti riadok (s `id`) alebo None."""
+        rows = await self._post(
+            PENDING,
+            {
+                "model_id": self.model_id,
+                "channel": channel,
+                "conv_key": str(conv_key),
+                "suggestions": suggestions,
+                "incoming_preview": incoming_preview[:400],
+            },
+        )
+        return rows[0] if rows else None
+
+    async def get_pending(self, pending_id: str) -> Optional[Dict[str, Any]]:
+        rows = await self._get(
+            PENDING, {"model_id": self._mine, "id": f"eq.{pending_id}", "select": "*"}
+        )
+        return rows[0] if rows else None
+
+    async def claim_pending(self, pending_id: str) -> bool:
+        """Atomicky zoberie awaiting návrh (→ sent). False = medzitým sa
+        rozhodlo inak (klik vs. poller vs. supersede)."""
+        r = await self._client.patch(
+            PENDING,
+            params={
+                "model_id": self._mine,
+                "id": f"eq.{pending_id}",
+                "status": "eq.awaiting",
+            },
+            json={"status": "sent", "decided_at": _now_iso(), "updated_at": _now_iso()},
+            headers={"Prefer": "return=representation"},
+        )
+        r.raise_for_status()
+        return bool(r.json())
+
+    async def mark_pending(self, pending_id: str, status: str, **fields: Any) -> None:
+        """Zapíše konečný stav (skipped/superseded) + prípadné detaily odoslania."""
+        body: Dict[str, Any] = {"status": status, "updated_at": _now_iso()}
+        if status in ("sent", "skipped", "superseded"):
+            body["decided_at"] = _now_iso()
+        body.update({k: v for k, v in fields.items() if v is not None})
+        await self._patch(PENDING, {"model_id": self._mine, "id": f"eq.{pending_id}"}, body)
+
+    async def supersede_open(self, channel: str, conv_key: str) -> List[Dict[str, Any]]:
+        """Uzavrie všetky otvorené awaiting pre konverzáciu (→ superseded).
+        Vráti uzavreté riadky (majú `control_msg_id` na zrušenie karty)."""
+        r = await self._client.patch(
+            PENDING,
+            params={
+                "model_id": self._mine,
+                "channel": f"eq.{channel}",
+                "conv_key": f"eq.{conv_key}",
+                "status": "eq.awaiting",
+            },
+            json={"status": "superseded", "updated_at": _now_iso()},
+            headers={"Prefer": "return=representation"},
+        )
+        r.raise_for_status()
+        return r.json() or []
+
+    async def awaiting_pending(self, channel: str = "") -> List[Dict[str, Any]]:
+        """Otvorené čakajúce návrhy modelky (na obnovu po štarte aj pre poller)."""
+        params = {
+            "model_id": self._mine,
+            "status": "eq.awaiting",
+            "select": "*",
+            "order": "created_at.asc",
+        }
+        if channel:
+            params["channel"] = f"eq.{channel}"
+        return await self._get(PENDING, params)
 
     # ---------- užívatelia ----------
 

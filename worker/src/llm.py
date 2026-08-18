@@ -160,6 +160,29 @@ class Llm:
         # Strop musí pokryť reasoning + text; o krátkosť odpovede sa stará prompt.
         return await self._chat(self._model, messages, max_tokens=1200, temperature=0.9)
 
+    async def suggest(
+        self, system_prompt: str, history: List[Dict[str, str]], n: int = 3
+    ) -> List[str]:
+        """Semi-auto: `n` alternatívnych odpovedí modelky v jej hlase, zoradených
+        od najlepšej (prvú pošle časový fallback). Jedno volanie, oddelené
+        markerom `~~~`. Používa ten istý persona prompt ako `reply`, len požiada
+        o viac variantov na výber pre majiteľa v control bote."""
+        marker = "~~~"
+        instruction = (
+            f"\n\n[REŽIM NÁVRHOV] Napíš PRESNE {n} rôzne verzie svojej ďalšej "
+            f"odpovede — každá v tvojom hlase, ale iný uhol/nálada (napr. hravá, "
+            f"vrúcna, dráždivá). Zoraď ich od NAJLEPŠEJ po najslabšiu. Oddeľ ich "
+            f"riadkom, ktorý obsahuje len „{marker}“. Žiadne číslovanie, nadpisy "
+            f"ani vysvetlenia — len tie {n} odpovedí."
+        )
+        messages = [{"role": "system", "content": system_prompt + instruction}] + history
+        raw = await self._chat(self._model, messages, max_tokens=1400, temperature=0.95)
+        parts = [p.strip() for p in raw.split(marker)]
+        out = [p for p in parts if p]
+        if not out:  # model marker nepoužil — ber celú odpoveď ako jediný návrh
+            out = [raw.strip()] if raw.strip() else []
+        return out[:n]
+
     async def structured(
         self,
         system_prompt: str,
