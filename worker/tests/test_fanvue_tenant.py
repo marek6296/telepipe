@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -54,7 +54,10 @@ def _row(**over):
         "enabled": True,
         "access_token_enc": encrypt("access-plain", KEY),
         "refresh_token_enc": encrypt("refresh-plain", KEY),
-        "expires_at": "2026-08-17T13:00:00+00:00",
+        # Ďaleko od konca platnosti: dozor obnovuje token dopredu (viď
+        # `TestObnovaTokenu`), takže pevný dátum v minulosti by z každého
+        # tick-u urobil pokus o volanie na auth.fanvue.com.
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
         "scope": "openid read:chat",
         "creator_uuid": "creator-1",
         "handle": "lena",
@@ -899,3 +902,150 @@ class TestRunnerSeam:
             assert r._cleanup and isinstance(r._cleanup[0], asyncio.Task)
         finally:
             await r._drain_cleanup()
+
+
+# ---------------------------------------------------------------------------
+# Obnova prístupového tokenu dopredu
+# ---------------------------------------------------------------------------
+#
+# Nález z produkcie: Simona mala Fanvue pripojenú, ale agenta vypnutého. Token
+# žije hodinu a `fanvue_api._access_token` ho obnovuje až vtedy, keď sa niečo
+# volá — pri vypnutom agentovi teda nikdy. V dashboarde potom svietilo „vypršal
+# pred hodinou", hoci pripojenie bolo zdravé, a opätovné pripojenie to riešilo
+# presne na jednu hodinu.
+
+
+class _FakeApi:
+    """Falošné Fanvue API — počíta pokusy o obnovu, volať sa nikam nechodí."""
+
+    def __init__(self, error: Exception | None = None):
+        self.calls = 0
+        self.error = error
+
+    async def ensure_token(self):
+        self.calls += 1
+        if self.error is not None:
+            raise self.error
+        return "fresh-token"
+
+    async def close(self):
+        pass
+
+
+def _sup_s_api(row, api):
+    """Dozor s podvrhnutým API. `_ensure_api` by inak postavil skutočné."""
+    zdroj = _MenlivyRiadok(row)
+    sup = FanvueSupervisor(_Cfg(), _globals(), zdroj.transport(), object())
+    sup._ensure_api = lambda: setattr(sup, "_api", api)
+    return sup, zdroj
+
+
+def _o(**over):
+    """Riadok s vlastným časom vypršania."""
+    return _row(**over)
+
+
+def _za(sekundy):
+    return (datetime.now(timezone.utc) + timedelta(seconds=sekundy)).isoformat()
+
+
+class TestObnovaTokenu:
+    async def test_vyprsany_token_sa_obnovi_aj_ked_agent_nebezi(self, fake_agent):
+        api = _FakeApi()
+        sup, _ = _sup_s_api(_o(enabled=False, expires_at=_za(-60)), api)
+        try:
+            await sup.tick()
+            assert api.calls == 1
+            assert sup.agent_task is None      # vypínač sa tým nezaplo
+        finally:
+            await sup.close()
+
+    async def test_tesne_pred_vyprsanim_sa_obnovi(self, fake_agent):
+        api = _FakeApi()
+        sup, _ = _sup_s_api(_o(enabled=False, expires_at=_za(120)), api)
+        try:
+            await sup.tick()
+            assert api.calls == 1
+        finally:
+            await sup.close()
+
+    async def test_cerstvy_token_sa_neobnovuje(self, fake_agent):
+        api = _FakeApi()
+        sup, _ = _sup_s_api(_o(enabled=False, expires_at=_za(3600)), api)
+        try:
+            await sup.tick()
+            await sup.tick()
+            assert api.calls == 0
+        finally:
+            await sup.close()
+
+    async def test_odpojeny_ucet_sa_neobnovuje(self, fake_agent):
+        api = _FakeApi()
+        sup, _ = _sup_s_api(_o(connected=False, expires_at=_za(-60)), api)
+        try:
+            await sup.tick()
+            assert api.calls == 0
+        finally:
+            await sup.close()
+
+    async def test_bez_obnovovacieho_tokenu_sa_neskusa(self, fake_agent):
+        """Bez refresh tokenu nemá čo obnovovať — účet treba pripojiť znova."""
+        api = _FakeApi()
+        sup, _ = _sup_s_api(_o(enabled=False, refresh_token_enc="", expires_at=_za(-60)), api)
+        try:
+            await sup.tick()
+            assert api.calls == 0
+        finally:
+            await sup.close()
+
+    async def test_zlyhanie_sa_neopakuje_dokola(self, fake_agent):
+        """Neplatný refresh token by inak búchal na Fanvue každých 30 sekúnd."""
+        api = _FakeApi(RuntimeError("Obnova tokenu zlyhala: 400"))
+        sup, _ = _sup_s_api(_o(enabled=False, expires_at=_za(-60)), api)
+        try:
+            for _ in range(5):
+                await sup.tick()
+            assert api.calls == 1
+        finally:
+            await sup.close()
+
+    async def test_zlyhanie_nezhodi_dozor_ani_vault(self, fake_agent):
+        api = _FakeApi(RuntimeError("Obnova tokenu zlyhala: 400"))
+        sup, _ = _sup_s_api(_o(enabled=True, expires_at=_za(-60)), api)
+        try:
+            await sup.tick()                   # nesmie hodiť
+            assert sup.vault_task is not None
+            assert sup.agent_task is not None
+        finally:
+            await sup.close()
+
+    async def test_nove_pripojenie_odblokuje_dalsi_pokus(self, fake_agent):
+        """Po opätovnom pripojení je v riadku INÝ refresh token — vtedy sa skúša
+        znova. Bez toho by oprava v dashboarde ostala bez účinku až do reštartu."""
+        api = _FakeApi(RuntimeError("Obnova tokenu zlyhala: 400"))
+        sup, zdroj = _sup_s_api(_o(enabled=False, expires_at=_za(-60)), api)
+        try:
+            await sup.tick()
+            await sup.tick()
+            assert api.calls == 1
+
+            api.error = None
+            zdroj.row = _o(
+                enabled=False,
+                expires_at=_za(-60),
+                refresh_token_enc=encrypt("refresh-novy", KEY),
+            )
+            await sup.tick()
+            assert api.calls == 2
+        finally:
+            await sup.close()
+
+    async def test_chybajuci_cas_vyprsania_je_dovod_na_obnovu(self, fake_agent):
+        """Prázdny `expires_at` znamená „nevieme" — bezpečnejšie je obnoviť."""
+        api = _FakeApi()
+        sup, _ = _sup_s_api(_o(enabled=False, expires_at=None), api)
+        try:
+            await sup.tick()
+            assert api.calls == 1
+        finally:
+            await sup.close()

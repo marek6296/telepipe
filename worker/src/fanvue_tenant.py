@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -487,6 +488,21 @@ class TenantFanvueDb:
 # tenanta (a tým aj Telethon session) je horšie než jeden dotaz za pol minúty.
 WATCH_S = 30.0
 
+# Ako blízko ku koncu platnosti sa prístupový token obnovuje dopredu. Päť minút
+# je desaťnásobok kola dozoru — token teda nikdy nevyprší medzi dvoma kontrolami.
+TOKEN_MARGIN_S = 300.0
+
+
+def _ts(value: Any) -> Optional[datetime]:
+    """ISO reťazec z DB → aware datetime. Nepodarok je `None`, nie výnimka."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
 
 class FanvueSupervisor:
     """Drží Fanvue tenanta v súlade s riadkom `fanvue`.
@@ -526,6 +542,9 @@ class FanvueSupervisor:
         self.agent_task: Optional[asyncio.Task] = None
         # Aby sa do logu nepísalo to isté každých 30 sekúnd.
         self._last_state: Optional[tuple] = None
+        # Odtlačok obnovovacieho tokenu, s ktorým obnova zlyhala (viď
+        # `_refresh_token_if_stale`). `None` = skúšať sa smie.
+        self._token_fail: Optional[str] = None
 
     @property
     def model_id(self) -> str:
@@ -570,6 +589,7 @@ class FanvueSupervisor:
             await self._close_api()
         else:
             self._ensure_api()
+            await self._refresh_token_if_stale(row)
             self._ensure_vault()
             if enabled:
                 self._ensure_agent()
@@ -605,6 +625,53 @@ class FanvueSupervisor:
             from fanvue_api import Fanvue
 
             self._api = Fanvue(self._db, self._g.fanvue_client_id, self._g.fanvue_client_secret)
+
+    async def _refresh_token_if_stale(self, row: Dict[str, Any]) -> None:
+        """Udrž uložený prístupový token čerstvý, aj keď agent nebeží.
+
+        Fanvue dáva prístupovému tokenu hodinu. `fanvue_api._access_token` ho
+        obnovuje lenivo — teda len vtedy, keď sa naozaj ide volať ich API. Pri
+        pripojenom, ale VYPNUTOM agentovi (`enabled = false`) nevolá nikto, takže
+        token ticho vyprší a v dashboarde to roky vyzerá ako porucha, hoci
+        pripojenie je zdravé. Presne to hlásil Marek pri Simone.
+
+        Obnova sa preto spúšťa odtiaľto, z kola dozoru, ktorý riadok aj tak číta.
+
+        PROTI TOČENIU SA DOKOLA: keď obnova zlyhá, zapamätá si odtlačok
+        obnovovacieho tokenu, s ktorým zlyhala, a s tým istým to už neskúša.
+        Zmysel má až nový token — teda opätovné pripojenie účtu. Bez toho by
+        neplatný refresh token búchal na Fanvue každých 30 sekúnd a chybu do
+        `fanvue.last_error` prepisoval dokola.
+        """
+        api = self._api
+        refresh = str(row.get("refresh_token") or "")
+        if api is None or not refresh:
+            return
+
+        expires = _ts(row.get("expires_at"))
+        now = datetime.now(timezone.utc)
+        if expires is not None and expires - timedelta(seconds=TOKEN_MARGIN_S) > now:
+            return
+
+        # Odtlačok, nie token — v pamäti procesu nemá čo ležať zbytočne.
+        fingerprint = hashlib.sha256(refresh.encode()).hexdigest()[:16]
+        if fingerprint == self._token_fail:
+            return
+
+        try:
+            await api.ensure_token()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - Fanvue nesmie zhodiť Telegram
+            # `last_error` píše samotný `_access_token` — tu len prestaneme skúšať.
+            self._token_fail = fingerprint
+            log.warning(
+                "model %s: obnova Fanvue tokenu zlyhala (%s) — čakám na nové pripojenie",
+                self.model_id, exc,
+            )
+        else:
+            self._token_fail = None
+            log.debug("model %s: Fanvue token obnovený dopredu", self.model_id)
 
     def _ensure_vault(self) -> None:
         if self._zije(self.vault_task):

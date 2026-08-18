@@ -277,6 +277,32 @@ export async function getFanvueConnection(modelId: string): Promise<FanvueConnec
   return { model_id: modelId, ...EMPTY, ...((data as Partial<FanvueConnection>) ?? {}) };
 }
 
+/**
+ * Má modelka ešte obnovovací token? Jediný bit z `refresh_token_enc`.
+ *
+ * Rozdiel medzi „o chvíľu sa obnoví" a „účet treba pripojiť znova" sa inak
+ * z prehliadača povedať nedá: na `*_enc` stĺpce grant nie je a nebude
+ * (migrácia 011), takže von ide cez RPC `has_fanvue_refresh` (migrácia 019,
+ * security definer s kontrolou vlastníctva) len áno/nie.
+ *
+ * Chyba RPC = optimistický fallback na `connected`: nasadenie webu a migrácia
+ * nemusia dopadnúť v tú istú sekundu a je lepšie ukázať zdravé pripojenie ako
+ * zdravé, než z chýbajúcej funkcie vyrobiť falošné „reconnect required".
+ */
+export async function hasFanvueRefresh(modelId: string): Promise<boolean> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("has_fanvue_refresh", { p_model: modelId });
+  if (error) {
+    const { data: row } = await supabase
+      .from("fanvue")
+      .select("connected")
+      .eq("model_id", modelId)
+      .maybeSingle();
+    return Boolean(row?.connected);
+  }
+  return Boolean(data);
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Nastavenia Fanvue agenta (migrácia 015)                                    */
 /* -------------------------------------------------------------------------- */

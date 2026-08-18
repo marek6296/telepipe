@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { FanvueConnectCard } from "@/components/app/fanvue/connect-card";
 import { PageHeader } from "@/components/app/ui";
 import { fanvueConfigured } from "@/lib/env";
-import { getFanvueConnection } from "@/lib/fanvue";
+import { getFanvueConnection, hasFanvueRefresh } from "@/lib/fanvue";
 import { requireModelSubTab } from "@/lib/models";
 
 export const metadata: Metadata = {
@@ -37,7 +37,10 @@ export default async function FanvuePage({
   const { error } = await searchParams;
   const model = await requireModelSubTab(id, "fanvue", "index");
 
-  const fanvue = await getFanvueConnection(model.id);
+  const [fanvue, canRefresh] = await Promise.all([
+    getFanvueConnection(model.id),
+    hasFanvueRefresh(model.id),
+  ]);
 
   return (
     <>
@@ -50,6 +53,7 @@ export default async function FanvuePage({
       <FanvueConnectCard
         modelId={model.id}
         fanvue={fanvue}
+        canRefresh={canRefresh}
         configured={fanvueConfigured()}
         error={typeof error === "string" ? error : ""}
       />

@@ -311,6 +311,17 @@ class Fanvue:
         )
         return self._token
 
+    async def ensure_token(self) -> str:
+        """Obnov uložený token, ak je pri konci — bez toho, aby sa niečo volalo.
+
+        `_access_token` sa doteraz spúšťal iba ako vedľajší efekt volania do
+        Fanvue, takže modelke s vypnutým agentom (`enabled = false`) token ticho
+        vypršal a v dashboarde svietilo, že „vypršal pred hodinou". Pripojenie
+        pritom bolo v poriadku. Dozor (`fanvue_tenant.FanvueSupervisor`) preto
+        potrebuje vstup, ktorý obnovu vyvolá sám; logika ostáva jedna.
+        """
+        return await self._access_token()
+
     async def _headers(self) -> Dict[str, str]:
         return {
             "Authorization": f"Bearer {await self._access_token()}",
