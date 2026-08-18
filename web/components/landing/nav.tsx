@@ -75,14 +75,30 @@ export function LandingNav() {
           className={cn("flex items-center", revealClass)}
           aria-label="Telepipe home"
         >
-          <Image
-            src="/logo-white.png"
-            alt="Telepipe"
-            width={148}
-            height={47}
-            priority
-            className="h-7 w-auto"
-          />
+          {cinematic ? (
+            <span className="lp-logo-scroll" aria-hidden="true">
+              <span className="lp-logo-chrome" />
+              <Image
+                data-nav-logo-gold
+                src="/logo-white.png"
+                alt=""
+                width={148}
+                height={47}
+                priority
+                className="lp-logo-gold"
+              />
+              <span data-nav-logo-sheen className="lp-logo-sheen" />
+            </span>
+          ) : (
+            <Image
+              src="/logo-white.png"
+              alt=""
+              width={148}
+              height={47}
+              priority
+              className="h-7 w-auto"
+            />
+          )}
         </Link>
 
         <ul

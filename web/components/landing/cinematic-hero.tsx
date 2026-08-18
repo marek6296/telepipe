@@ -100,6 +100,8 @@ function CinematicScene() {
       const navGroups = gsap.utils.toArray<HTMLElement>(
         document.querySelectorAll<HTMLElement>("[data-nav-reveal]"),
       );
+      const navLogoGold = document.querySelector<HTMLElement>("[data-nav-logo-gold]");
+      const navLogoSheen = document.querySelector<HTMLElement>("[data-nav-logo-sheen]");
 
       /* --- Počiatočné stavy ------------------------------------------------ */
       gsap.set(card, {
@@ -126,6 +128,13 @@ function CinematicScene() {
       gsap.set(ctaItems, { opacity: 0, y: 26 });
       // Nav je skrytá až kým nedobehne intro text (reveal je na intro timeline).
       gsap.set(navGroups, { opacity: 0, y: -14, pointerEvents: "none" });
+      if (navLogoGold && navLogoSheen) {
+        gsap.set(navLogoGold, { clipPath: "inset(0 100% 0 0)" });
+        gsap.set(navLogoSheen, {
+          opacity: 0,
+          backgroundPosition: "-55% 50%",
+        });
+      }
 
       /* --- Intro reveal (beží na load, nezávisle od scrollu) ----------------
          Presne dvojdielny reveal z predlohy:
@@ -216,6 +225,56 @@ function CinematicScene() {
           },
         },
       });
+
+      /* Logo je tmavý chróm všade mimo produktového showcase. Zlatá vrstva
+         sa začne odhaľovať tesne pred príchodom telefónu, ostane plná počas
+         konverzácie a metrík a pri odchode karty sa rovnakým smerom odleje.
+         Obe fázy sú súčasťou scrub timeline, takže pri scrollovaní nahor sa
+         prehrajú presne opačne a bez dodatočného scroll listenera. */
+      if (navLogoGold && navLogoSheen) {
+        tl
+          .to(
+            navLogoGold,
+            {
+              clipPath: "inset(0 0% 0 0)",
+              duration: 1.2,
+              ease: "power2.inOut",
+            },
+            2.55,
+          )
+          .to(navLogoSheen, { opacity: 0.82, duration: 0.16 }, 2.55)
+          .to(
+            navLogoSheen,
+            {
+              backgroundPosition: "155% 50%",
+              duration: 1.2,
+              ease: "power2.inOut",
+            },
+            2.55,
+          )
+          .to(navLogoSheen, { opacity: 0, duration: 0.2 }, 3.55)
+          .set(navLogoSheen, { backgroundPosition: "-55% 50%" }, 6.35)
+          .to(navLogoSheen, { opacity: 0.72, duration: 0.16 }, 6.4)
+          .to(
+            navLogoGold,
+            {
+              clipPath: "inset(0 0 0 100%)",
+              duration: 1.2,
+              ease: "power2.inOut",
+            },
+            6.4,
+          )
+          .to(
+            navLogoSheen,
+            {
+              backgroundPosition: "155% 50%",
+              duration: 1.2,
+              ease: "power2.inOut",
+            },
+            6.4,
+          )
+          .to(navLogoSheen, { opacity: 0, duration: 0.2 }, 7.4);
+      }
 
       tl
         /* Beat 1 — intro odchádza (0.00 → 0.95)
@@ -355,6 +414,8 @@ function CinematicScene() {
         // prechode na /features jej treba explicitne zmazať inline štýly —
         // inak by ostala na `opacity: 0` z intro revealu.
         gsap.set(navGroups, { clearProps: "all" });
+        if (navLogoGold) gsap.set(navLogoGold, { clearProps: "all" });
+        if (navLogoSheen) gsap.set(navLogoSheen, { clearProps: "all" });
       };
     }, sceneRef);
 
