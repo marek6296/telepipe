@@ -321,7 +321,7 @@ function VoiceSettings({ voice }: { voice: VoiceRow }) {
               label="Where she is recording"
               defaultValue={voice.voice_ambience}
               options={AMBIENCE}
-              help="Default background. If the chat says she is at the gym, the recording follows the chat."
+              help="Only a fallback. The background follows her daily schedule first — at 5pm in a café you hear a café — and the chat overrides even that if she just said where she is."
             />
             <SelectField
               name="voice_strength"
@@ -335,7 +335,7 @@ function VoiceSettings({ voice }: { voice: VoiceRow }) {
               label="Background volume"
               defaultValue={num(voice.voice_ambience_level)}
               format={percent}
-              help="Too loud and it sounds staged. A few percent is plenty."
+              help="A few percent is plenty — a loud room sounds staged. Each recording varies this a little on its own, and it never drops below the phone's own noise or rises over her voice."
             />
           </div>
         </div>
