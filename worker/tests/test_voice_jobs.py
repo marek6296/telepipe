@@ -1094,6 +1094,8 @@ class TestRozsahyOdKlienta:
         import userbot
 
         zdroj = inspect.getsource(userbot)
-        assert zdroj.count("**_voice_ranges(behavior)") == 2, (
-            "obe cesty musia brať rozsahy z toho istého miesta"
+        # Tri cesty berú rozsahy z toho istého miesta: automatická odpoveď,
+        # ukážka v dashboarde a náhľad hlasovky v semi-auto schvaľovaní.
+        assert zdroj.count("**_voice_ranges(behavior)") == 3, (
+            "všetky cesty musia brať rozsahy z toho istého miesta"
         )

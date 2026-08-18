@@ -177,6 +177,12 @@ class FakeDb:
     async def set_paused(self, paused):
         self.paused = paused
 
+    async def tg_reply_mode(self):
+        return {
+            "mode": getattr(self, "reply_mode", "auto"),
+            "fallback_minutes": getattr(self, "fallback_minutes", None),
+        }
+
     async def recent_messages(self, tg_id, limit):
         return self.messages[-limit:]
 

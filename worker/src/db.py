@@ -383,6 +383,20 @@ class TenantDb:
             SETTINGS, {"model_id": self._mine}, {"tg_fallback_minutes": minutes}
         )
 
+    async def fanvue_reply_mode(self) -> Dict[str, Any]:
+        """Fanvue režim + čas fallbacku (na poller a control bota). Riadok
+        `fanvue` nemusí existovať (nepripojené) — vtedy default auto/None."""
+        rows = await self._get(
+            "/fanvue",
+            {"model_id": self._mine, "select": "reply_mode,fallback_minutes"},
+        )
+        row = rows[0] if rows else {}
+        mins = row.get("fallback_minutes")
+        return {
+            "mode": str(row.get("reply_mode") or "auto"),
+            "fallback_minutes": int(mins) if mins not in (None, "") else None,
+        }
+
     # ---------- schvaľovacia fronta (semi-auto) ----------
 
     async def create_pending(

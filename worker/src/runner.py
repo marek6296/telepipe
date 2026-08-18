@@ -254,9 +254,16 @@ class TenantRunner:
 
             userbot = UserBot(cfg, db, llm, user_client, control.notify)
             userbot.register()
+            # Semi-auto: prepoj control bota (schvaľovanie) s userbotom
+            # (doručovanie). Bez bežiaceho bota semi-auto len necháva čakať.
+            if bot_ready:
+                userbot.set_control(control)
+                control.register_sender("telegram", userbot)
+                await control.recover_cards()
             sweeper = userbot.start_sweeper()
             voice_jobs = userbot.start_voice_jobs()
-            self._cleanup.extend(t for t in (sweeper, voice_jobs) if t)
+            fallback = control.start_fallback_poller() if bot_ready else None
+            self._cleanup.extend(t for t in (sweeper, voice_jobs, fallback) if t)
 
             # Fanvue je druhá platforma, nie podmienka tejto. Rovnaké pravidlo
             # ako pri kontrolnom bote vyššie: keď sa nepodarí, beží ďalej aspoň

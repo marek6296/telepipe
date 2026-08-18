@@ -117,6 +117,9 @@ class UserBot:
         self._llm = llm
         self._client = client
         self._notify = notify
+        # Control bot pre semi-auto schvaľovanie. Dopĺňa runner cez set_control;
+        # bez neho (bez tokenu bota) semi-auto len necháva správu čakať.
+        self._control = None
         self._debounce: Dict[int, asyncio.Task] = {}
         self._locks: Dict[int, asyncio.Lock] = {}
         self._reply_times: Deque[datetime] = deque()
@@ -884,6 +887,14 @@ class UserBot:
             her_recent=jej_nedavne,
         )
 
+        # Semi: namiesto odoslania vygeneruj návrhy a pošli majiteľovi na
+        # schválenie. Prompt aj kontext sú tie isté ako pri Auto, takže návrhy
+        # znejú presne ako ona. Odoslanie prebehne až po kliku (viď
+        # `deliver_text`/`deliver_photo`/`deliver_voice`).
+        if semi:
+            await self._handoff_semi(tg_id, user, system, history, last_user_text)
+            return
+
         try:
             raw = await self._llm.reply(system, history)
         except Exception as exc:  # noqa: BLE001 - správa nesmie zapadnúť
@@ -1597,6 +1608,158 @@ class UserBot:
             log.warning("Hlasovku na mieru sa nepodarilo poslať %s: %s", tg_id, exc)
             await self._client.send_message(tg_id, text)
             await self._db.add_message(tg_id, "assistant", text)
+
+    # ---------- semi-auto: handoff a doručovanie po schválení ----------
+
+    def set_control(self, control) -> None:
+        """Runner dopĺňa referenciu na control bota (schvaľovacie UI)."""
+        self._control = control
+
+    async def _handoff_semi(
+        self,
+        tg_id: int,
+        user: Dict[str, Any],
+        system: str,
+        history: List[Dict[str, str]],
+        last_user_text: str,
+    ) -> None:
+        """Semi: vygeneruj návrhy a pošli majiteľovi kartu na schválenie.
+        Supersede starých kariet rieši `control.post_approval`."""
+        if not self._control:
+            # Bez kontrolného bota niet ako schvaľovať — nechaj čakať sweeperu.
+            await self._db.update_user(tg_id, {"pending_reply": True})
+            return
+        try:
+            suggestions = await self._llm.suggest(system, history)
+        except Exception as exc:  # noqa: BLE001
+            log.error("%s: návrhy zlyhali (%s) — nechávam na sweeper", tg_id, exc)
+            await self._db.update_user(tg_id, {"pending_reply": True})
+            return
+        if not suggestions:
+            await self._db.update_user(tg_id, {"pending_reply": True})
+            return
+        name = (user.get("partner_name") or "").strip() or str(tg_id)
+        ok = await self._control.post_approval(
+            channel="telegram",
+            conv_key=str(tg_id),
+            display_name=name,
+            incoming_preview=last_user_text,
+            suggestions=suggestions,
+        )
+        # Karta drží pending; dm_users.pending_reply nech sweeper znovu nespustí.
+        await self._db.update_user(tg_id, {"pending_reply": not ok})
+
+    async def _semi_post_update(self, tg_id: int, text: str) -> None:
+        """Po schválenom odoslaní dorob plný kontext-update (pamäť, summary,
+        funnel), nech persóna nadväzuje aj po prepnutí späť na Auto."""
+        try:
+            user = await self._db.get_user(tg_id)
+            if not user:
+                return
+            persona = await self._db.get_persona()
+            behavior = Behavior.from_row(await self._db.get_behavior())
+            rows = await self._db.recent_messages(tg_id, self._cfg.context_messages)
+            now_local = datetime.now(ZoneInfo(behavior.active_tz))
+            await self._post_send_update(user, persona, behavior, text, rows, now_local)
+        except Exception as exc:  # noqa: BLE001 - odoslané už je, stav dorovnaj aspoň hrubo
+            log.warning("%s: semi post-update zlyhal (%s)", tg_id, exc)
+            await self._db.update_user(
+                tg_id, {"pending_reply": False, "last_reply_at": _utc_iso()}
+            )
+
+    async def deliver_text(self, conv_key: str, text: str) -> bool:
+        """Odošle schválený text ako ona, uloží ho do pamäte, dorovná stav."""
+        tg_id = int(conv_key)
+        try:
+            async with self._client.action(tg_id, "typing"):
+                await asyncio.sleep(humanize.typing_delay(text))
+            await self._client.send_message(tg_id, text)
+        except Exception as exc:  # noqa: BLE001
+            if await self._note_flood(exc, tg_id):
+                return False
+            log.warning("%s: schválený text neodišiel (%s)", tg_id, exc)
+            return False
+        await self._db.add_message(tg_id, "assistant", text)
+        self._reply_times.append(datetime.now(timezone.utc))
+        await self._semi_post_update(tg_id, text)
+        return True
+
+    async def photo_folders(self, conv_key: str) -> List[Dict[str, str]]:
+        """Telegram nemá priečinky — jedna zložka so všetkými aktívnymi fotkami."""
+        return [{"id": "all", "label": "Fotky"}]
+
+    async def photo_items(self, conv_key: str, folder_id: str) -> List[Dict[str, Any]]:
+        lib = await self._db.photo_library()
+        return [
+            {
+                "ref": str(p["id"]),
+                "url": p.get("url"),
+                "caption": p.get("caption") or p.get("situation") or "",
+            }
+            for p in lib
+            if p.get("active", True)
+        ]
+
+    async def suggest_caption(self, conv_key: str) -> List[str]:
+        """Krátke popisy k fotke na výber. Bez ťažkého promptu — pár univerzálnych."""
+        return ["just for you 🙈", "thinking of you 😏", "hope you like it 💋"]
+
+    async def deliver_photo(
+        self, conv_key: str, media_ref: str, caption: str, price_cents=None
+    ) -> bool:
+        """Odošle vybranú fotku (Telegram = vždy zadarmo) s popisom."""
+        tg_id = int(conv_key)
+        lib = await self._db.photo_library()
+        photo = next((p for p in lib if str(p["id"]) == str(media_ref)), None)
+        if not photo:
+            return False
+        data = await _download(photo["url"])
+        if not data:
+            return False
+        try:
+            buffer = io.BytesIO(data)
+            buffer.name = photo_filename(photo["url"])
+            async with self._client.action(tg_id, "photo"):
+                await asyncio.sleep(humanize.typing_delay("x" * 40))
+            await self._client.send_file(
+                tg_id, buffer, caption=caption or "", force_document=False
+            )
+            await self._db.record_photo_send(int(photo["id"]), tg_id)
+            await self._db.update_user(tg_id, {"last_photo_at": _utc_iso()})
+            marker = f"[poslala fotku: {caption or photo.get('caption') or 'selfie'}]"
+            await self._db.add_message(tg_id, "assistant", marker)
+        except Exception as exc:  # noqa: BLE001
+            if await self._note_flood(exc, tg_id):
+                return False
+            log.warning("%s: schválenú fotku sa nepodarilo poslať (%s)", tg_id, exc)
+            return False
+        await self._semi_post_update(tg_id, caption or "[fotka]")
+        return True
+
+    async def generate_voice_preview(self, text: str):
+        """Vyrobí ogg na vypočutie majiteľovi. None = chýba kľúč/hlas alebo zlyhalo."""
+        behavior = Behavior.from_row(await self._db.get_behavior())
+        if not (behavior.eleven_key and behavior.eleven_voice_id):
+            return None
+        try:
+            spoken = await speech.to_spoken(self._llm, text, "")
+            return await livevoice.speak(
+                text, behavior.eleven_key, behavior.eleven_voice_id,
+                "home", behavior.voice_strength or "rough",
+                tempo=float(behavior.voice_tempo or 1.12),
+                level=float(behavior.voice_ambience_level or 0.05),
+                spoken=spoken, **_voice_ranges(behavior),
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Náhľad hlasovky zlyhal: %s", exc)
+            return None
+
+    async def deliver_voice(self, conv_key: str, text: str, ogg: bytes) -> bool:
+        """Pošle už schválenú (vypočutú) hlasovku fanúšikovi."""
+        tg_id = int(conv_key)
+        await self._send_generated_voice(tg_id, ogg, text)
+        await self._semi_post_update(tg_id, f"(hlasovka) {text}")
+        return True
 
     async def _send_voice(self, tg_id: int, voice: Dict[str, Any]) -> bool:
         """Pošle nahrávku ako hlasovku, nie ako súbor s prílohou.

@@ -25,9 +25,11 @@ notifikácie a nemá menu.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from telethon import Button, TelegramClient, events
@@ -115,13 +117,31 @@ def _short(value: Any, limit: int = 28) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def _parse_iso(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 class ControlBot:
     def __init__(self, cfg: Config, db: Db, client: TelegramClient) -> None:
         self._cfg = cfg
         self._db = db
         self._client = client
-        # chat_id → ("persona"|"behavior"|"time", field) — čaká sa na hodnotu
+        # chat_id → ("persona"|"behavior"|"time"|"semi_custom"|"semi_price"|
+        # "semi_caption", field) — čaká sa na hodnotu. Pri semi_* field nesie
+        # message_id karty (str).
         self._awaiting: Dict[int, Tuple[str, str]] = {}
+        # Semi-auto: doručovatelia odpovedí podľa kanála (dopĺňa runner).
+        self._senders: Dict[str, Any] = {}
+        # message_id karty → pending_id (in-memory; po reštarte sa obnoví z DB).
+        self._cards: Dict[int, str] = {}
+        # message_id karty → prechodný stav foto/hlas wizardu (media_ref, price…).
+        self._wizard: Dict[int, Dict[str, Any]] = {}
         # chat_id → časy posledných pokusov o kód (monotónne). Slúži len na
         # obmedzenie skúšania; prázdne zoznamy sa pri každom pokuse upratujú,
         # takže slovník nerastie donekonečna.
@@ -286,6 +306,16 @@ class ControlBot:
         value = (event.raw_text or "").strip()
         if not value:
             return
+        # Semi-auto free-text (vlastná správa, cena, popis, text hlasovky) —
+        # nie je to nastavenie poľa, ale akcia nad čakajúcim návrhom.
+        if kind.startswith("semi_"):
+            try:
+                await self._apply_semi(event, kind, field, value)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("semi akcia %s zlyhala", kind)
+                await event.reply(f"⚠️ {exc}"[:190])
+            self._awaiting.pop(chat_id, None)
+            return
         try:
             message = await self._apply_value(kind, field, value)
         except Exception as exc:  # noqa: BLE001
@@ -362,10 +392,20 @@ class ControlBot:
             log.exception("Callback %s zlyhal", data)
             await event.answer(f"Chyba: {exc}"[:190], alert=True)
 
+    _APPROVAL_HEADS = frozenset({
+        "ap", "ac", "as", "ax", "af", "afd", "afi", "afree", "apaid",
+        "acap", "acapn", "acapw", "av", "avc", "avok", "avno", "aback",
+    })
+
     async def _route(self, event: events.CallbackQuery.Event, data: str) -> None:
         head, _, arg = data.partition(":")
 
-        if head == "m":
+        if head in self._APPROVAL_HEADS:
+            await self._route_approval(event, head, arg)
+        elif head == "rm":
+            # Prepnutie Telegram režimu: off → auto → semi → off
+            await self._cycle_reply_mode(event)
+        elif head == "m":
             await self._send_main(event, edit=True)
         elif head == "pz":
             paused = await self._db.is_paused()
@@ -497,6 +537,494 @@ class ControlBot:
         else:
             await event.respond(text, buttons=buttons, link_preview=False)
 
+    # ================= semi-auto: schvaľovacie karty =================
+
+    def register_sender(self, channel: str, sender: Any) -> None:
+        """Runner registruje doručovateľa odpovedí pre kanál (userbot/fanvue)."""
+        self._senders[channel] = sender
+
+    def start_fallback_poller(self) -> "asyncio.Task":
+        """Poller: neschválené návrhy staršie ako per-kanálový `fallback_minutes`
+        odošle prvým (AI-top) návrhom. Beží, aj keď je web/Telegram zavretý."""
+        return asyncio.create_task(self._fallback_loop())
+
+    async def _fallback_loop(self) -> None:
+        while True:
+            try:
+                await self._fallback_tick()
+            except Exception as exc:  # noqa: BLE001
+                log.warning("fallback poller: %s", exc)
+            await asyncio.sleep(30)
+
+    async def _fallback_tick(self) -> None:
+        rows = await self._db.awaiting_pending()
+        if not rows:
+            return
+        tg = await self._db.tg_reply_mode()
+        fv = await self._db.fanvue_reply_mode()
+        now = datetime.now(timezone.utc)
+        for row in rows:
+            fb = tg["fallback_minutes"] if row.get("channel") == "telegram" else fv["fallback_minutes"]
+            if not fb:
+                continue
+            created = _parse_iso(row.get("created_at"))
+            if created and (now - created).total_seconds() >= fb * 60:
+                await self._auto_send(row)
+
+    async def _auto_send(self, row: Dict[str, Any]) -> None:
+        sender = self._senders.get(row.get("channel"))
+        sugg = row.get("suggestions") or []
+        if not sender or not sugg:
+            return
+        pid = row["id"]
+        if not await self._db.claim_pending(pid):
+            return
+        ok = await sender.deliver_text(row["conv_key"], sugg[0])
+        cmid = row.get("control_msg_id")
+        if ok:
+            await self._db.mark_pending(pid, "sent", chosen_text=sugg[0], kind="text")
+            self._cards.pop(int(cmid or 0), None)
+            if cmid:
+                await self._clear_card(int(cmid), "⏱ _Odoslané automaticky (uplynul čas)._")
+        else:
+            await self._db.mark_pending(pid, "awaiting")
+
+    async def recover_cards(self) -> None:
+        """Po štarte/prevzatí modelky obnov mapu kariet z DB, nech staré karty
+        (s uloženým control_msg_id) po reštarte repliky stále reagujú na kliky."""
+        try:
+            for row in await self._db.awaiting_pending():
+                cmid = row.get("control_msg_id")
+                if cmid:
+                    self._cards[int(cmid)] = row["id"]
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Obnova schvaľovacích kariet zlyhala: %s", exc)
+
+    async def post_approval(
+        self, *, channel: str, conv_key: str, display_name: str,
+        incoming_preview: str, suggestions: List[str],
+    ) -> bool:
+        """Založí pending, pošle kartu majiteľovi. True = poslané."""
+        if not self._cfg.owner_chat_id:
+            return False
+        # Fanúšik mohol napísať znova, kým visela stará karta — zavri ju.
+        for old in await self._db.supersede_open(channel, conv_key):
+            cmid = old.get("control_msg_id")
+            if cmid:
+                await self.cancel_card(int(cmid))
+        row = await self._db.create_pending(
+            channel=channel, conv_key=conv_key,
+            suggestions=suggestions, incoming_preview=incoming_preview,
+        )
+        if not row:
+            return False
+        pid = row["id"]
+        plat = "Fanvue" if channel == "fanvue" else "Telegram"
+        lines = [f"💬 *{plat} · {display_name}*"]
+        if incoming_preview:
+            lines.append(f"„{_short(incoming_preview, 220)}“")
+        lines.append("")
+        for i, sug in enumerate(suggestions):
+            lines.append(f"*{i + 1}️⃣* {sug}")
+        try:
+            msg = await self._client.send_message(
+                self._cfg.owner_chat_id, "\n".join(lines),
+                buttons=self._approval_buttons(len(suggestions)), link_preview=False,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Schvaľovaciu kartu sa nepodarilo poslať: %s", exc)
+            return False
+        await self._db.mark_pending(pid, "awaiting", control_msg_id=int(msg.id))
+        self._cards[int(msg.id)] = pid
+        self._wizard.pop(int(msg.id), None)
+        return True
+
+    def _approval_buttons(self, n: int) -> List[List[Button]]:
+        nums = [Button.inline(f"{i + 1}️⃣", f"ap:{i}".encode()) for i in range(n)]
+        return [
+            nums or [Button.inline("✍️ Napísať", b"ac")],
+            [Button.inline("✍️ Napíšem vlastnú", b"ac")],
+            [Button.inline("📷 Fotka", b"af"), Button.inline("🎤 Hlasovka", b"av")],
+            [Button.inline("⏭️ Preskočiť", b"as"), Button.inline("✋ Prevziať", b"ax")],
+        ]
+
+    async def cancel_card(self, control_msg_id: int) -> None:
+        """Zruší kartu (fanúšik napísal znova / prevzatie) — bez tlačidiel."""
+        self._cards.pop(control_msg_id, None)
+        self._wizard.pop(control_msg_id, None)
+        try:
+            await self._client.edit_message(
+                self._cfg.owner_chat_id, control_msg_id,
+                "⤵️ _(neaktuálne — prišla nová správa)_", buttons=None,
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
+    async def _pending_for(self, event) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+        mid = int(event.message_id)
+        pid = self._cards.get(mid)
+        if not pid:
+            for row in await self._db.awaiting_pending():
+                if int(row.get("control_msg_id") or 0) == mid:
+                    pid = row["id"]
+                    self._cards[mid] = pid
+                    break
+        if not pid:
+            return None, None
+        return pid, await self._db.get_pending(pid)
+
+    async def _route_approval(self, event, head: str, arg: str) -> None:
+        mid = int(event.message_id)
+        pid, row = await self._pending_for(event)
+        if not row or row.get("status") != "awaiting":
+            await event.answer("Táto správa už nie je aktuálna", alert=True)
+            return
+        channel, conv = row["channel"], row["conv_key"]
+        sender = self._senders.get(channel)
+        if not sender:
+            await event.answer("Kanál nie je pripojený", alert=True)
+            return
+        suggestions = row.get("suggestions") or []
+
+        if head == "ap":
+            idx = int(arg or 0)
+            text = suggestions[idx] if 0 <= idx < len(suggestions) else ""
+            await self._finish_text(event, pid, sender, conv, channel, text)
+        elif head == "ac":
+            self._awaiting[event.chat_id] = ("semi_custom", str(mid))
+            await event.answer()
+            await event.respond("✍️ Napíš správu, ktorú mám poslať. /cancel zruší.")
+        elif head == "as":
+            await self._db.mark_pending(pid, "skipped")
+            self._cards.pop(mid, None)
+            self._wizard.pop(mid, None)
+            await event.edit("⏭️ _Preskočené._", buttons=None)
+        elif head == "ax":
+            await self._db.mark_pending(pid, "skipped")
+            if channel == "telegram":
+                try:
+                    await self._db.update_user(int(conv), {"human_takeover": True})
+                except Exception:  # noqa: BLE001
+                    pass
+            self._cards.pop(mid, None)
+            await event.edit("✋ _Chat si preberáš. AI sem už nepíše._", buttons=None)
+        elif head == "af":
+            await self._show_folders(event, sender, conv, mid)
+        elif head == "afd":
+            await self._show_items(event, sender, conv, mid, arg)
+        elif head == "afi":
+            await self._chosen_item(event, sender, channel, mid, int(arg or 0))
+        elif head == "afree":
+            self._wizard.setdefault(mid, {})["price_cents"] = None
+            await self._ask_caption(event, sender, conv, mid)
+        elif head == "apaid":
+            self._awaiting[event.chat_id] = ("semi_price", str(mid))
+            await event.answer()
+            await event.respond("💰 Napíš cenu v $ (len číslo, napr. 50).")
+        elif head == "acap":
+            caps = (self._wizard.get(mid, {}) or {}).get("caps", [])
+            idx = int(arg or 0)
+            cap = caps[idx] if 0 <= idx < len(caps) else ""
+            await self._finish_media(event, pid, sender, conv, mid, cap)
+        elif head == "acapn":
+            await self._finish_media(event, pid, sender, conv, mid, "")
+        elif head == "acapw":
+            self._awaiting[event.chat_id] = ("semi_caption", str(mid))
+            await event.answer()
+            await event.respond("✍️ Napíš popis k fotke. /cancel zruší.")
+        elif head == "aback":
+            await self._restore_card(event, row)
+        elif head == "av":
+            idx = int(arg or 0)
+            text = suggestions[idx] if 0 <= idx < len(suggestions) else (suggestions[0] if suggestions else "")
+            await self._voice_preview(event, pid, sender, mid, text)
+        elif head == "avc":
+            self._awaiting[event.chat_id] = ("semi_voice", str(mid))
+            await event.answer()
+            await event.respond("🎤 Napíš text, ktorý mám povedať hlasom.")
+        elif head == "avok":
+            await self._voice_send(event, pid, sender, conv, mid)
+        elif head == "avno":
+            st = self._wizard.get(mid, {})
+            st.pop("voice_ogg", None)
+            st.pop("voice_text", None)
+            await event.answer("Hlasovka zahodená")
+
+    async def _finish_text(self, event, pid, sender, conv, channel, text) -> None:
+        if not (text or "").strip():
+            await event.answer("Prázdny text")
+            return
+        if not await self._db.claim_pending(pid):
+            await event.answer("Už vybavené", alert=True)
+            return
+        ok = await sender.deliver_text(conv, text)
+        mid = int(event.message_id)
+        self._cards.pop(mid, None)
+        self._wizard.pop(mid, None)
+        if ok:
+            await self._db.mark_pending(pid, "sent", chosen_text=text, kind="text")
+            await event.edit(f"✅ _Odoslané:_ {_short(text, 200)}", buttons=None)
+        else:
+            await self._db.mark_pending(pid, "awaiting")
+            if channel == "telegram":
+                try:
+                    await self._db.update_user(int(conv), {"pending_reply": True})
+                except Exception:  # noqa: BLE001
+                    pass
+            await event.answer("Odoslanie zlyhalo — skús znova", alert=True)
+
+    async def _show_folders(self, event, sender, conv, mid) -> None:
+        folders = await sender.photo_folders(conv)
+        if not folders:
+            await event.answer("Žiadne fotky", alert=True)
+            return
+        self._wizard.setdefault(mid, {})
+        rows = [[Button.inline(f["label"], f"afd:{f['id']}".encode())] for f in folders[:8]]
+        rows.append([Button.inline("« Späť", b"aback")])
+        await event.edit("📷 *Vyber priečinok:*", buttons=rows)
+
+    async def _show_items(self, event, sender, conv, mid, folder_id) -> None:
+        items = await sender.photo_items(conv, folder_id)
+        if not items:
+            await event.answer("Priečinok je prázdny", alert=True)
+            return
+        items = items[:12]
+        self._wizard.setdefault(mid, {})["items"] = items
+        self._wizard[mid]["folder"] = folder_id
+        rows = []
+        for i, it in enumerate(items):
+            label = _short(it.get("caption") or f"Fotka {i + 1}", 40)
+            rows.append([Button.inline(f"{i + 1}. {label}", f"afi:{i}".encode())])
+        rows.append([Button.inline("« Späť", b"af")])
+        await event.edit("🖼 *Vyber fotku:*", buttons=rows)
+
+    async def _chosen_item(self, event, sender, channel, mid, idx) -> None:
+        st = self._wizard.setdefault(mid, {})
+        items = st.get("items") or []
+        if not (0 <= idx < len(items)):
+            await event.answer("Neplatný výber")
+            return
+        st["media_ref"] = items[idx].get("ref")
+        # Telegram nemá PPV — rovno popis. Fanvue: zadarmo / za peniaze.
+        if channel == "fanvue":
+            await event.edit(
+                "💰 *Ako ju poslať?*",
+                buttons=[[
+                    Button.inline("💚 Zadarmo", b"afree"),
+                    Button.inline("💰 Za peniaze", b"apaid"),
+                ]],
+            )
+        else:
+            st["price_cents"] = None
+            await self._ask_caption_edit(event, sender, mid)
+
+    async def _ask_caption(self, event, sender, conv, mid) -> None:
+        await self._ask_caption_edit(event, sender, mid)
+
+    async def _ask_caption_edit(self, event, sender, mid) -> None:
+        caps = []
+        try:
+            caps = await sender.suggest_caption("")
+        except Exception:  # noqa: BLE001
+            caps = []
+        self._wizard.setdefault(mid, {})["caps"] = caps
+        rows = [[Button.inline(_short(c, 40), f"acap:{i}".encode())] for i, c in enumerate(caps[:3])]
+        rows.append([Button.inline("✍️ Vlastný popis", b"acapw"), Button.inline("Bez popisu", b"acapn")])
+        price = (self._wizard.get(mid, {}) or {}).get("price_cents")
+        head = "📝 *Popis k fotke:*" + (f" (cena ${price // 100})" if price else "")
+        await event.edit(head, buttons=rows)
+
+    async def _finish_media(self, event, pid, sender, conv, mid, caption) -> None:
+        st = self._wizard.get(mid, {}) or {}
+        media_ref = st.get("media_ref")
+        price = st.get("price_cents")
+        if not media_ref:
+            await event.answer("Chýba fotka", alert=True)
+            return
+        if not await self._db.claim_pending(pid):
+            await event.answer("Už vybavené", alert=True)
+            return
+        ok = await sender.deliver_photo(conv, media_ref, caption, price)
+        self._cards.pop(mid, None)
+        self._wizard.pop(mid, None)
+        if ok:
+            await self._db.mark_pending(
+                pid, "sent", chosen_text=caption, kind="photo",
+                media_ref=str(media_ref), price_cents=price,
+            )
+            tag = f" za ${price // 100}" if price else ""
+            await event.edit(f"✅ _Fotka odoslaná{tag}._", buttons=None)
+        else:
+            await self._db.mark_pending(pid, "awaiting")
+            await event.answer("Fotku sa nepodarilo poslať", alert=True)
+
+    async def _restore_card(self, event, row) -> None:
+        """« Späť z foto-wizardu na pôvodnú kartu s návrhmi."""
+        suggestions = row.get("suggestions") or []
+        plat = "Fanvue" if row.get("channel") == "fanvue" else "Telegram"
+        lines = [f"💬 *{plat} · {row.get('conv_key')}*"]
+        if row.get("incoming_preview"):
+            lines.append(f"„{_short(row['incoming_preview'], 220)}“")
+        lines.append("")
+        for i, sug in enumerate(suggestions):
+            lines.append(f"*{i + 1}️⃣* {sug}")
+        await event.edit("\n".join(lines), buttons=self._approval_buttons(len(suggestions)))
+
+    async def _voice_preview(self, event, pid, sender, mid, text) -> None:
+        if not (text or "").strip():
+            await event.answer("Najprv vyber alebo napíš text")
+            return
+        await event.answer("Vyrábam hlasovku…")
+        ogg = await sender.generate_voice_preview(text)
+        if not ogg:
+            await event.respond("⚠️ Hlasovka sa nedá vyrobiť (chýba ElevenLabs kľúč/hlas).")
+            return
+        import io as _io
+        buf = _io.BytesIO(ogg)
+        buf.name = "preview.ogg"
+        msg = await self._client.send_file(
+            self._cfg.owner_chat_id, buf, voice_note=True,
+            buttons=[[
+                Button.inline("✅ Poslať fanúšikovi", b"avok"),
+                Button.inline("❌ Zahodiť", b"avno"),
+            ]],
+        )
+        # Náhľad je NOVÁ správa s vlastným message_id — napoj ju na to isté
+        # pending a prenes stav, nech avok/avno na náhľade fungujú.
+        self._cards[int(msg.id)] = pid
+        self._wizard[int(msg.id)] = {"voice_ogg": ogg, "voice_text": text}
+
+    async def _cycle_reply_mode(self, event) -> None:
+        cur = (await self._db.tg_reply_mode()).get("mode", "auto")
+        nxt = {"off": "auto", "auto": "semi", "semi": "off"}.get(cur, "auto")
+        await self._db.set_tg_reply_mode(nxt)
+        await event.answer(
+            {"off": "Vypnuté", "auto": "Automatické", "semi": "Poloautomatické"}[nxt]
+        )
+        await self._send_main(event, edit=True)
+
+    async def _clear_card(self, mid: int, text: str) -> None:
+        try:
+            await self._client.edit_message(self._cfg.owner_chat_id, mid, text, buttons=None)
+        except Exception:  # noqa: BLE001
+            pass
+
+    async def _apply_semi(self, event, kind: str, field: str, value: str) -> None:
+        """Free-text kroky semi wizardu (vlastná správa / cena / popis / hlas)."""
+        mid = int(field) if field.isdigit() else 0
+        pid = self._cards.get(mid)
+        row = await self._db.get_pending(pid) if pid else None
+        if not row or row.get("status") != "awaiting":
+            await event.reply("Táto správa už nie je aktuálna.")
+            return
+        channel, conv = row["channel"], row["conv_key"]
+        sender = self._senders.get(channel)
+        if not sender:
+            await event.reply("Kanál nie je pripojený.")
+            return
+        st = self._wizard.setdefault(mid, {})
+
+        if kind == "semi_custom":
+            if not await self._db.claim_pending(pid):
+                self._cards.pop(mid, None)
+                await event.reply("Už vybavené.")
+                return
+            ok = await sender.deliver_text(conv, value)
+            self._cards.pop(mid, None)
+            self._wizard.pop(mid, None)
+            if ok:
+                await self._db.mark_pending(pid, "sent", chosen_text=value, kind="text")
+                await self._clear_card(mid, f"✅ _Odoslané:_ {_short(value, 150)}")
+                await event.reply("✅ Odoslané.")
+            else:
+                await self._db.mark_pending(pid, "awaiting")
+                await event.reply("⚠️ Odoslanie zlyhalo, skús znova.")
+
+        elif kind == "semi_price":
+            digits = "".join(ch for ch in value if ch.isdigit())
+            if not digits or int(digits) <= 0:
+                self._awaiting[event.chat_id] = (kind, field)  # čakaj znova
+                await event.reply("Zadaj cenu ako číslo, napr. 50.")
+                return
+            st["price_cents"] = int(digits) * 100
+            await self._send_caption_prompt(event, sender, pid, mid)
+
+        elif kind == "semi_caption":
+            media_ref = st.get("media_ref")
+            price = st.get("price_cents")
+            if not media_ref:
+                await event.reply("Chýba fotka.")
+                return
+            if not await self._db.claim_pending(pid):
+                await event.reply("Už vybavené.")
+                return
+            ok = await sender.deliver_photo(conv, media_ref, value, price)
+            self._cards.pop(mid, None)
+            self._wizard.pop(mid, None)
+            if ok:
+                await self._db.mark_pending(
+                    pid, "sent", chosen_text=value, kind="photo",
+                    media_ref=str(media_ref), price_cents=price,
+                )
+                await self._clear_card(mid, "✅ _Fotka odoslaná._")
+                await event.reply("✅ Fotka odoslaná.")
+            else:
+                await self._db.mark_pending(pid, "awaiting")
+                await event.reply("⚠️ Fotku sa nepodarilo poslať.")
+
+        elif kind == "semi_voice":
+            ogg = await sender.generate_voice_preview(value)
+            if not ogg:
+                await event.reply("⚠️ Hlasovka sa nedá vyrobiť (chýba ElevenLabs kľúč/hlas).")
+                return
+            import io as _io
+            buf = _io.BytesIO(ogg)
+            buf.name = "preview.ogg"
+            msg = await self._client.send_file(
+                self._cfg.owner_chat_id, buf, voice_note=True,
+                buttons=[[
+                    Button.inline("✅ Poslať fanúšikovi", b"avok"),
+                    Button.inline("❌ Zahodiť", b"avno"),
+                ]],
+            )
+            self._cards[int(msg.id)] = pid
+            self._wizard[int(msg.id)] = {"voice_ogg": ogg, "voice_text": value}
+
+    async def _send_caption_prompt(self, event, sender, pid, mid) -> None:
+        try:
+            caps = await sender.suggest_caption("")
+        except Exception:  # noqa: BLE001
+            caps = []
+        st = self._wizard.setdefault(mid, {})
+        st["caps"] = caps
+        rows = [[Button.inline(_short(c, 40), f"acap:{i}".encode())] for i, c in enumerate(caps[:3])]
+        rows.append([Button.inline("✍️ Vlastný popis", b"acapw"), Button.inline("Bez popisu", b"acapn")])
+        price = st.get("price_cents")
+        head = "📝 *Popis k fotke:*" + (f" (cena ${price // 100})" if price else "")
+        msg = await event.respond(head, buttons=rows)
+        # Napoj follow-up správu na to isté pending a zdieľaj stav wizardu.
+        self._cards[int(msg.id)] = pid
+        self._wizard[int(msg.id)] = st
+
+    async def _voice_send(self, event, pid, sender, conv, mid) -> None:
+        st = self._wizard.get(mid, {}) or {}
+        ogg, text = st.get("voice_ogg"), st.get("voice_text")
+        if not ogg or not text:
+            await event.answer("Hlasovka nie je pripravená", alert=True)
+            return
+        if not await self._db.claim_pending(pid):
+            await event.answer("Už vybavené", alert=True)
+            return
+        ok = await sender.deliver_voice(conv, text, ogg)
+        self._cards.pop(mid, None)
+        self._wizard.pop(mid, None)
+        if ok:
+            await self._db.mark_pending(pid, "sent", chosen_text=text, kind="voice")
+            await event.edit("✅ _Hlasovka odoslaná._", buttons=None)
+        else:
+            await self._db.mark_pending(pid, "awaiting")
+            await event.answer("Hlasovku sa nepodarilo poslať", alert=True)
+
     async def _send_main(self, event, edit: bool = False) -> None:
         paused = await self._db.is_paused()
         persona = await self._db.get_persona()
@@ -504,13 +1032,18 @@ class ControlBot:
 
         window = bhv.format_window(behavior.active_start_min, behavior.active_end_min)
         mode = "skutočná osoba" if behavior.mode == bhv.REAL else "priznaná AI"
+        reply = await self._db.tg_reply_mode()
+        rmode = reply.get("mode", "auto")
+        rmode_label = {"off": "⛔️ Vypnuté", "auto": "🤖 Automatické", "semi": "✋ Poloautomatické"}.get(rmode, rmode)
         text = (
             f"*{persona.get('name') or 'Modelka'}* · {'⏸ PAUZA' if paused else '✅ beží'}\n\n"
+            f"Odpisovanie (Telegram): *{rmode_label}*\n"
             f"Režim: *{mode}*\n"
             f"Aktívna: *{window}* ({behavior.active_tz})\n"
             f"Odkaz: {_short(persona.get('cta_link'), 40)}"
         )
         buttons = [
+            [Button.inline(f"🔁 Odpisovanie: {rmode_label}", b"rm")],
             [Button.inline("▶️ Zapnúť AI" if paused else "⏸ Vypnúť AI", b"pz")],
             [Button.inline("👤 Persona", b"pm"), Button.inline("🎭 Chovanie", b"bm")],
             [Button.inline("⏰ Časy", b"tm"), Button.inline("📊 Štatistika", b"st")],
