@@ -5,7 +5,16 @@
  */
 
 export const ROLES = ["user", "admin", "superadmin"] as const;
-export const PLANS = ["free", "starter", "pro", "custom"] as const;
+
+/** `vip` je zámerne posledný: nikde sa neinzeruje, prideliť ho smie iba
+ *  superadmin a `record_usage` mu účtuje nákupnú cenu (multiplier 1×).
+ *  Verejný cenník (`/pricing`) vymenúva balíky natvrdo, takže sa tam
+ *  odtiaľto nemá ako dostať. */
+export const PLANS = ["free", "starter", "pro", "custom", "vip"] as const;
+
+/** Balíky, ktoré smie prideliť aj obyčajný admin. VIP chýba schválne —
+ *  DB to strážila prvá (`admin_set_plan` → 42501), toto je len UI. */
+export const ADMIN_ASSIGNABLE_PLANS = PLANS.filter((p) => p !== "vip");
 
 export type AccountRole = (typeof ROLES)[number];
 export type AdminRole = "admin" | "superadmin";
@@ -42,6 +51,13 @@ export const PLAN_LABEL: Record<Plan, string> = {
   starter: "Starter",
   pro: "Pro",
   custom: "Custom",
+  vip: "VIP",
+};
+
+/** Vysvetlenie pri VIP — aby bolo v admine hneď jasné, čo ten balík robí
+ *  s účtovaním, a neplietol sa s `unlimited` (ten neodpočítava vôbec). */
+export const PLAN_HINT: Partial<Record<Plan, string>> = {
+  vip: "Billed at cost — no margin. Credits still run down.",
 };
 
 /* --------------------------------------------------------------------------

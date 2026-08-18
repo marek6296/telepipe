@@ -20,12 +20,18 @@ export type RoleResult = AdminActionResult & { role?: AccountRole };
 
 const MAX_CREDIT = 100_000;
 
-/** Zmena balíka — RPC drží whitelist free/starter/pro/custom. */
+/** Zmena balíka. Whitelist drží RPC; `vip` navyše smie iba superadmin —
+ *  v DB to stráži `admin_set_plan` (42501), tu to odchytíme skôr, aby
+ *  obyčajný admin dostal zrozumiteľnú vetu a nie surovú chybu z Postgresu. */
 export async function setPlanAction(accountId: string, plan: string): Promise<PlanResult> {
-  await requireAdmin();
+  const viewer = await requireAdmin();
 
   if (!PLANS.includes(plan as Plan)) {
     return { error: "Unknown plan." };
+  }
+
+  if (plan === "vip" && viewer !== "superadmin") {
+    return { error: "Only a superadmin can grant the VIP plan." };
   }
 
   const supabase = await createClient();

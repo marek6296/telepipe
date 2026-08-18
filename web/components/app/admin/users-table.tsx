@@ -89,7 +89,11 @@ export function UsersTable({
         toast.error(result.error);
         return;
       }
-      toast.success(`${row.email} is now on ${PLAN_LABEL[plan]}.`);
+      toast.success(
+        plan === "vip"
+          ? `${row.email} is now VIP — billed at cost, no margin.`
+          : `${row.email} is now on ${PLAN_LABEL[plan]}.`,
+      );
     });
   };
 
@@ -201,7 +205,14 @@ export function UsersTable({
                         value={row.plan}
                         disabled={busy}
                         onChange={(value) => changePlan(row, value as Plan)}
-                        options={PLANS.map((plan) => ({
+                        /* VIP ponúkame len superadminovi — obyčajnému adminovi
+                           by ho aj tak odmietla akcia aj RPC, tak nech ho
+                           nevidí. Účtu, ktorý VIP UŽ má, ho do zoznamu
+                           doplníme, inak by select nemal čo zobraziť. */
+                        options={(viewerRole === "superadmin"
+                          ? PLANS
+                          : PLANS.filter((plan) => plan !== "vip" || row.plan === "vip")
+                        ).map((plan) => ({
                           value: plan,
                           label: PLAN_LABEL[plan],
                         }))}
