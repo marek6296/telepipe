@@ -2,7 +2,7 @@
 
 import { saveBehaviorAction } from "@/app/app/m/[id]/persona/behavior/actions";
 import { AutoSaveForm } from "@/components/app/forms/auto-save";
-import { NumberField } from "@/components/app/forms/fields";
+import { NumberField, SwitchField } from "@/components/app/forms/fields";
 import { Callout, Card, CardHeader } from "@/components/app/ui";
 
 /**
@@ -20,11 +20,27 @@ export type TelegramLimitsRow = {
   max_active_chats: number;
   chat_slot_min: number;
   max_outreach_per_hour: number;
+  morning_enabled: boolean;
 };
 
 export function TelegramLimitsForm({ limits }: { limits: TelegramLimitsRow }) {
   return (
     <AutoSaveForm save={(patch) => saveBehaviorAction(limits.model_id, patch)} sticky={false}>
+      <Card>
+        <CardHeader
+          title="Say hi the next day"
+          description="The one time she ever writes first. Otherwise she only replies to messages."
+        />
+        <div className="p-5">
+          <SwitchField
+            name="morning_enabled"
+            label="Send a first 'hey' the next day"
+            defaultValue={limits.morning_enabled}
+            help="The day after a real conversation starts, she sends one short greeting like 'hey' — nothing else, no old topics, no link. Just once per person. Turn off and she never messages first."
+          />
+        </div>
+      </Card>
+
       <Card>
         <CardHeader
           title="Looking like one person"

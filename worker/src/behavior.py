@@ -68,8 +68,8 @@ FIELD_LABELS = {
     "voice_when_away": "hlas keď je vonku",
     "voice_on_goodnight": "hlas na dobrú noc",
     "voice_when_hot": "pikantný hlas keď tlačí",
-    "morning_enabled": "ranné správy",
-    "morning_max_per_day": "ranných správ za deň",
+    "morning_enabled": "pozdrav na druhý deň",
+    "morning_max_per_day": "pozdravov za deň",
     "heat": "pikantnosť",
 }
 

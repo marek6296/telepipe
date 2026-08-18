@@ -409,6 +409,18 @@ class UserBot:
         if user.get("human_takeover") or not user.get("ai_enabled", True):
             log.info("Preskakujem %s (takeover/vypnuté)", tg_id)
             return
+
+        # Režim odpovedania (Off / Auto / Semi). Off = nereaguje vôbec; Semi =
+        # namiesto odoslania sa vygenerujú návrhy a pošlú majiteľovi na
+        # schválenie. V Semi sa preskakuje rozvrh/časovanie (tempo riadi majiteľ,
+        # viď spec §3) — ale tvrdé gates (blocked, pauza, flood) platia aj tam.
+        mode_row = await self._db.tg_reply_mode()
+        mode = mode_row.get("mode", "auto")
+        if mode == "off":
+            await self._db.update_user(tg_id, {"pending_reply": False})
+            return
+        semi = mode == "semi"
+
         if await self._db.is_paused():
             log.info("Odkladám %s: globálna pauza", tg_id)
             await self._db.update_user(tg_id, {"pending_reply": True})
@@ -416,14 +428,16 @@ class UserBot:
 
         # Odložená odpoveď (tá „zabudol som“ na 2–3 h) — ešte nie je čas.
         # Nočný zámok ráno prirodzene vypršal, takže sa mu netreba vyhýbať.
-        wait_until = None if testing else _parse_ts(user.get("reply_after"))
+        # V Semi riadi tempo majiteľ — odložené odpovede aj aktívne okno sa
+        # ignorujú (návrh mu má prísť hneď).
+        wait_until = None if (testing or semi) else _parse_ts(user.get("reply_after"))
         if wait_until and wait_until > datetime.now(timezone.utc):
             mins = (wait_until - datetime.now(timezone.utc)).total_seconds() / 60
             log.info("%s: ešte čaká, odpoveď za %.0f min", tg_id, mins)
             return
 
         now_local = datetime.now(ZoneInfo(behavior.active_tz))
-        if not testing and not bhv.in_active_window(
+        if not testing and not semi and not bhv.in_active_window(
             now_local, behavior.active_start_min, behavior.active_end_min
         ):
             mins = bhv.minutes_until_active(
@@ -442,14 +456,15 @@ class UserBot:
             log.warning("Odkladám %s: Telegram si vypýtal pauzu", tg_id)
             await self._db.update_user(tg_id, {"pending_reply": True})
             return
-        if not testing and not await self._rate_ok(behavior.max_replies_per_hour):
+        if not testing and not semi and not await self._rate_ok(behavior.max_replies_per_hour):
             log.warning("Odkladám %s: hodinový strop odpovedí", tg_id)
             await self._db.update_user(tg_id, {"pending_reply": True})
             return
         # Koľko rozhovorov vedie naraz. Skutočný človek nevedie dvadsať — vedie
         # pár, tie dopíše, a keď utíchnu, pustí sa do ďalších. Kto sa nezmestí,
         # počká vo fronte a dobehne ho sweeper, len čo sa miesto uvoľní.
-        if not testing:
+        # V Semi to neplatí — schvaľuje človek, nie automat.
+        if not testing and not semi:
             aktivni = await self._aktivne_rozhovory(behavior)
             if not limity.ma_miesto(tg_id, aktivni, behavior.max_active_chats):
                 log.info(
@@ -476,7 +491,7 @@ class UserBot:
 
         # Občas „zabudne“ odpovedať a vráti sa k tomu až za pár hodín.
         # Čas sa ukladá do DB, takže to prežije restart workera.
-        deferred = 0.0 if testing else bhv.should_defer_reply(
+        deferred = 0.0 if (testing or semi) else bhv.should_defer_reply(
             behavior, int(user.get("msg_count") or 0), last_user_text
         )
         if deferred:
@@ -529,8 +544,11 @@ class UserBot:
         if quick:
             log.info("%s: pozorný režim — videné za %.0f s, odpoveď za %.0f s", tg_id, *quick)
 
-        # 1) chvíľu si správu „nevšimne“, potom ju prečíta
-        if quick:
+        # 1) chvíľu si správu „nevšimne“, potom ju prečíta.
+        #    V Semi žiadne pauzy — návrh má prísť majiteľovi hneď.
+        if semi:
+            pass
+        elif quick:
             await asyncio.sleep(quick[0])
         elif not testing:
             await asyncio.sleep(bhv.read_delay(behavior, factor=factor))
@@ -545,21 +563,22 @@ class UserBot:
             asyncio.create_task(self._react(tg_id, na_text[0], na_text[1], "správu"))
 
         # 2) občas nechá len „videné“ a odpíše až po pár minútach
-        seen_wait = 0.0 if (testing or quick) else bhv.seen_only_delay(behavior)
+        seen_wait = 0.0 if (testing or semi or quick) else bhv.seen_only_delay(behavior)
         if seen_wait:
             log.info("%s: len videné, odpoveď za %.0f s", tg_id, seen_wait)
             await self._defer(tg_id, seen_wait)
             await asyncio.sleep(seen_wait)
 
         # 3) občas odíde od telefónu na dlhšie
-        pause = 0.0 if (testing or quick) else bhv.long_pause_delay(behavior)
+        pause = 0.0 if (testing or semi or quick) else bhv.long_pause_delay(behavior)
         if pause:
             log.info("%s: dlhá pauza %.0f min", tg_id, pause / 60)
             await self._defer(tg_id, pause)
             await asyncio.sleep(pause)
 
         # Medzitým sa mohlo všeličo zmeniť — načítaj stav odznova.
-        if not testing:
+        # V Semi sa nečakalo, takže nie je čo obnovovať.
+        if not testing and not semi:
             obnovene = await self._refresh_after_wait(tg_id, morning)
             if obnovene is None:
                 return
@@ -1859,11 +1878,12 @@ class UserBot:
         await asyncio.gather(*(jeden(tg_id) for tg_id in tg_ids))
 
     async def _morning_round(self, behavior: Behavior, now_local: datetime) -> None:
-        """Ozve sa sama ľuďom z predošlého dňa — jediný raz, keď píše prvá.
+        """Pozdrav na druhý deň — jediný raz, keď píše prvá (`outreach.deserves`).
 
         Beží len v prvých hodinách cyklu a každému padne jeho vlastný čas
-        v rámci okna, aby dávka správ neodišla naraz. Kto neodpovie dvakrát
-        po sebe, ten už ďalšie ráno nedostane.
+        v rámci okna, aby dávka správ neodišla naraz. Každého pozdraví RAZ,
+        deň po prvom kontakte; opakovanie stráži vodoznak `last_outreach_at`.
+        Vypína to `morning_enabled` (prepínač v Telegram nastaveniach).
         """
         if not behavior.morning_enabled:
             return
@@ -1894,31 +1914,26 @@ class UserBot:
         oslovenych = await self._oslovenych_za_hodinu()
 
         vybrati: List[int] = []
-        for user in outreach_mod.due(kandidati, limit=behavior.morning_max_per_day):
+        for user in outreach_mod.due(kandidati, now_local, limit=behavior.morning_max_per_day):
             if len(vybrati) >= volno:
-                log.info("Ranné oslovenie: hodinový strop, zvyšok počká na ďalší cyklus")
+                log.info("Pozdrav na druhý deň: hodinový strop, zvyšok počká na ďalší cyklus")
                 break
             if not limity.smie_oslovit(
                 user["tg_id"], oslovenych, behavior.max_outreach_per_hour
             ):
                 log.info(
-                    "Ranné oslovenie: za túto hodinu už oslovila %s ľudí, zvyšok počká",
+                    "Pozdrav na druhý deň: za túto hodinu už oslovila %s ľudí, zvyšok počká",
                     behavior.max_outreach_per_hour,
                 )
                 break
             tg_id = user["tg_id"]
             if outreach_mod.delay_for(tg_id, den) > uplynulo:
                 continue  # jeho čas dnes ešte nenastal
-            log.info("%s: ranné oslovenie (ticho %sx)", tg_id, user.get("outreach_silent") or 0)
-            await self._db.update_user(
-                tg_id,
-                {
-                    "last_outreach_at": _utc_iso(),
-                    # Kým neodpovie, počíta sa to ako ticho. Jeho správa to
-                    # vynuluje pri príjme.
-                    "outreach_silent": int(user.get("outreach_silent") or 0) + 1,
-                },
-            )
+            log.info("%s: pozdrav na druhý deň", tg_id)
+            # `last_outreach_at` je vodoznak: keď je nastavený, `deserves` už
+            # tohto človeka nikdy nevyberie. Jeden pozdrav za celý život
+            # konverzácie — preto sa `outreach_silent` už nesleduje.
+            await self._db.update_user(tg_id, {"last_outreach_at": _utc_iso()})
             vybrati.append(tg_id)
             oslovenych.add(int(tg_id))
         await self._reply_batch(vybrati, behavior, morning=True)

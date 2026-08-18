@@ -32,7 +32,7 @@ export default async function TelegramSettingsPage({
   const supabase = await createClient();
   const { data } = await supabase
     .from("behavior")
-    .select("model_id, max_active_chats, chat_slot_min, max_outreach_per_hour")
+    .select("model_id, max_active_chats, chat_slot_min, max_outreach_per_hour, morning_enabled")
     .eq("model_id", model.id)
     .maybeSingle();
 
