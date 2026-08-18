@@ -6,6 +6,13 @@ import { getModel, requireUser } from "@/lib/models";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 /**
+ * POZNÁMKA K `revalidatePath(..., "layout")`: karta Fanvue sú štyri podstránky
+ * (Connect, Settings, Photos, Chats) a jedna akcia sa prejaví na viacerých —
+ * odpojenie účtu vypne aj vault aj nastavenia. `"layout"` prekreslí celý
+ * podstrom `/fanvue/*`, aby sa to nemuselo vymenúvať pri každom zápise.
+ */
+
+/**
  * Odpojenie Fanvue účtu.
  *
  * Klient na `fanvue` nemá žiadny zápisový grant (migrácia 011), takže sa píše
@@ -43,7 +50,7 @@ export async function disconnectFanvueAction(
 
   if (error) return { error: error.message };
 
-  revalidatePath(`/app/m/${model.id}/fanvue`);
+  revalidatePath(`/app/m/${model.id}/fanvue`, "layout");
   return { ok: true };
 }
 
@@ -80,7 +87,7 @@ export async function setFanvueEnabledAction(
   if (error) return { error: error.message };
   if (!data?.length) return { error: "Connect the Fanvue account first." };
 
-  revalidatePath(`/app/m/${model.id}/fanvue`);
+  revalidatePath(`/app/m/${model.id}/fanvue`, "layout");
   return { ok: true };
 }
 
@@ -214,7 +221,7 @@ export async function saveFolderAction(
     .eq("name", name);
   if (error) return { error: error.message };
 
-  revalidatePath(`/app/m/${modelId}/fanvue`);
+  revalidatePath(`/app/m/${modelId}/fanvue`, "layout");
   return {};
 }
 
@@ -304,13 +311,13 @@ export async function requestVaultSyncAction(
     // 23505 = partial unique index, teda „jedna už čaká". To nie je chyba,
     // to je presne to, čo tlačidlo malo dosiahnuť.
     if (error.code === "23505") {
-      revalidatePath(`/app/m/${model.id}/fanvue`);
+      revalidatePath(`/app/m/${model.id}/fanvue`, "layout");
       return { ok: true };
     }
     return { error: error.message };
   }
 
-  revalidatePath(`/app/m/${model.id}/fanvue`);
+  revalidatePath(`/app/m/${model.id}/fanvue`, "layout");
   return { ok: true };
 }
 
