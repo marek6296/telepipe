@@ -1,180 +1,160 @@
+import QRCode from "qrcode";
 import { NextResponse, type NextRequest } from "next/server";
 
 import {
-  COINS_PER_USD,
-  COIN_PACKS,
-  CUSTOM_MAX_USD,
-  CUSTOM_MIN_USD,
-  customCoinsForUsd,
-} from "@/lib/coins";
-import { siteUrl } from "@/lib/env";
-import { refreshPayment } from "@/lib/payments";
-import { createInvoice, isPayCurrency, plisioEnabled } from "@/lib/plisio";
+  createPermanentDepositAddress,
+  isPayCurrency,
+  plisioEnabled,
+} from "@/lib/plisio";
 import { createServiceClient, getUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
-const T = "crypto_payments";
+const ADDRESS_TABLE = "crypto_deposit_addresses";
+const EVENT_TABLE = "crypto_deposit_events";
+
+type AddressRow = {
+  pay_address: string;
+  pay_currency: string;
+  created_at: string;
+};
+
+async function qrForAddress(address: string): Promise<string> {
+  return QRCode.toDataURL(address, {
+    errorCorrectionLevel: "M",
+    margin: 2,
+    width: 440,
+    color: { dark: "#0a0a0a", light: "#ffffff" },
+  });
+}
+
+function addressResponse(row: AddressRow, qrCode: string) {
+  return NextResponse.json({
+    payAddress: row.pay_address,
+    payCurrency: row.pay_currency,
+    createdAt: row.created_at,
+    qrCode,
+    permanent: true,
+  });
+}
 
 /**
- * POST — založ Plisio faktúru na balík Pipe Coinov.
- *
- * Balík aj kurz sa berú VÝHRADNE z `COIN_PACKS` (lib/coins.ts) — klient
- * posiela len id balíka a mincu, žiadne sumy. Coiny sa počítajú tu, pri
- * založení: keby sa medzitým zmenili bonusy, platba dostane, čo jej bolo
- * sľúbené. Pripísanie NIKDY nerobí táto route — iba `settle_crypto_payment`
- * po overení stavu u Plisia.
+ * POST { currency } — return (or create once) the signed-in account's
+ * permanent Plisio deposit address for that cryptocurrency.
  */
 export async function POST(request: NextRequest) {
   const user = await getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!plisioEnabled()) {
     return NextResponse.json(
-      { error: "Crypto checkout is not available right now." },
+      { error: "Crypto deposits are not available right now." },
       { status: 503 },
     );
   }
 
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  const requestedId = String(body.packId ?? "");
-  const pack = COIN_PACKS.find((item) => item.id === requestedId);
-
-  // Balík z cenníka, alebo vlastná suma ("custom") — kurz a bonus počíta
-  // VŽDY server z lib/coins.ts, klient posiela len číslo v USD.
-  let packId: string;
-  let usd: number;
-  let coinsBought: number;
-  let orderLabel: string;
-  if (pack) {
-    packId = pack.id;
-    usd = pack.priceUsd;
-    coinsBought = pack.coins;
-    orderLabel = `${pack.name} pack`;
-  } else if (requestedId === "custom") {
-    // Na centy (napr. $8 alebo $8.50) — nie nasilu celé doláre.
-    usd = Math.round(Number(body.customUsd) * 100) / 100;
-    if (!Number.isFinite(usd) || usd < CUSTOM_MIN_USD || usd > CUSTOM_MAX_USD) {
-      return NextResponse.json(
-        { error: `Amount must be between $${CUSTOM_MIN_USD} and $${CUSTOM_MAX_USD}.` },
-        { status: 400 },
-      );
-    }
-    packId = "custom";
-    coinsBought = customCoinsForUsd(usd);
-    orderLabel = "Custom top-up";
-  } else {
-    return NextResponse.json({ error: "Unknown pack." }, { status: 400 });
-  }
-
   const currency = String(body.currency ?? "").toUpperCase();
   if (!isPayCurrency(currency)) {
     return NextResponse.json({ error: "Unsupported currency." }, { status: 400 });
   }
 
-  // `order_number` musí byť v Plisio store unikátny; UUID to rieši navždy.
-  const orderNumber = `telepipe-${crypto.randomUUID()}`;
-  // Callback s `?json=true` → Plisio pošle JSON + verify_hash (HMAC-SHA1).
-  // `siteUrl()` namiesto request originu: webhook musí byť verejná produkčná
-  // adresa aj keď faktúru založí niekto cez preview deployment.
-  const callbackUrl = `${siteUrl()}/api/payments/webhook?json=true`;
+  const admin = createServiceClient();
+  const { data: existing, error: selectError } = await admin
+    .from(ADDRESS_TABLE)
+    .select("pay_address, pay_currency, created_at")
+    .eq("account_id", user.id)
+    .eq("pay_currency", currency)
+    .maybeSingle();
+  if (selectError) {
+    console.error("crypto_deposit_addresses select failed:", selectError.message);
+    return NextResponse.json({ error: "Could not load the deposit address." }, { status: 500 });
+  }
+  if (existing) {
+    return addressResponse(existing as AddressRow, await qrForAddress(existing.pay_address));
+  }
 
-  const invoice = await createInvoice({
-    priceUsd: usd,
+  const created = await createPermanentDepositAddress({
+    depositUid: user.id,
     currency,
-    orderNumber,
-    orderName: `Telepipe — ${orderLabel} (${coinsBought.toLocaleString("en-US")} Pipe Coins)`,
-    email: user.email ?? "",
-    callbackUrl,
   });
-  if (!invoice.ok) {
+  if (!created.ok) {
+    console.error("Plisio permanent address failed:", created.error);
     return NextResponse.json(
-      { error: invoice.error || "Could not start the payment. Try another coin." },
+      {
+        error:
+          "Could not create a permanent address. Make sure White-label deposits are enabled, then try again.",
+      },
       { status: 502 },
     );
   }
 
-  const p = invoice.data;
-  const admin = createServiceClient();
-  const { error } = await admin.from(T).insert({
-    payment_id: p.paymentId,
-    account_id: user.id,
-    account_email: user.email ?? "",
-    order_number: orderNumber,
-    pack_id: packId,
-    usd,
-    coins: coinsBought,
-    // Jednotka v DB je USD — coiny sú prezentácia (lib/coins.ts).
-    credit_usd: coinsBought / COINS_PER_USD,
-    pay_currency: p.payCurrency,
-    pay_address: p.payAddress,
-    pay_amount: p.payAmount,
-    qr_code: p.qrCode,
-    invoice_url: p.invoiceUrl,
-    status: p.status || "new",
-    expire_at: p.expireAt,
-  });
-  // Faktúra existuje u Plisia, ale my o nej nemáme záznam → radšej ju
-  // klientovi vôbec neukázať, než riskovať platbu, ktorú nevieme spárovať.
-  if (error) {
-    console.error("crypto_payments insert failed:", error.message);
-    return NextResponse.json(
-      { error: "Could not start the payment. Please try again." },
-      { status: 500 },
-    );
+  const { data: inserted, error: insertError } = await admin
+    .from(ADDRESS_TABLE)
+    .insert({
+      account_id: user.id,
+      deposit_uid: created.data.depositUid,
+      pay_currency: created.data.payCurrency,
+      pay_address: created.data.payAddress,
+    })
+    .select("pay_address, pay_currency, created_at")
+    .single();
+
+  if (!insertError && inserted) {
+    return addressResponse(inserted as AddressRow, await qrForAddress(inserted.pay_address));
   }
 
-  return NextResponse.json({
-    paymentId: p.paymentId,
-    payAddress: p.payAddress,
-    payAmount: p.payAmount,
-    payCurrency: p.payCurrency,
-    qrCode: p.qrCode,
-    invoiceUrl: p.invoiceUrl,
-    expireAt: p.expireAt,
-    status: p.status || "new",
-    packId,
-    usd,
-    coins: coinsBought,
-  });
+  // Two tabs may request the same address simultaneously. The database unique
+  // constraint picks one; return that row instead of surfacing a false error.
+  const { data: raced } = await admin
+    .from(ADDRESS_TABLE)
+    .select("pay_address, pay_currency, created_at")
+    .eq("account_id", user.id)
+    .eq("pay_currency", currency)
+    .maybeSingle();
+  if (raced) {
+    return addressResponse(raced as AddressRow, await qrForAddress(raced.pay_address));
+  }
+
+  console.error("crypto_deposit_addresses insert failed:", insertError?.message);
+  return NextResponse.json({ error: "Could not save the deposit address." }, { status: 500 });
 }
 
 /**
- * GET ?payment_id=… — stav platby pre checkout poller (každých 8 s).
- *
- * Kým platba nie je pripísaná, pri KAŽDOM ticku sa doptá Plisia a zúčtuje —
- * nie len pri zmene stavu. Zmeškaný webhook tak checkout dobehne sám.
+ * GET ?after=<ISO>&currency=<cid> — lightweight browser poll. It only reads
+ * our idempotent credit events; callbacks and the five-minute reconciler do
+ * all provider communication and settlement.
  */
 export async function GET(request: NextRequest) {
   const user = await getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const paymentId = request.nextUrl.searchParams.get("payment_id") ?? "";
-  if (!paymentId) return NextResponse.json({ error: "Missing payment_id." }, { status: 400 });
-
-  const admin = createServiceClient();
-  const { data: row } = await admin
-    .from(T)
-    .select("payment_id, account_id, status, credited, coins, expire_at")
-    .eq("payment_id", paymentId)
-    .eq("account_id", user.id)
-    .maybeSingle();
-  if (!row) return NextResponse.json({ error: "Not found." }, { status: 404 });
-
-  let status = String(row.status);
-  let credited = Boolean(row.credited);
-
-  if (!credited) {
-    const out = await refreshPayment(paymentId);
-    if (out?.found) {
-      status = out.status ?? status;
-      credited = out.credited;
-    }
+  const afterRaw = request.nextUrl.searchParams.get("after") ?? "";
+  const afterDate = new Date(afterRaw);
+  if (!afterRaw || Number.isNaN(afterDate.getTime())) {
+    return NextResponse.json({ error: "Missing or invalid after timestamp." }, { status: 400 });
   }
 
-  return NextResponse.json({
-    status,
-    credited,
-    coins: Number(row.coins),
-    expireAt: row.expire_at,
-  });
+  const currency = String(request.nextUrl.searchParams.get("currency") ?? "").toUpperCase();
+  if (currency && !isPayCurrency(currency)) {
+    return NextResponse.json({ error: "Unsupported currency." }, { status: 400 });
+  }
+
+  const admin = createServiceClient();
+  let query = admin
+    .from(EVENT_TABLE)
+    .select("payment_id, pay_currency, source_usd, bonus_pct, coins, status, credited, created_at")
+    .eq("account_id", user.id)
+    .eq("credited", true)
+    .gt("created_at", afterDate.toISOString())
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (currency) query = query.eq("pay_currency", currency);
+
+  const { data, error } = await query.maybeSingle();
+  if (error) {
+    console.error("crypto_deposit_events poll failed:", error.message);
+    return NextResponse.json({ error: "Could not check the deposit." }, { status: 500 });
+  }
+
+  return NextResponse.json({ credited: Boolean(data), deposit: data ?? null });
 }

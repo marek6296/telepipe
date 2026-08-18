@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { cronSecret } from "@/lib/env";
-import { reconcileOpenPayments } from "@/lib/payments";
+import { reconcileOpenPayments, reconcilePermanentDeposits } from "@/lib/payments";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -25,6 +25,9 @@ export async function GET(request: NextRequest) {
   if (!authorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  const out = await reconcileOpenPayments();
-  return NextResponse.json({ ok: true, ...out });
+  const [legacyInvoices, permanentDeposits] = await Promise.all([
+    reconcileOpenPayments(),
+    reconcilePermanentDeposits(),
+  ]);
+  return NextResponse.json({ ok: true, legacyInvoices, permanentDeposits });
 }

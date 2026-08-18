@@ -19,6 +19,9 @@ import { plisioSecretKey } from "@/lib/env";
  */
 
 const API = "https://api.plisio.net/api/v1";
+// Plisio documents permanent deposit addresses on the main API host, while
+// invoice and operation endpoints use api.plisio.net.
+const DEPOSIT_API = "https://plisio.net/api/v1";
 
 /** Ako dlho má klient na odoslanie platby. Plisio povoľuje 15 min – 48 h. */
 export const INVOICE_EXPIRE_MIN = 60;
@@ -34,6 +37,7 @@ export function plisioEnabled(): boolean {
  * na túto sieť, inak o peniaze príde.
  */
 export const PAY_CURRENCIES = [
+  { cid: "USDT_TRX", label: "USDT", network: "Tron (TRC-20)" },
   { cid: "BTC", label: "Bitcoin", network: "Bitcoin" },
   { cid: "ETH", label: "Ethereum", network: "Ethereum (ERC-20)" },
   { cid: "SOL", label: "Solana", network: "Solana" },
@@ -47,6 +51,62 @@ export type PayCurrencyCid = (typeof PAY_CURRENCIES)[number]["cid"];
 
 export function isPayCurrency(value: string): value is PayCurrencyCid {
   return PAY_CURRENCIES.some((c) => c.cid === value);
+}
+
+export interface PermanentDepositAddress {
+  depositUid: string;
+  payAddress: string;
+  payCurrency: PayCurrencyCid;
+}
+
+/**
+ * Create the permanent address that Plisio associates with our account UUID.
+ * Repeated transfers to this address arrive as `pay_in` operations; there is
+ * no invoice, countdown, or amount lock.
+ */
+export async function createPermanentDepositAddress(input: {
+  depositUid: string;
+  currency: PayCurrencyCid;
+}): Promise<
+  { ok: true; data: PermanentDepositAddress } | { ok: false; error: string }
+> {
+  try {
+    const params = new URLSearchParams({
+      psys_cid: input.currency,
+      uid: input.depositUid,
+      api_key: plisioSecretKey(),
+    });
+    const res = await fetch(`${DEPOSIT_API}/shops/deposit/new?${params.toString()}`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    const j = (await res.json().catch(() => ({}))) as {
+      status?: string;
+      data?: Record<string, unknown>;
+      message?: string;
+    };
+    if (j.status !== "success" || !j.data) {
+      return {
+        ok: false,
+        error:
+          String(j.data?.message ?? j.message ?? "") ||
+          `Plisio deposit error (${res.status})`,
+      };
+    }
+
+    const address = String(j.data.hash ?? "").trim();
+    const uid = String(j.data.uid ?? input.depositUid).trim();
+    const currency = String(j.data.psys_cid ?? input.currency).toUpperCase();
+    if (!address || uid !== input.depositUid || currency !== input.currency) {
+      return { ok: false, error: "Plisio returned an incomplete deposit address." };
+    }
+    return {
+      ok: true,
+      data: { depositUid: uid, payAddress: address, payCurrency: input.currency },
+    };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
 }
 
 export interface CreateInvoiceInput {
@@ -162,6 +222,119 @@ export interface PlisioOperation {
   expected: number | null;
   /** Krypto suma, ktorá reálne prišla (null = Plisio nepovedalo). */
   received: number | null;
+  /** Operation metadata used by permanent `pay_in` reconciliation. */
+  paymentId: string;
+  type: string;
+  payCurrency: string;
+  payAddress: string;
+  depositUid: string;
+  sourceUsd: number | null;
+  txUrls: string[];
+}
+
+const positiveNumber = (...values: unknown[]): number | null => {
+  for (const value of values) {
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+};
+
+function stringArray(...values: unknown[]): string[] {
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      return value.map(String).map((item) => item.trim()).filter(Boolean);
+    }
+    if (typeof value === "string" && value.trim()) {
+      const text = value.trim();
+      if (text.startsWith("[")) {
+        try {
+          const parsed = JSON.parse(text) as unknown;
+          if (Array.isArray(parsed)) {
+            return parsed.map(String).map((item) => item.trim()).filter(Boolean);
+          }
+        } catch {
+          // A single explorer URL is also a valid response.
+        }
+      }
+      return [text];
+    }
+  }
+  return [];
+}
+
+/** Normalized completed transfer received on a permanent Plisio address. */
+export interface PlisioPayIn {
+  paymentId: string;
+  status: string;
+  currency: string;
+  payAddress: string;
+  depositUid: string;
+  cryptoReceived: number;
+  /** Net provider-confirmed value in USD, used for credit and bonus tiers. */
+  sourceUsd: number;
+  txUrls: string[];
+}
+
+/**
+ * Normalize either a signed pay-in callback or a pay-in operation returned by
+ * `/operations`. Returns null rather than guessing when the USD value is not
+ * provable from the provider fields.
+ */
+export function parsePlisioPayIn(data: Record<string, unknown>): PlisioPayIn | null {
+  const params = (data.params ?? {}) as Record<string, unknown>;
+  const kind = String(data.ipn_type ?? data.type ?? "").toLowerCase();
+  if (kind !== "pay_in") return null;
+
+  const paymentId = String(data.txn_id ?? data.id ?? "").trim();
+  const status = String(data.status ?? "").trim().toLowerCase();
+  const currency = String(data.psys_cid ?? data.currency ?? "").trim().toUpperCase();
+  const payAddress = String(data.wallet_hash ?? "").trim();
+  const depositUid = String(data.deposit_uid ?? data.uid ?? params.deposit_uid ?? "").trim();
+  const cryptoReceived = positiveNumber(
+    data.deposit_sum,
+    data.invoice_sum,
+    data.actual_sum,
+    data.sum,
+    data.amount,
+  );
+
+  const sourceCurrency = String(
+    data.source_currency ?? params.source_currency ?? "USD",
+  ).toUpperCase();
+  const explicitUsd = positiveNumber(data.source_amount, params.source_amount);
+  const sourceRate = positiveNumber(data.source_rate, params.source_rate);
+  // Plisio expresses `source_rate` as crypto units per one source-currency
+  // unit (its invoice example uses BTC amount = USD × source_rate).
+  const sourceUsd =
+    sourceCurrency === "USD"
+      ? explicitUsd ??
+        (cryptoReceived != null && sourceRate != null ? cryptoReceived / sourceRate : null)
+      : null;
+
+  if (
+    !paymentId ||
+    !status ||
+    !currency ||
+    !payAddress ||
+    cryptoReceived == null ||
+    sourceUsd == null ||
+    !Number.isFinite(sourceUsd) ||
+    sourceUsd <= 0
+  ) {
+    return null;
+  }
+
+  return {
+    paymentId,
+    status,
+    currency,
+    payAddress,
+    depositUid,
+    cryptoReceived,
+    sourceUsd,
+    txUrls: stringArray(data.tx_urls, data.tx_url),
+  };
 }
 
 /**
@@ -181,23 +354,58 @@ export async function getOperation(txnId: string): Promise<PlisioOperation | nul
     if (j.status !== "success" || !j.data || j.data.status == null) return null;
     const d = j.data;
 
-    // Názvy polí v Plisio odpovediach kolíšu — skúšame známe varianty a pri
-    // neistote ostávame na null (neznáma suma sa NIKDY neberie ako zaplatená).
-    const num = (...vals: unknown[]): number | null => {
-      for (const v of vals) {
-        const n = Number(v);
-        if (Number.isFinite(n) && n > 0) return n;
-      }
-      return null;
-    };
     const params = (d.params ?? {}) as Record<string, unknown>;
+    const payIn = parsePlisioPayIn(d);
     return {
       status: String(d.status),
-      expected: num(d.amount, params.amount, d.pending_sum, d.invoice_total_sum),
-      received: num(d.actual_sum, d.received_amount, d.amount_received, d.paid_sum, d.actual_amount),
+      expected: positiveNumber(d.amount, params.amount, d.pending_sum, d.invoice_total_sum),
+      received: positiveNumber(
+        d.actual_sum,
+        d.received_amount,
+        d.amount_received,
+        d.paid_sum,
+        d.actual_amount,
+      ),
+      paymentId: String(d.id ?? txnId),
+      type: String(d.type ?? ""),
+      payCurrency: String(d.psys_cid ?? d.currency ?? "").toUpperCase(),
+      payAddress: String(d.wallet_hash ?? ""),
+      depositUid: payIn?.depositUid ?? String(d.deposit_uid ?? params.deposit_uid ?? ""),
+      sourceUsd: payIn?.sourceUsd ?? null,
+      txUrls: stringArray(d.tx_urls, d.tx_url),
     };
   } catch {
     return null;
+  }
+}
+
+/** Recent permanent-address transfers, used only as a webhook-loss backstop. */
+export async function listPayInOperations(
+  page = 1,
+  limit = 100,
+): Promise<PlisioPayIn[]> {
+  try {
+    const params = new URLSearchParams({
+      api_key: plisioSecretKey(),
+      type: "pay_in",
+      status: "completed",
+      page: String(page),
+      limit: String(limit),
+    });
+    const res = await fetch(`${API}/operations?${params.toString()}`, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    const j = (await res.json().catch(() => ({}))) as {
+      status?: string;
+      data?: { operations?: Record<string, unknown>[] };
+    };
+    if (j.status !== "success" || !Array.isArray(j.data?.operations)) return [];
+    return j.data.operations
+      .map((operation) => parsePlisioPayIn(operation))
+      .filter((operation): operation is PlisioPayIn => operation != null);
+  } catch {
+    return [];
   }
 }
 

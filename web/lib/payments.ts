@@ -1,6 +1,12 @@
 import "server-only";
 
-import { getOperation, plisioEnabled, type PlisioOperation } from "@/lib/plisio";
+import {
+  getOperation,
+  listPayInOperations,
+  plisioEnabled,
+  type PlisioOperation,
+  type PlisioPayIn,
+} from "@/lib/plisio";
 import { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -120,5 +126,98 @@ export async function reconcileOpenPayments(
     checked += 1;
     if (out.credited) credited += 1;
   }
+  return { checked, credited };
+}
+
+export interface DepositSettleResult extends SettleResult {
+  coins?: number;
+  sourceUsd?: number;
+}
+
+/**
+ * Settle a completed transfer received at one of our permanent addresses.
+ * Address ownership is resolved server-side and checked once more inside the
+ * SECURITY DEFINER database function. `paymentId` is unique, so webhook and
+ * cron may race safely without ever double-crediting.
+ */
+export async function settlePermanentDeposit(
+  deposit: PlisioPayIn,
+): Promise<DepositSettleResult | null> {
+  if (!PAID_STATUSES.has(deposit.status)) return null;
+
+  const admin = createServiceClient();
+  const query = admin
+    .from("crypto_deposit_addresses")
+    .select("id, account_id, deposit_uid, pay_currency, pay_address")
+    .eq("pay_currency", deposit.currency)
+    .eq("pay_address", deposit.payAddress);
+  const { data: byAddress, error: addressError } = await query.maybeSingle();
+  if (addressError) {
+    console.error("permanent deposit address lookup failed:", addressError.message);
+    return null;
+  }
+
+  const address = byAddress;
+  if (!address?.account_id) return null;
+  if (deposit.depositUid && address.deposit_uid !== deposit.depositUid) return null;
+  if (address.pay_currency !== deposit.currency) return null;
+  if (address.pay_address !== deposit.payAddress) return null;
+
+  const { data, error } = await admin.rpc("settle_crypto_deposit", {
+    p_payment_id: deposit.paymentId,
+    p_account_id: address.account_id,
+    p_deposit_uid: address.deposit_uid,
+    p_pay_currency: address.pay_currency,
+    p_pay_address: address.pay_address,
+    p_crypto_received: deposit.cryptoReceived,
+    p_source_usd: deposit.sourceUsd,
+    p_status: deposit.status,
+    p_tx_urls: deposit.txUrls,
+  });
+  if (error) {
+    console.error("settle_crypto_deposit failed:", error.message);
+    return null;
+  }
+  return (data ?? null) as DepositSettleResult | null;
+}
+
+/**
+ * Permanent addresses have no open invoice row to poll. Scan recent completed
+ * pay-ins as a five-minute backstop when an IPN is delayed or lost. Existing
+ * transaction IDs are filtered before calling the settlement RPC.
+ */
+export async function reconcilePermanentDeposits(): Promise<{
+  checked: number;
+  credited: number;
+}> {
+  if (!plisioEnabled()) return { checked: 0, credited: 0 };
+
+  const admin = createServiceClient();
+  let checked = 0;
+  let credited = 0;
+
+  // Three pages cover the 300 most recent confirmed pay-ins. Lists are
+  // newest-first; running every five minutes keeps this comfortably ahead.
+  for (let page = 1; page <= 3; page += 1) {
+    const operations = await listPayInOperations(page, 100);
+    if (operations.length === 0) break;
+
+    const ids = operations.map((operation) => operation.paymentId);
+    const { data: known } = await admin
+      .from("crypto_deposit_events")
+      .select("payment_id")
+      .in("payment_id", ids);
+    const knownIds = new Set((known ?? []).map((row) => String(row.payment_id)));
+
+    for (const operation of operations) {
+      if (knownIds.has(operation.paymentId)) continue;
+      checked += 1;
+      const out = await settlePermanentDeposit(operation);
+      if (out?.credited) credited += 1;
+    }
+
+    if (operations.length < 100) break;
+  }
+
   return { checked, credited };
 }

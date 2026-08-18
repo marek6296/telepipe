@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft,
   Check,
   CircleCheck,
-  Clock,
   Copy,
+  CreditCard,
+  ExternalLink,
+  InfinityIcon,
   Loader2,
   Mail,
   TriangleAlert,
@@ -22,53 +23,33 @@ import {
 } from "@/lib/coins";
 import { cn } from "@/lib/utils";
 
-/**
- * Nákup Pipe Coinov cez Plisio — celý checkout beží v appke (white-label):
- * klient si vyberie balík a mincu, my mu ukážeme adresu + presnú sumu + QR
- * a živý stav platby. Pripísanie robí server (webhook/poll/cron) — tento
- * komponent stav LEN zobrazuje, nikdy nerozhoduje o kredite.
- */
-
-export type PackOption = {
-  id: string;
-  name: string;
-  priceUsd: number;
-  coins: number;
-  bonusPct: number;
-  featured?: boolean;
-};
-
 export type CurrencyOption = {
   cid: string;
   label: string;
   network: string;
 };
 
-type Invoice = {
-  paymentId: string;
+type PermanentAddress = {
   payAddress: string;
-  payAmount: number;
   payCurrency: string;
   qrCode: string;
-  invoiceUrl: string;
-  expireAt: string | null;
-  status: string;
-  coins: number;
-  usd: number;
+  createdAt: string;
+  permanent: true;
 };
 
-type PollState = {
+type CreditedDeposit = {
+  payment_id: string;
+  pay_currency: string;
+  source_usd: number | string;
+  bonus_pct: number | string;
+  coins: number | string;
   status: string;
   credited: boolean;
+  created_at: string;
 };
 
 const POLL_MS = 8_000;
-
-/** Presná krypto suma bez zbytočných núl — presne to, čo treba odoslať. */
-function formatAmount(value: number): string {
-  if (!Number.isFinite(value)) return String(value);
-  return value.toFixed(8).replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
-}
+const CARD_ONRAMP_URL = "https://guardarian.com/buy-crypto-with-card";
 
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -76,9 +57,9 @@ function CopyButton({ value, label }: { value: string; label: string }) {
     try {
       await navigator.clipboard.writeText(value);
       setCopied(true);
-      setTimeout(() => setCopied(false), 1600);
+      window.setTimeout(() => setCopied(false), 1600);
     } catch {
-      /* clipboard môže byť zakázaný — tlačidlo je len skratka, text je vedľa */
+      // The address remains selectable when clipboard access is unavailable.
     }
   }, [value]);
 
@@ -87,442 +68,218 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       type="button"
       onClick={copy}
       aria-label={label}
-      className="app-tap inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-[var(--app-border)] px-2 text-[11.5px] text-[var(--app-text-2)] transition-colors hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"
+      className="app-tap inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-[var(--app-border)] px-2.5 text-[11.5px] text-[var(--app-text-2)] transition-colors hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"
     >
       {copied ? (
-        <Check className="h-3 w-3" strokeWidth={2} aria-hidden />
+        <Check className="h-3.5 w-3.5" strokeWidth={2} aria-hidden />
       ) : (
-        <Copy className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+        <Copy className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
       )}
       {copied ? "Copied" : "Copy"}
     </button>
   );
 }
 
-/** Odpočet do vypršania faktúry. Po nule ho prekryje reálny stav z Plisia. */
-function Countdown({ until }: { until: string }) {
-  const [now, setNow] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, []);
-  const left = Math.max(0, new Date(until).getTime() - now);
-  const mins = Math.floor(left / 60_000);
-  const secs = Math.floor((left % 60_000) / 1000);
-  return (
-    <span className="tabular-nums">
-      {String(mins).padStart(2, "0")}:{String(secs).padStart(2, "0")}
-    </span>
-  );
-}
-
 export function BillingPanel({
-  packs,
   currencies,
   available,
-  initialPackId,
   supportEmail,
 }: {
-  packs: PackOption[];
   currencies: CurrencyOption[];
   available: boolean;
-  initialPackId?: string;
   supportEmail: string;
 }) {
   const router = useRouter();
-  const [packId, setPackId] = useState(() =>
-    packs.some((p) => p.id === initialPackId) ? (initialPackId as string) : packs[0]?.id ?? "",
-  );
-  const [customUsd, setCustomUsd] = useState("");
+  const [amount, setAmount] = useState("50");
   const [currency, setCurrency] = useState(currencies[0]?.cid ?? "BTC");
-  const [creating, setCreating] = useState(false);
+  const [address, setAddress] = useState<PermanentAddress | null>(null);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [invoice, setInvoice] = useState<Invoice | null>(null);
-  const [poll, setPoll] = useState<PollState | null>(null);
-  // `router.refresh()` po pripísaní má zmysel len raz.
-  const refreshed = useRef(false);
+  const [credited, setCredited] = useState<CreditedDeposit | null>(null);
+  const watchAfter = useRef(new Date().toISOString());
+  const refreshedPayment = useRef("");
 
-  const pack = useMemo(() => packs.find((p) => p.id === packId), [packs, packId]);
-  const coin = useMemo(() => currencies.find((c) => c.cid === currency), [currencies, currency]);
+  const selectedCurrency = useMemo(
+    () => currencies.find((item) => item.cid === currency),
+    [currencies, currency],
+  );
+  const usd = Math.round((Number.parseFloat(amount) || 0) * 100) / 100;
+  const amountValid = usd >= CUSTOM_MIN_USD && usd <= CUSTOM_MAX_USD;
+  const expectedCoins = amountValid ? customCoinsForUsd(usd) : 0;
+  const bonusPct = amountValid ? customBonusPct(usd) : 0;
 
-  // Vlastná suma — kurz a bonus počíta server; toto je len náhľad z lib/coins.
-  const isCustom = packId === "custom";
-  const parsedUsd = Math.round((Number.parseFloat(customUsd) || 0) * 100) / 100;
-  const customValid = parsedUsd >= CUSTOM_MIN_USD && parsedUsd <= CUSTOM_MAX_USD;
-  const selection = isCustom
-    ? customValid
-      ? { usd: parsedUsd, coins: customCoinsForUsd(parsedUsd) }
-      : null
-    : pack
-      ? { usd: pack.priceUsd, coins: pack.coins }
-      : null;
-
-  const start = useCallback(async () => {
-    if (!selection || creating) return;
-    setCreating(true);
+  const selectCurrency = useCallback((next: string) => {
+    setCurrency(next);
+    setAddress(null);
+    setCredited(null);
     setError(null);
+    watchAfter.current = new Date().toISOString();
+  }, []);
+
+  const loadAddress = useCallback(async () => {
+    if (!amountValid || loading) return;
+    setLoading(true);
+    setError(null);
+    setCredited(null);
+    watchAfter.current = new Date(Date.now() - 1_000).toISOString();
     try {
-      const res = await fetch("/api/payments/topup", {
+      const response = await fetch("/api/payments/topup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(
-          isCustom
-            ? { packId: "custom", customUsd: selection.usd, currency }
-            : { packId, currency },
-        ),
+        body: JSON.stringify({ currency }),
       });
-      const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
-      if (!res.ok) {
-        setError(String(data.error ?? "Could not start the payment. Please try again."));
+      const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!response.ok) {
+        setError(String(data.error ?? "Could not load your permanent deposit address."));
         return;
       }
-      setInvoice(data as unknown as Invoice);
-      setPoll({ status: String(data.status ?? "new"), credited: false });
-      refreshed.current = false;
+      setAddress(data as unknown as PermanentAddress);
     } catch {
-      setError("Could not start the payment. Check your connection and try again.");
+      setError("Could not load the address. Check your connection and try again.");
     } finally {
-      setCreating(false);
+      setLoading(false);
     }
-  }, [selection, isCustom, packId, currency, creating]);
+  }, [amountValid, currency, loading]);
 
-  // Poller — každých 8 s, kým je checkout otvorený a coiny nie sú pripísané.
-  // Server sa pri každom ticku doptá Plisia, takže zmeškaný webhook dobehne.
   useEffect(() => {
-    if (!invoice || poll?.credited) return;
+    if (!address || credited) return;
     let stopped = false;
     const tick = async () => {
       try {
-        const res = await fetch(
-          `/api/payments/topup?payment_id=${encodeURIComponent(invoice.paymentId)}`,
-          { cache: "no-store" },
-        );
-        if (!res.ok) return;
-        const data = (await res.json()) as PollState;
-        if (!stopped) setPoll({ status: data.status, credited: data.credited });
+        const query = new URLSearchParams({
+          after: watchAfter.current,
+          currency: address.payCurrency,
+        });
+        const response = await fetch(`/api/payments/topup?${query.toString()}`, {
+          cache: "no-store",
+        });
+        if (!response.ok) return;
+        const data = (await response.json()) as {
+          credited?: boolean;
+          deposit?: CreditedDeposit | null;
+        };
+        if (!stopped && data.credited && data.deposit) setCredited(data.deposit);
       } catch {
-        /* výpadok siete — ďalší tick to skúsi znova */
+        // A later tick or the five-minute reconciler will catch up.
       }
     };
-    const id = setInterval(tick, POLL_MS);
-    tick();
+    const id = window.setInterval(tick, POLL_MS);
+    void tick();
     return () => {
       stopped = true;
-      clearInterval(id);
+      window.clearInterval(id);
     };
-  }, [invoice, poll?.credited]);
+  }, [address, credited]);
 
-  // Coiny dorazili → obnov serverové dáta (zostatok v hlavičke, história).
   useEffect(() => {
-    if (poll?.credited && !refreshed.current) {
-      refreshed.current = true;
+    if (credited && refreshedPayment.current !== credited.payment_id) {
+      refreshedPayment.current = credited.payment_id;
       router.refresh();
     }
-  }, [poll?.credited, router]);
+  }, [credited, router]);
 
-  const reset = useCallback(() => {
-    setInvoice(null);
-    setPoll(null);
-    setError(null);
+  const watchForAnother = useCallback(() => {
+    watchAfter.current = new Date().toISOString();
+    setCredited(null);
   }, []);
 
   if (!available) {
     return (
       <div className="p-5">
         <Callout tone="neutral" icon={<Mail className="h-4 w-4" strokeWidth={1.75} />}>
-          Crypto checkout is temporarily unavailable. Email us at{" "}
+          Crypto deposits are temporarily unavailable. Email us at{" "}
           <a className="underline" href={`mailto:${supportEmail}`}>
             {supportEmail}
           </a>{" "}
-          and we will top you up by hand, usually the same day.
+          and we will help you.
         </Callout>
       </div>
     );
   }
 
-  /* ---------------------------------------------------------------- */
-  /*  Krok 2 — faktúra: adresa, suma, QR, odpočet, živý stav           */
-  /* ---------------------------------------------------------------- */
-  if (invoice) {
-    const credited = Boolean(poll?.credited);
-    const status = poll?.status ?? invoice.status;
-    const pendingDetected = status === "pending" || status === "pending internal";
-    const failed = !credited && (status === "cancelled" || status === "error");
-    const expired = !credited && status === "expired";
-    const mismatch = !credited && status === "mismatch";
-    const amountText = formatAmount(invoice.payAmount);
-    const qrSrc =
-      invoice.qrCode ||
-      `https://api.qrserver.com/v1/create-qr-code/?size=440x440&data=${encodeURIComponent(invoice.payAddress)}`;
-
-    if (credited) {
-      return (
-        <div className="flex flex-col items-center px-6 py-12 text-center">
-          <CircleCheck className="h-10 w-10 text-[#86efac]" strokeWidth={1.5} aria-hidden />
-          <h3 className="mt-4 text-[17px] font-semibold text-[var(--app-text)]">
-            Payment received
-          </h3>
-          <p className="mt-2 max-w-sm text-[13px] leading-relaxed text-[var(--app-text-3)]">
-            {invoice.coins.toLocaleString("en-US")} Pipe Coins were added to your balance.
-            They never expire — your models can spend them right away.
-          </p>
-          <button type="button" onClick={reset} className="app-btn app-btn-primary mt-6 h-9 px-4">
-            Done
-          </button>
-        </div>
-      );
-    }
-
-    return (
-      <div className="p-5">
-        <button
-          type="button"
-          onClick={reset}
-          className="app-tap mb-4 inline-flex items-center gap-1.5 text-[12px] text-[var(--app-text-3)] transition-colors hover:text-[var(--app-text)]"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
-          Choose a different pack or coin
-        </button>
-
-        <div className="grid gap-6 md:grid-cols-[200px_1fr]">
-          <div className="mx-auto w-[200px] shrink-0">
-            {/* Plisiov QR nesie adresu AJ presnú sumu; fallback len adresu. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={qrSrc}
-              alt={`QR code for the ${invoice.payCurrency} payment address`}
-              width={200}
-              height={200}
-              className="rounded-lg border border-[var(--app-border)] bg-white p-2"
-            />
-            {invoice.expireAt && !expired && (
-              <p className="mt-3 flex items-center justify-center gap-1.5 text-[12px] text-[var(--app-text-3)]">
-                <Clock className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
-                Expires in <Countdown until={invoice.expireAt} />
-              </p>
-            )}
-          </div>
-
-          <div className="min-w-0">
-            <p className="text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
-              Send exactly
-            </p>
-            <div className="mt-1.5 flex flex-wrap items-center gap-2.5">
-              <p className="break-all text-[22px] font-semibold leading-tight tracking-[-0.02em] tabular-nums text-[var(--app-text)]">
-                {amountText} {invoice.payCurrency}
-              </p>
-              <CopyButton value={amountText} label="Copy the exact amount" />
-            </div>
-
-            <p className="mt-5 text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
-              To this address · {coin?.network ?? invoice.payCurrency}
-            </p>
-            <div className="mt-1.5 flex flex-wrap items-center gap-2.5">
-              <p className="break-all font-mono text-[13px] leading-relaxed text-[var(--app-text)]">
-                {invoice.payAddress}
-              </p>
-              <CopyButton value={invoice.payAddress} label="Copy the payment address" />
-            </div>
-
-            <div className="mt-5 space-y-3">
-              {failed ? (
-                <Callout tone="danger" icon={<TriangleAlert className="h-4 w-4" strokeWidth={1.75} />}>
-                  This payment was {status === "error" ? "marked as failed" : "cancelled"}. No coins
-                  were charged — start a new payment. If you already sent funds, email{" "}
-                  <a className="underline" href={`mailto:${supportEmail}`}>{supportEmail}</a>.
-                </Callout>
-              ) : expired ? (
-                <Callout tone="neutral" icon={<Clock className="h-4 w-4" strokeWidth={1.75} />}>
-                  The invoice expired. <strong>Already sent the payment?</strong> Don&apos;t worry —
-                  we keep watching the address and credit your coins automatically once the network
-                  confirms it, even hours later. Nothing sent yet? Just start a new payment.
-                </Callout>
-              ) : mismatch ? (
-                <Callout tone="neutral" icon={<TriangleAlert className="h-4 w-4" strokeWidth={1.75} />}>
-                  We received a different amount than requested and are verifying it. Overpayments
-                  are credited automatically. If this doesn&apos;t resolve in a few minutes, email{" "}
-                  <a className="underline" href={`mailto:${supportEmail}`}>{supportEmail}</a> with
-                  your transaction ID.
-                </Callout>
-              ) : pendingDetected ? (
-                <Callout tone="success" icon={<Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />}>
-                  <strong>Payment detected!</strong> Waiting for network confirmations — this
-                  usually takes a few minutes. You can close this page; the coins will land in
-                  your balance automatically.
-                </Callout>
-              ) : (
-                <Callout tone="neutral" icon={<Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />}>
-                  Waiting for your payment… Send <strong>one transaction</strong> with the exact
-                  amount on the <strong>{coin?.network ?? invoice.payCurrency}</strong> network.
-                  This page updates by itself.
-                </Callout>
-              )}
-
-              <p className="text-[12px] leading-relaxed text-[var(--app-text-4)]">
-                You are buying {invoice.coins.toLocaleString("en-US")} Pipe Coins for ${invoice.usd}.
-                Network fees charged by your wallet are not part of the amount above.
-                {invoice.invoiceUrl && !failed && (
-                  <>
-                    {" "}
-                    Paying from your phone?{" "}
-                    <a
-                      href={invoice.invoiceUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="underline hover:text-[var(--app-text-2)]"
-                    >
-                      Open the hosted payment page
-                    </a>
-                    {" "}— it&apos;s the same invoice.
-                  </>
-                )}
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  /* ---------------------------------------------------------------- */
-  /*  Krok 1 — výber balíka a mince                                    */
-  /* ---------------------------------------------------------------- */
   return (
     <div className="p-5">
-      <p className="text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">1 · Pick a pack</p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" role="radiogroup" aria-label="Coin pack">
-        {packs.map((item) => {
-          const active = item.id === packId;
-          return (
-            <button
-              key={item.id}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              onClick={() => setPackId(item.id)}
-              className={cn(
-                "app-tap rounded-lg border px-4 py-3.5 text-left transition-colors",
-                active
-                  ? "border-[var(--app-text-4)] bg-[var(--app-surface-hover)]"
-                  : "border-[var(--app-border)] hover:border-[var(--app-border-strong)]",
-              )}
+      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(260px,0.8fr)]">
+        <div className="rounded-lg border border-[var(--app-border)] p-4">
+          <div className="flex items-center justify-between gap-4">
+            <label
+              htmlFor="deposit-usd"
+              className="text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]"
             >
-              <span className="flex items-center justify-between gap-2">
-                <span className="text-[13px] font-medium text-[var(--app-text)]">{item.name}</span>
-                {item.bonusPct > 0 && (
-                  <span className="rounded-full border border-[var(--app-border)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--app-text-2)]">
-                    +{item.bonusPct}%
-                  </span>
-                )}
-              </span>
-              <span className="mt-2 block text-[17px] font-semibold tabular-nums tracking-[-0.02em] text-[var(--app-text)]">
-                {item.coins.toLocaleString("en-US")}
-              </span>
-              <span className="mt-0.5 block text-[11.5px] text-[var(--app-text-3)]">
-                Pipe Coins · ${item.priceUsd}
-              </span>
-            </button>
-          );
-        })}
-
-        <button
-          type="button"
-          role="radio"
-          aria-checked={isCustom}
-          onClick={() => setPackId("custom")}
-          className={cn(
-            "app-tap rounded-lg border px-4 py-3.5 text-left transition-colors",
-            isCustom
-              ? "border-[var(--app-text-4)] bg-[var(--app-surface-hover)]"
-              : "border-[var(--app-border)] hover:border-[var(--app-border-strong)]",
-          )}
-        >
-          <span className="flex items-center justify-between gap-2">
-            <span className="text-[13px] font-medium text-[var(--app-text)]">Custom</span>
-            {isCustom && customValid && customBonusPct(parsedUsd) > 0 && (
-              <span className="rounded-full border border-[var(--app-border)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--app-text-2)]">
-                +{customBonusPct(parsedUsd)}%
+              Amount you plan to send
+            </label>
+            {bonusPct > 0 && (
+              <span className="rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[10.5px] font-semibold text-[var(--app-text-2)]">
+                +{bonusPct}% coins
               </span>
             )}
-          </span>
-          <span className="mt-2 block text-[17px] font-semibold tabular-nums tracking-[-0.02em] text-[var(--app-text)]">
-            {isCustom && customValid ? customCoinsForUsd(parsedUsd).toLocaleString("en-US") : "You pick"}
-          </span>
-          <span className="mt-0.5 block text-[11.5px] text-[var(--app-text-3)]">
-            {isCustom && customValid ? `Pipe Coins · $${parsedUsd}` : `Any amount from $${CUSTOM_MIN_USD}`}
-          </span>
-        </button>
-      </div>
-
-      {isCustom && (
-        <div className="mt-3 rounded-lg border border-[var(--app-border)] px-4 py-3.5">
-          <label
-            htmlFor="custom-usd"
-            className="text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]"
-          >
-            Amount in USD
-          </label>
-          <div className="mt-2 flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-1.5">
-              <span className="text-[15px] text-[var(--app-text-3)]">$</span>
-              <input
-                id="custom-usd"
-                type="number"
-                inputMode="decimal"
-                min={CUSTOM_MIN_USD}
-                max={CUSTOM_MAX_USD}
-                step="0.01"
-                value={customUsd}
-                onChange={(event) => setCustomUsd(event.target.value)}
-                placeholder="8"
-                className="h-10 w-32 rounded-md border border-[var(--app-border)] bg-transparent px-3 text-[14px] tabular-nums text-[var(--app-text)] outline-none transition-colors focus:border-[var(--app-border-strong)]"
-              />
-            </div>
-            <p className="text-[13px] tabular-nums text-[var(--app-text-2)]" aria-live="polite">
-              {customValid
-                ? `= ${customCoinsForUsd(parsedUsd).toLocaleString("en-US")} Pipe Coins`
-                : customUsd
-                  ? `Enter $${CUSTOM_MIN_USD}–$${CUSTOM_MAX_USD.toLocaleString("en-US")}`
-                  : ""}
-            </p>
           </div>
-          <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-            Minimum ${CUSTOM_MIN_USD}, cents welcome (e.g. $8.50). Same bonuses as the packs:
-            +10% from $100, +20% from $250.
+          <div className="mt-3 flex items-center gap-2">
+            <span className="text-[20px] text-[var(--app-text-3)]">$</span>
+            <input
+              id="deposit-usd"
+              type="number"
+              inputMode="decimal"
+              min={CUSTOM_MIN_USD}
+              max={CUSTOM_MAX_USD}
+              step="0.01"
+              value={amount}
+              onChange={(event) => setAmount(event.target.value)}
+              className="h-11 min-w-0 flex-1 rounded-md border border-[var(--app-border)] bg-transparent px-3 text-[18px] font-semibold tabular-nums text-[var(--app-text)] outline-none transition-colors focus:border-[var(--app-border-strong)]"
+            />
+          </div>
+          <p className="mt-3 text-[13px] text-[var(--app-text-2)]" aria-live="polite">
+            {amountValid ? (
+              <>
+                Estimated credit:{" "}
+                <strong className="text-[var(--app-text)]">
+                  {expectedCoins.toLocaleString("en-US")} Pipe Coins
+                </strong>
+              </>
+            ) : (
+              `Enter $${CUSTOM_MIN_USD}–$${CUSTOM_MAX_USD.toLocaleString("en-US")}`
+            )}
+          </p>
+          <p className="mt-1.5 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+            +10% from $100 and +20% from $250. The final credit uses the net USD value that
+            actually reaches the address after provider and network fees.
           </p>
         </div>
-      )}
 
-      <p className="mt-6 text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
-        2 · Pay with
-      </p>
-      <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Cryptocurrency">
-        {currencies.map((item) => {
-          const active = item.cid === currency;
-          return (
-            <button
-              key={item.cid}
-              type="button"
-              role="radio"
-              aria-checked={active}
-              onClick={() => setCurrency(item.cid)}
-              className={cn(
-                "app-tap rounded-md border px-3 py-2 text-[12.5px] transition-colors",
-                active
-                  ? "border-[var(--app-text-4)] bg-[var(--app-surface-hover)] text-[var(--app-text)]"
-                  : "border-[var(--app-border)] text-[var(--app-text-2)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]",
-              )}
-            >
-              {item.label}
-            </button>
-          );
-        })}
+        <div className="rounded-lg border border-[var(--app-border)] p-4">
+          <p className="text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
+            Deposit currency
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Cryptocurrency">
+            {currencies.map((item) => {
+              const active = item.cid === currency;
+              return (
+                <button
+                  key={item.cid}
+                  type="button"
+                  role="radio"
+                  aria-checked={active}
+                  onClick={() => selectCurrency(item.cid)}
+                  className={cn(
+                    "app-tap rounded-md border px-3 py-2 text-[12.5px] transition-colors",
+                    active
+                      ? "border-[var(--app-text-4)] bg-[var(--app-surface-hover)] text-[var(--app-text)]"
+                      : "border-[var(--app-border)] text-[var(--app-text-2)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]",
+                  )}
+                >
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+          {selectedCurrency && (
+            <p className="mt-3 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+              Network: {selectedCurrency.network}. Send only {selectedCurrency.label} on this
+              exact network.
+            </p>
+          )}
+        </div>
       </div>
-      {coin && (
-        <p className="mt-2 text-[11.5px] text-[var(--app-text-4)]">
-          Network: {coin.network}. Send only {coin.label} on this network.
-        </p>
-      )}
 
       {error && (
         <div className="mt-4">
@@ -532,24 +289,133 @@ export function BillingPanel({
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={start}
-        disabled={creating || !selection}
-        className={cn(
-          "app-btn app-btn-primary mt-6 h-10 px-5",
-          (creating || !selection) && "opacity-70",
-        )}
-      >
-        {creating && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} aria-hidden />}
-        {selection
-          ? `Continue — ${selection.coins.toLocaleString("en-US")} coins for $${selection.usd}`
-          : `Enter an amount (min $${CUSTOM_MIN_USD})`}
-      </button>
-      <p className="mt-2.5 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-        You&apos;ll get the deposit address and exact amount on the next screen. The rate is locked
-        for the whole payment window.
-      </p>
+      {!address ? (
+        <>
+          <button
+            type="button"
+            onClick={loadAddress}
+            disabled={loading || !amountValid}
+            className={cn(
+              "app-btn app-btn-primary mt-5 h-10 px-5",
+              (loading || !amountValid) && "opacity-70",
+            )}
+          >
+            {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} aria-hidden />}
+            Show my permanent {currency} address
+          </button>
+          <p className="mt-2.5 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+            It is created once for your account and never expires. You can reuse it for every
+            future top-up.
+          </p>
+        </>
+      ) : (
+        <div className="mt-5 border-t border-[var(--app-border)] pt-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-[15px] font-semibold text-[var(--app-text)]">
+                  Your permanent {address.payCurrency} address
+                </h3>
+                <span className="inline-flex items-center gap-1 rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[10.5px] text-[var(--app-text-3)]">
+                  <InfinityIcon className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+                  No expiry
+                </span>
+              </div>
+              <p className="mt-1 text-[11.5px] text-[var(--app-text-4)]">
+                Save it once and send any supported amount whenever you want.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setAddress(null)}
+              className="app-tap text-[12px] text-[var(--app-text-3)] underline underline-offset-4 hover:text-[var(--app-text)]"
+            >
+              Choose another currency
+            </button>
+          </div>
+
+          <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)]">
+            <div className="mx-auto w-[200px]">
+              {/* Data URI is generated on our server; the address is not sent to a public QR API. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={address.qrCode}
+                alt={`QR code for the permanent ${address.payCurrency} deposit address`}
+                width={200}
+                height={200}
+                className="rounded-lg border border-[var(--app-border)] bg-white p-2"
+              />
+              <p className="mt-2 text-center text-[11px] text-[var(--app-text-4)]">
+                QR contains the address only
+              </p>
+            </div>
+
+            <div className="min-w-0">
+              <p className="text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
+                Address · {selectedCurrency?.network ?? address.payCurrency}
+              </p>
+              <div className="mt-2 flex flex-wrap items-start gap-2.5 rounded-lg border border-[var(--app-border)] p-3">
+                <p className="min-w-0 flex-1 break-all font-mono text-[13px] leading-relaxed text-[var(--app-text)]">
+                  {address.payAddress}
+                </p>
+                <CopyButton value={address.payAddress} label="Copy the permanent deposit address" />
+              </div>
+
+              <div className="mt-4 rounded-lg border border-[var(--app-border)] p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="flex items-center gap-2 text-[13px] font-medium text-[var(--app-text)]">
+                      <CreditCard className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                      Don&apos;t have crypto?
+                    </p>
+                    <p className="mt-1 max-w-xl text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+                      Open Guardarian, choose {address.payCurrency}, enter about ${usd}, and paste
+                      the permanent address above. Card availability, limits, fees, and identity
+                      checks depend on the provider and your country.
+                    </p>
+                  </div>
+                  <a
+                    href={CARD_ONRAMP_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="app-btn app-btn-secondary h-9 shrink-0 px-3"
+                  >
+                    Buy with card
+                    <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+                  </a>
+                </div>
+              </div>
+
+              <div className="mt-4">
+                {credited ? (
+                  <Callout tone="success" icon={<CircleCheck className="h-4 w-4" strokeWidth={1.75} />}>
+                    <strong>Deposit confirmed.</strong>{" "}
+                    {Number(credited.coins).toLocaleString("en-US")} Pipe Coins were added from a
+                    net value of ${Number(credited.source_usd).toFixed(2)}
+                    {Number(credited.bonus_pct) > 0
+                      ? `, including the +${Number(credited.bonus_pct)}% bonus.`
+                      : "."}{" "}
+                    <button type="button" onClick={watchForAnother} className="underline">
+                      Watch for another deposit
+                    </button>
+                  </Callout>
+                ) : (
+                  <Callout tone="neutral" icon={<Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />}>
+                    Watching for a confirmed deposit. You may close this page — webhook and the
+                    automatic reconciler credit it even when you are offline.
+                  </Callout>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <p className="mt-5 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+            Never send another asset or use another network. A card on-ramp may deliver slightly
+            less crypto than its fiat amount because of fees; Pipe Coins are always calculated
+            from the net USD value confirmed by Plisio, so the balance stays exact.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

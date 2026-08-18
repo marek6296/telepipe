@@ -1,10 +1,10 @@
 import type { Metadata } from "next";
 import { Coins, ShieldCheck } from "lucide-react";
 
-import { BillingPanel, type CurrencyOption, type PackOption } from "@/components/app/billing-panel";
+import { BillingPanel, type CurrencyOption } from "@/components/app/billing-panel";
 import { RelativeTime } from "@/components/app/relative-time";
 import { Card, CardHeader, PageHeader, TableWrap, Th } from "@/components/app/ui";
-import { COIN_NAME_PLURAL, COIN_PACKS, coins } from "@/lib/coins";
+import { COIN_NAME_PLURAL, coins } from "@/lib/coins";
 import { getAccount, requireUser } from "@/lib/models";
 import { PAY_CURRENCIES, plisioEnabled } from "@/lib/plisio";
 import { createClient } from "@/lib/supabase/server";
@@ -15,19 +15,19 @@ export const metadata: Metadata = {
 
 const SUPPORT_EMAIL = "support@telepipe.app";
 
-type PaymentRow = {
+type HistoryRow = {
   payment_id: string;
-  pack_id: string;
-  usd: string | number;
+  amount_usd: string | number;
   coins: string | number;
   pay_currency: string;
   status: string;
   credited: boolean;
   created_at: string;
+  kind: "permanent" | "legacy";
 };
 
 /** Ľudský stav do histórie — `credited` má vždy posledné slovo. */
-function statusLabel(row: PaymentRow): { text: string; tone: "ok" | "wait" | "bad" } {
+function statusLabel(row: HistoryRow): { text: string; tone: "ok" | "wait" | "bad" } {
   if (row.credited) return { text: "Completed", tone: "ok" };
   switch (row.status) {
     case "new":
@@ -49,30 +49,51 @@ function statusLabel(row: PaymentRow): { text: string; tone: "ok" | "wait" | "ba
   }
 }
 
-export default async function BillingPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ pack?: string }>;
-}) {
+export default async function BillingPage() {
   await requireUser();
-  const [account, params] = await Promise.all([getAccount(), searchParams]);
+  const account = await getAccount();
 
-  // História cez RLS — klient vidí len vlastné platby a len povolené stĺpce.
+  // Both tables are RLS-scoped to the signed-in account. Legacy invoice rows
+  // remain visible for audit even though all new top-ups use permanent pay-ins.
   const supabase = await createClient();
-  const { data: history } = await supabase
-    .from("crypto_payments")
-    .select("payment_id, pack_id, usd, coins, pay_currency, status, credited, created_at")
-    .order("created_at", { ascending: false })
-    .limit(20);
+  const [{ data: deposits }, { data: legacyPayments }] = await Promise.all([
+    supabase
+      .from("crypto_deposit_events")
+      .select("payment_id, source_usd, coins, pay_currency, status, credited, created_at")
+      .order("created_at", { ascending: false })
+      .limit(20),
+    supabase
+      .from("crypto_payments")
+      .select("payment_id, usd, coins, pay_currency, status, credited, created_at")
+      .order("created_at", { ascending: false })
+      .limit(20),
+  ]);
 
-  const packs: PackOption[] = COIN_PACKS.map((pack) => ({
-    id: pack.id,
-    name: pack.name,
-    priceUsd: pack.priceUsd,
-    coins: pack.coins,
-    bonusPct: pack.bonusPct,
-    featured: pack.featured,
-  }));
+  const history: HistoryRow[] = [
+    ...(deposits ?? []).map((row) => ({
+      payment_id: String(row.payment_id),
+      amount_usd: row.source_usd,
+      coins: row.coins,
+      pay_currency: String(row.pay_currency),
+      status: String(row.status),
+      credited: Boolean(row.credited),
+      created_at: String(row.created_at),
+      kind: "permanent" as const,
+    })),
+    ...(legacyPayments ?? []).map((row) => ({
+      payment_id: String(row.payment_id),
+      amount_usd: row.usd,
+      coins: row.coins,
+      pay_currency: String(row.pay_currency),
+      status: String(row.status),
+      credited: Boolean(row.credited),
+      created_at: String(row.created_at),
+      kind: "legacy" as const,
+    })),
+  ]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 20);
+
   const currencies: CurrencyOption[] = PAY_CURRENCIES.map((c) => ({ ...c }));
 
   return (
@@ -80,21 +101,19 @@ export default async function BillingPage({
       <PageHeader
         eyebrow="Workspace"
         title="Billing"
-        description="Buy Pipe Coins with crypto. Pick a pack, send one transaction, and the balance updates itself — no subscription, coins never expire."
+        description="Top up Pipe Coins with a permanent crypto address. Send whenever you want — no invoices, expiry, subscription, or package lock-in."
       />
 
       <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
         <Card>
           <CardHeader
             title="Buy Pipe Coins"
-            description="Checkout happens right here — you'll get an address, the exact amount and a QR code."
+            description="Choose an amount and currency, then reuse the same personal address for every future top-up."
             icon={<Coins className="h-4 w-4" strokeWidth={1.75} />}
           />
           <BillingPanel
-            packs={packs}
             currencies={currencies}
             available={plisioEnabled()}
-            initialPackId={params.pack}
             supportEmail={SUPPORT_EMAIL}
           />
         </Card>
@@ -119,18 +138,17 @@ export default async function BillingPage({
             />
             <ol className="space-y-3 p-5 text-[12.5px] leading-relaxed text-[var(--app-text-3)]">
               <li>
-                <strong className="text-[var(--app-text-2)]">1.</strong> Pick a pack and the coin
-                you want to pay with.
+                <strong className="text-[var(--app-text-2)]">1.</strong> Choose how much you want
+                to add and select the cryptocurrency and network.
               </li>
               <li>
-                <strong className="text-[var(--app-text-2)]">2.</strong> Send{" "}
-                <strong className="text-[var(--app-text-2)]">exactly</strong> the shown amount to
-                the shown address — one transaction, right network.
+                <strong className="text-[var(--app-text-2)]">2.</strong> Send any amount to your
+                permanent address. It stays the same and never expires.
               </li>
               <li>
                 <strong className="text-[var(--app-text-2)]">3.</strong> Wait for network
-                confirmations (usually minutes). You can close the page — coins are credited
-                automatically, even if the confirmation lands hours later.
+                confirmations. The net USD value determines your coins and the larger-deposit
+                bonus. You may close the page; crediting continues automatically.
               </li>
               <li className="border-t border-[var(--app-border)] pt-3 text-[var(--app-text-4)]">
                 Sent a payment and don&apos;t see the coins after a few hours? Email{" "}
@@ -144,24 +162,24 @@ export default async function BillingPage({
         </div>
       </div>
 
-      {(history?.length ?? 0) > 0 && (
+      {history.length > 0 && (
         <Card className="mt-4">
           <CardHeader
             title="Payment history"
-            description="Your crypto top-ups. Completed means the coins are on your balance."
+            description="Every confirmed deposit and its exact Pipe Coin credit."
           />
           <TableWrap minWidth="560px">
             <thead>
               <tr className="border-b border-[var(--app-border)]">
                 <Th>Date</Th>
-                <Th>Pack</Th>
+                <Th>Net value</Th>
                 <Th align="right">Coins</Th>
                 <Th>Paid with</Th>
                 <Th align="right">Status</Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--app-border)]">
-              {(history as PaymentRow[] | null)?.map((row) => {
+              {history.map((row) => {
                 const label = statusLabel(row);
                 return (
                   <tr key={row.payment_id}>
@@ -169,7 +187,7 @@ export default async function BillingPage({
                       <RelativeTime iso={row.created_at} />
                     </td>
                     <td className="px-5 py-3 text-[12.5px] text-[var(--app-text)]">
-                      ${Number(row.usd)}
+                      ${Number(row.amount_usd).toFixed(2)}
                     </td>
                     <td className="px-5 py-3 text-right tabular-nums text-[12.5px] text-[var(--app-text)]">
                       {Number(row.coins).toLocaleString("en-US")}
