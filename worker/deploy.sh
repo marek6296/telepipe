@@ -23,8 +23,16 @@ PROJECT=telepipe
 SERVICE=worker
 ENVIRONMENT=production
 
+usage() { sed -n '/^# Použitie:/,/allow-dirty/p' "$0" | cut -c3-; }
+
 allow_dirty=0
-[[ "${1:-}" == "--allow-dirty" ]] && allow_dirty=1
+case "${1:-}" in
+  "")            ;;
+  --allow-dirty) allow_dirty=1 ;;
+  -h|--help)     usage; exit 0 ;;
+  # Radšej nič nenasadiť, než nasadiť pri preklepe v argumente.
+  *)             echo "✗ neznámy argument: $1" >&2; usage >&2; exit 2 ;;
+esac
 
 cd "$(git rev-parse --show-toplevel)"
 
