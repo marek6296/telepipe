@@ -7,9 +7,11 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertCircle,
   ArrowRight,
+  Bot,
   CheckCircle2,
   KeyRound,
   Loader2,
+  MinusCircle,
   Phone,
   RefreshCw,
   ShieldCheck,
@@ -19,18 +21,28 @@ import {
 
 import {
   cancelLoginJobAction,
+  saveApiKeysAction,
   startTelegramLoginAction,
   submitLoginCodeAction,
   submitLoginPasswordAction,
   pollLoginJobAction,
+  type ControlBotState,
+  type WizardField,
 } from "@/app/app/m/[id]/telegram/actions";
 import { setModelStatusAction } from "@/app/app/actions";
+import { ControlBotCard } from "@/components/app/telegram/control-bot-card";
 import { Field } from "@/components/app/telegram/field";
-import { ApiKeysGuide } from "@/components/app/telegram/guides";
+import {
+  ActivateGuide,
+  ApiKeysGuide,
+  CodeGuide,
+  PhoneGuide,
+} from "@/components/app/telegram/guides";
 import { Callout, Card, CardHeader } from "@/components/app/ui";
 import { isRecent } from "@/lib/format";
 import { prettifyCode } from "@/lib/status";
 import type { LoginJob } from "@/lib/telegram";
+import { checkApiHash, checkApiId, checkPhone } from "@/lib/telegram-setup";
 import { cn } from "@/lib/utils";
 
 /** Fázy, počas ktorých sa oplatí pollovať — worker s nimi ešte niečo robí. */
@@ -43,17 +55,24 @@ const LIVE_PHASES: LoginJob["phase"][] = [
 ];
 
 /**
- * Sprievodca pripája ÚČET modelky — nič viac. Kontrolný bot tu bol piatym
- * krokom, ale je to nastavenie majiteľa (a mení sa aj rok po spustení), takže
- * má vlastnú obrazovku: Telegram → Settings. Odpisovanie na ňom nestojí —
- * `runner.py` ho pri zlyhaní preskočí a odpisuje ďalej.
+ * Päť krokov, nie štyri.
+ *
+ * Kontrolný bot tu raz bol, potom sa presunul do Settings — a klientovi po
+ * zadaní kódu naskočila rovno aktivácia, takže o bote nikdy nepočul. Je
+ * NEPOVINNÝ (odpisovanie na ňom nestojí, `runner.py` ho pri zlyhaní preskočí),
+ * ale musí byť VIDIEŤ, s jasným „Skip for now". Nastavenia ho ukazujú tým
+ * istým komponentom, aby sa obe obrazovky nemohli rozísť.
  */
 const STEPS = [
   { n: 1, label: "API keys", icon: KeyRound },
   { n: 2, label: "Phone", icon: Phone },
   { n: 3, label: "Code", icon: Smartphone },
-  { n: 4, label: "Activate", icon: Zap },
-];
+  { n: 4, label: "Control bot", icon: Bot, optional: true },
+  { n: 5, label: "Activate", icon: Zap },
+] as const;
+
+const CONTROL_BOT_STEP = 4;
+const ACTIVATE_STEP = 5;
 
 export type WizardProps = {
   modelId: string;
@@ -64,7 +83,7 @@ export type WizardProps = {
   apiHash: string;
   connected: boolean;
   connectedPhone: string | null;
-  controlBotReady: boolean;
+  controlBot: ControlBotState;
   initialJob: LoginJob | null;
 };
 
@@ -74,14 +93,32 @@ export function TelegramWizard(props: WizardProps) {
   const [job, setJob] = useState<LoginJob | null>(props.initialJob);
   const [connected, setConnected] = useState(props.connected);
   const [reconnecting, setReconnecting] = useState(false);
-  const [localStep, setLocalStep] = useState(props.apiId && props.apiHash ? 2 : 1);
   const [now, setNow] = useState(() => Date.now());
 
   const [apiId, setApiId] = useState(props.apiId);
   const [apiHash, setApiHash] = useState(props.apiHash);
   const [phone, setPhone] = useState(props.connectedPhone ?? "");
 
-  const [error, setError] = useState<string | null>(null);
+  /**
+   * ULOŽENÝ stav kľúčov — nie to, čo je práve v políčkach.
+   *
+   * Toto je jadro opravy klamúceho steppera: krok 1 doteraz posúval iba
+   * `localStep`, takže „API keys ✓" svietilo zelenou, hoci v `models` bolo
+   * `tg_api_id NULL` a prázdny hash. Fajka teraz svieti len podľa hodnôt,
+   * ktoré server naozaj zapísal (`saveApiKeysAction` ich vráti a zároveň
+   * prídu z DB v propsoch pri každom refreshi).
+   */
+  const [stored, setStored] = useState({ apiId: props.apiId, apiHash: props.apiHash });
+  const [controlBot, setControlBot] = useState(props.controlBot);
+  const [botSkipped, setBotSkipped] = useState(false);
+
+  const [localStep, setLocalStep] = useState(() => {
+    if (props.status === "active") return ACTIVATE_STEP;
+    if (props.connected) return props.controlBot.paired ? ACTIVATE_STEP : CONTROL_BOT_STEP;
+    return props.apiId && props.apiHash ? 2 : 1;
+  });
+
+  const [error, setError] = useState<{ message: string; field?: WizardField } | null>(null);
   const [pending, startTransition] = useTransition();
 
   const live = Boolean(job && LIVE_PHASES.includes(job.phase));
@@ -103,6 +140,8 @@ export function TelegramWizard(props: WizardProps) {
       if (result.connected) {
         setConnected(true);
         setReconnecting(false);
+        // Po prihlásení sa ide na kontrolného bota, nie rovno na aktiváciu.
+        setLocalStep((step) => (step < CONTROL_BOT_STEP ? CONTROL_BOT_STEP : step));
         router.refresh();
       }
     };
@@ -124,13 +163,100 @@ export function TelegramWizard(props: WizardProps) {
   const onJobScreen = live || showFailedJob;
 
   const activeStep = useMemo(() => {
-    if (reconnecting) return onJobScreen ? 3 : localStep;
-    if (!connected) return onJobScreen ? 3 : localStep;
-    return 4;
+    if (reconnecting || !connected) return onJobScreen ? 3 : Math.min(localStep, 2);
+    return Math.max(localStep, CONTROL_BOT_STEP);
   }, [reconnecting, connected, onJobScreen, localStep]);
+
+  const apiKeysStored = Boolean(stored.apiId && stored.apiHash);
+
+  /** Stav každého krúžku v stepperi — čítaný z toho, čo je naozaj uložené. */
+  const stepTone = (step: number): "done" | "skipped" | "todo" => {
+    if (step === 1) return apiKeysStored ? "done" : "todo";
+    if (step === 2 || step === 3) return connected && !reconnecting ? "done" : "todo";
+    if (step === CONTROL_BOT_STEP) {
+      if (controlBot.paired) return "done";
+      return botSkipped ? "skipped" : "todo";
+    }
+    return props.status === "active" ? "done" : "todo";
+  };
+
+  /** Chyba patrí k tomuto políčku? */
+  const fieldError = (field: WizardField) =>
+    error?.field === field ? error.message : undefined;
+
+  const backToApiKeys = (
+    <button
+      type="button"
+      onClick={() => {
+        setError(null);
+        setReconnecting(true);
+        setConnected(false);
+        setJob(null);
+        setLocalStep(1);
+      }}
+      className="underline underline-offset-2"
+    >
+      Back to API keys
+    </button>
+  );
+
+  /** Chyba z kroku 1, ktorá vyskočila neskôr — nech je vidieť, kam sa vrátiť. */
+  const strayApiKeyError =
+    error && (error.field === "api_id" || error.field === "api_hash") && activeStep !== 1 ? (
+      <Callout tone="danger" icon={<AlertCircle className="h-3.5 w-3.5" />}>
+        {error.message} {backToApiKeys}
+      </Callout>
+    ) : null;
+
+  const continueFromApiKeys = () => {
+    setError(null);
+    const idCheck = checkApiId(apiId);
+    if (!apiId.trim()) {
+      setError({ message: "Fill in api_id from my.telegram.org.", field: "api_id" });
+      return;
+    }
+    if (!idCheck.ok) {
+      setError({ message: idCheck.message, field: "api_id" });
+      return;
+    }
+    const hashCheck = checkApiHash(apiHash);
+    if (!apiHash.trim()) {
+      setError({ message: "Fill in api_hash from my.telegram.org.", field: "api_hash" });
+      return;
+    }
+    if (!hashCheck.ok) {
+      setError({ message: hashCheck.message, field: "api_hash" });
+      return;
+    }
+
+    // Uložiť SKÔR, než sa krok posunie — inak by stepper znova tvrdil niečo,
+    // čo v databáze nie je.
+    startTransition(async () => {
+      const result = await saveApiKeysAction({
+        modelId: props.modelId,
+        apiId,
+        apiHash,
+      });
+      if (result.error) {
+        setError({ message: result.error, field: result.field });
+        return;
+      }
+      setStored({ apiId: apiId.trim(), apiHash: apiHash.trim() });
+      setLocalStep(2);
+    });
+  };
 
   const startLogin = () => {
     setError(null);
+    const phoneCheck = checkPhone(phone);
+    if (!phone.trim()) {
+      setError({ message: "Enter her phone number.", field: "phone" });
+      return;
+    }
+    if (!phoneCheck.ok) {
+      setError({ message: phoneCheck.message, field: "phone" });
+      return;
+    }
     startTransition(async () => {
       const result = await startTelegramLoginAction({
         modelId: props.modelId,
@@ -139,7 +265,7 @@ export function TelegramWizard(props: WizardProps) {
         phone,
       });
       if (result.error) {
-        setError(result.error);
+        setError({ message: result.error, field: result.field });
         return;
       }
       // Job existuje — polling prevezme štafetu.
@@ -171,7 +297,9 @@ export function TelegramWizard(props: WizardProps) {
         onCancelReconnect={() => setReconnecting(false)}
       />
 
-      <Stepper active={activeStep} connected={connected} />
+      <Stepper active={activeStep} tone={stepTone} onJump={setLocalStep} unlocked={connected} />
+
+      {strayApiKeyError}
 
       <AnimatePresence mode="wait">
         <motion.div
@@ -185,26 +313,44 @@ export function TelegramWizard(props: WizardProps) {
             <StepApiKeys
               apiId={apiId}
               apiHash={apiHash}
-              onApiId={setApiId}
-              onApiHash={setApiHash}
-              error={error}
-              onContinue={() => {
-                setError(null);
-                if (!apiId.trim() || !apiHash.trim()) {
-                  setError("Fill in both api_id and api_hash to continue.");
-                  return;
-                }
-                setLocalStep(2);
+              onApiId={(value) => {
+                setApiId(value);
+                if (error?.field === "api_id") setError(null);
               }}
+              onApiHash={(value) => {
+                setApiHash(value);
+                if (error?.field === "api_hash") setError(null);
+              }}
+              onBlurApiId={() => {
+                const check = checkApiId(apiId);
+                if (!check.ok) setError({ message: check.message, field: "api_id" });
+              }}
+              onBlurApiHash={() => {
+                const check = checkApiHash(apiHash);
+                if (!check.ok) setError({ message: check.message, field: "api_hash" });
+              }}
+              apiIdError={fieldError("api_id")}
+              apiHashError={fieldError("api_hash")}
+              formError={error && !error.field ? error.message : null}
+              pending={pending}
+              onContinue={continueFromApiKeys}
             />
           )}
 
           {activeStep === 2 && (
             <StepPhone
               phone={phone}
-              onPhone={setPhone}
+              onPhone={(value) => {
+                setPhone(value);
+                if (error?.field === "phone") setError(null);
+              }}
+              onBlur={() => {
+                const check = checkPhone(phone);
+                if (!check.ok) setError({ message: check.message, field: "phone" });
+              }}
               pending={pending}
-              error={error}
+              phoneError={fieldError("phone")}
+              formError={error && !error.field ? error.message : null}
               onBack={() => {
                 setError(null);
                 setLocalStep(1);
@@ -227,7 +373,7 @@ export function TelegramWizard(props: WizardProps) {
                   setError(null);
                   const result = await submitLoginCodeAction(job.id, code);
                   if (result.error) {
-                    setError(result.error);
+                    setError({ message: result.error, field: result.field });
                     return;
                   }
                   const fresh = await pollLoginJobAction(props.modelId);
@@ -239,24 +385,48 @@ export function TelegramWizard(props: WizardProps) {
                   setError(null);
                   const result = await submitLoginPasswordAction(job.id, password);
                   if (result.error) {
-                    setError(result.error);
+                    setError({ message: result.error, field: result.field });
                     return;
                   }
                   const fresh = await pollLoginJobAction(props.modelId);
                   setJob(fresh.job);
                 })
               }
-              error={error}
+              codeError={fieldError("code")}
+              passwordError={fieldError("password")}
+              backToApiKeys={backToApiKeys}
             />
           )}
 
-          {activeStep === 4 && (
+          {activeStep === CONTROL_BOT_STEP && (
+            <ControlBotCard
+              modelId={props.modelId}
+              initial={controlBot}
+              onStateChange={setControlBot}
+              footer={
+                <ControlBotFooter
+                  paired={controlBot.paired}
+                  onContinue={() => setLocalStep(ACTIVATE_STEP)}
+                  onSkip={() => {
+                    // „Preskočené" je len navigácia. V DB sa nič nemení, takže
+                    // model neostane v polovičnom stave — bot buď je, alebo nie
+                    // je, a dorobiť sa dá kedykoľvek v Settings.
+                    setBotSkipped(true);
+                    setLocalStep(ACTIVATE_STEP);
+                  }}
+                />
+              }
+            />
+          )}
+
+          {activeStep === ACTIVATE_STEP && (
             <StepActivate
               modelId={props.modelId}
               modelName={props.modelName}
               status={props.status}
               statusReason={props.statusReason}
-              controlBotReady={props.controlBotReady}
+              controlBotPaired={controlBot.paired}
+              onBackToBot={() => setLocalStep(CONTROL_BOT_STEP)}
             />
           )}
         </motion.div>
@@ -344,36 +514,65 @@ function ConnectionStrip({
 /*  Stepper                                                                     */
 /* -------------------------------------------------------------------------- */
 
-function Stepper({ active, connected }: { active: number; connected: boolean }) {
+function Stepper({
+  active,
+  tone,
+  onJump,
+  unlocked,
+}: {
+  active: number;
+  tone: (step: number) => "done" | "skipped" | "todo";
+  onJump: (step: number) => void;
+  /** Po pripojení sa smie klikať medzi botom a aktiváciou. */
+  unlocked: boolean;
+}) {
   return (
     <ol className="flex items-center gap-1 overflow-x-auto pb-1">
       {STEPS.map((step, index) => {
-        const done = (step.n <= 3 && connected) || step.n < active;
+        const state = tone(step.n);
         const current = step.n === active;
         const Icon = step.icon;
+        const clickable = unlocked && step.n >= CONTROL_BOT_STEP && !current;
+
         return (
           <li key={step.n} className="flex shrink-0 items-center gap-1">
-            <div
+            <button
+              type="button"
+              disabled={!clickable}
+              onClick={() => clickable && onJump(step.n)}
+              title={
+                state === "skipped"
+                  ? "Skipped — you can add the control bot any time"
+                  : undefined
+              }
               className={cn(
                 "flex items-center gap-2 rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors",
+                clickable && "cursor-pointer hover:border-[var(--app-border-strong)]",
                 current
                   ? "border-[var(--app-border-strong)] bg-[var(--app-active)] text-[var(--app-text)]"
-                  : done
+                  : state === "done"
                     ? "border-[rgba(74,222,128,0.28)] bg-[#0c0c0c] text-[#86efac]"
-                    : "border-[var(--app-border)] bg-[#0c0c0c] text-[var(--app-text-4)]",
+                    : state === "skipped"
+                      ? "border-[var(--app-border)] bg-[#0c0c0c] text-[var(--app-text-3)]"
+                      : "border-[var(--app-border)] bg-[#0c0c0c] text-[var(--app-text-4)]",
               )}
             >
-              {done && !current ? (
+              {!current && state === "done" ? (
                 <CheckCircle2 className="h-3.5 w-3.5" />
+              ) : !current && state === "skipped" ? (
+                <MinusCircle className="h-3.5 w-3.5" />
               ) : (
                 <Icon className="h-3.5 w-3.5" />
               )}
-              <span className="hidden sm:inline">{step.label}</span>
+              <span className="hidden sm:inline">
+                {step.label}
+                {"optional" in step && step.optional && state === "todo" && !current && (
+                  <span className="ml-1 text-[10.5px] text-[var(--app-text-4)]">optional</span>
+                )}
+              </span>
               <span className="sm:hidden">{step.n}</span>
-            </div>
-            {index < STEPS.length - 1 && (
-              <span className="h-px w-3 bg-[#26262a] sm:w-5" />
-            )}
+            </button>
+            {index < STEPS.length - 1 && <span className="h-px w-3 bg-[#26262a] sm:w-5" />}
           </li>
         );
       })}
@@ -390,21 +589,31 @@ function StepApiKeys({
   apiHash,
   onApiId,
   onApiHash,
+  onBlurApiId,
+  onBlurApiHash,
   onContinue,
-  error,
+  apiIdError,
+  apiHashError,
+  formError,
+  pending,
 }: {
   apiId: string;
   apiHash: string;
   onApiId: (value: string) => void;
   onApiHash: (value: string) => void;
+  onBlurApiId: () => void;
+  onBlurApiHash: () => void;
   onContinue: () => void;
-  error: string | null;
+  apiIdError?: string;
+  apiHashError?: string;
+  formError: string | null;
+  pending: boolean;
 }) {
   return (
     <Card>
       <CardHeader
         title="Telegram API keys"
-        description="Telegram gives every account its own app keys. You only do this once per model."
+        description="Telegram gives every account its own app keys. You do this once per model, signed in as her."
       />
       <div className="grid gap-6 p-5 lg:grid-cols-[1fr_1fr]">
         <ApiKeysGuide />
@@ -414,26 +623,38 @@ function StepApiKeys({
             label="api_id"
             value={apiId}
             onChange={onApiId}
+            onBlur={onBlurApiId}
             placeholder="1234567"
             inputMode="numeric"
+            error={apiIdError}
+            hint="Digits only — the shorter of the two values."
           />
           <Field
             label="api_hash"
             value={apiHash}
             onChange={onApiHash}
+            onBlur={onBlurApiHash}
             placeholder="0123456789abcdef0123456789abcdef"
             mono
+            error={apiHashError}
+            hint="32 characters, digits and letters a–f."
           />
-          {error && (
+          {formError && (
             <Callout tone="danger" icon={<AlertCircle className="h-3.5 w-3.5" />}>
-              {error}
+              {formError}
             </Callout>
           )}
           <Callout tone="neutral">
             We store these encrypted and use them only to keep her account online.
           </Callout>
-          <button type="button" onClick={onContinue} className="app-btn app-btn-primary h-10 w-full">
-            Continue
+          <button
+            type="button"
+            onClick={onContinue}
+            disabled={pending}
+            className="app-btn app-btn-primary h-10 w-full"
+          >
+            {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Save and continue
             <ArrowRight className="h-4 w-4" />
           </button>
         </div>
@@ -449,17 +670,21 @@ function StepApiKeys({
 function StepPhone({
   phone,
   onPhone,
+  onBlur,
   onSend,
   onBack,
   pending,
-  error,
+  phoneError,
+  formError,
 }: {
   phone: string;
   onPhone: (value: string) => void;
+  onBlur: () => void;
   onSend: () => void;
   onBack: () => void;
   pending: boolean;
-  error: string | null;
+  phoneError?: string;
+  formError: string | null;
 }) {
   return (
     <Card>
@@ -467,44 +692,46 @@ function StepPhone({
         title="Her phone number"
         description="Telegram sends a login code to this account — have the phone (or her Telegram app) at hand."
       />
-      <div className="space-y-4 p-5">
-        <div className="max-w-sm">
+      <div className="grid gap-6 p-5 lg:grid-cols-[1fr_1fr]">
+        <PhoneGuide />
+
+        <div className="space-y-4">
           <Field
             label="Phone number"
             value={phone}
             onChange={onPhone}
+            onBlur={onBlur}
             placeholder="+421901234567"
             inputMode="tel"
+            error={phoneError}
+            hint="International format, country code included."
           />
-          <p className="mt-2 text-[11.5px] text-[var(--app-text-4)]">
-            International format, including the country code.
-          </p>
-        </div>
 
-        {error && (
-          <Callout tone="danger" icon={<AlertCircle className="h-3.5 w-3.5" />}>
-            {error}
+          {formError && (
+            <Callout tone="danger" icon={<AlertCircle className="h-3.5 w-3.5" />}>
+              {formError}
+            </Callout>
+          )}
+
+          <Callout tone="gold" icon={<ShieldCheck className="h-3.5 w-3.5" />}>
+            Use a dedicated number, not your personal one. Telegram does not love userbots on
+            heavily used personal accounts.
           </Callout>
-        )}
 
-        <Callout tone="gold" icon={<ShieldCheck className="h-3.5 w-3.5" />}>
-          Use a dedicated number, not your personal one. Telegram does not love userbots on
-          heavily used personal accounts.
-        </Callout>
-
-        <div className="flex flex-wrap gap-2.5">
-          <button
-            type="button"
-            onClick={onSend}
-            disabled={pending}
-            className="app-btn app-btn-primary h-10 px-5"
-          >
-            {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Send code
-          </button>
-          <button type="button" onClick={onBack} className="app-btn app-btn-ghost h-10 px-5">
-            Back
-          </button>
+          <div className="flex flex-wrap gap-2.5">
+            <button
+              type="button"
+              onClick={onSend}
+              disabled={pending}
+              className="app-btn app-btn-primary h-10 px-5"
+            >
+              {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Send code
+            </button>
+            <button type="button" onClick={onBack} className="app-btn app-btn-ghost h-10 px-5">
+              Back
+            </button>
+          </div>
         </div>
       </div>
     </Card>
@@ -519,18 +746,22 @@ function StepCode({
   job,
   now,
   pending,
-  error,
+  codeError,
+  passwordError,
   onSubmitCode,
   onSubmitPassword,
   onStartOver,
+  backToApiKeys,
 }: {
   job: LoginJob;
   now: number;
   pending: boolean;
-  error: string | null;
+  codeError?: string;
+  passwordError?: string;
   onSubmitCode: (code: string) => void;
   onSubmitPassword: (password: string) => void;
   onStartOver: () => void;
+  backToApiKeys: React.ReactNode;
 }) {
   const [code, setCode] = useState("");
   const [password, setPassword] = useState("");
@@ -545,7 +776,7 @@ function StepCode({
   const waitingText: Record<string, string> = {
     send_code: "Asking Telegram to send the code…",
     verify_code: "Checking the code…",
-    verify_password: "Checking your password…",
+    verify_password: "Checking her password…",
   };
 
   return (
@@ -567,104 +798,150 @@ function StepCode({
         }
       />
 
-      <div className="space-y-4 p-5">
-        {job.phase === "error" ? (
-          <>
-            <Callout tone="danger" icon={<AlertCircle className="h-3.5 w-3.5" />}>
-              {jobError?.body ?? "The login attempt failed."}
-            </Callout>
-            <button type="button" onClick={onStartOver} className="app-btn app-btn-primary h-10 px-5">
-              Start over
-            </button>
-          </>
-        ) : waiting ? (
-          <div className="flex items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[#0c0c0c] px-4 py-5">
-            <Loader2 className="h-4.5 w-4.5 animate-spin text-[var(--app-text-2)]" />
-            <div>
-              <p className="text-[13.5px] text-[var(--app-text-2)]">{waitingText[job.phase]}</p>
-              {stale && (
-                <p className="mt-1 text-[12px] text-[var(--app-text-4)]">
-                  Taking longer than usual. If nothing happens within a minute, start over.
-                </p>
-              )}
+      <div className="grid gap-6 p-5 lg:grid-cols-[1fr_1fr]">
+        <CodeGuide />
+
+        <div className="space-y-4">
+          {job.phase === "error" ? (
+            <>
+              <Callout tone="danger" icon={<AlertCircle className="h-3.5 w-3.5" />}>
+                {jobError?.body ?? "The login attempt failed."}{" "}
+                {/* Chyba na kroku 3, ktorej príčina je na kroku 1 — nech je
+                    vidieť, kam sa vrátiť, a nie len „start over". */}
+                {jobError?.blamesApiKeys ? backToApiKeys : null}
+              </Callout>
+              <button
+                type="button"
+                onClick={onStartOver}
+                className="app-btn app-btn-primary h-10 px-5"
+              >
+                Start over
+              </button>
+            </>
+          ) : waiting ? (
+            <div className="flex items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[#0c0c0c] px-4 py-5">
+              <Loader2 className="h-4.5 w-4.5 animate-spin text-[var(--app-text-2)]" />
+              <div>
+                <p className="text-[13.5px] text-[var(--app-text-2)]">{waitingText[job.phase]}</p>
+                {stale && (
+                  <p className="mt-1 text-[12px] text-[var(--app-text-4)]">
+                    Taking longer than usual. If nothing happens within a minute, start over.
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-        ) : job.phase === "need_password" ? (
-          <div className="max-w-sm space-y-3">
-            <Field
-              label="Two-step password"
-              value={password}
-              onChange={setPassword}
-              type="password"
-              placeholder="Her Telegram password"
-            />
-            <button
-              type="button"
-              onClick={() => onSubmitPassword(password)}
-              disabled={pending || !password}
-              className="app-btn app-btn-primary h-10 w-full"
-            >
-              {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Confirm password
-            </button>
-          </div>
-        ) : (
-          <div className="max-w-sm space-y-3">
-            <Field
-              label="Login code"
-              value={code}
-              onChange={(value) => setCode(value.replace(/\D/g, "").slice(0, 8))}
-              placeholder="12345"
-              inputMode="numeric"
-              mono
-            />
-            <button
-              type="button"
-              onClick={() => onSubmitCode(code)}
-              disabled={pending || code.length < 4}
-              className="app-btn app-btn-primary h-10 w-full"
-            >
-              {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-              Confirm code
-            </button>
-          </div>
-        )}
+          ) : job.phase === "need_password" ? (
+            <div className="space-y-3">
+              <Field
+                label="Two-step password"
+                value={password}
+                onChange={setPassword}
+                type="password"
+                placeholder="Her Telegram password"
+                error={passwordError}
+                hint="Her Telegram cloud password. Used only for this sign-in."
+              />
+              <button
+                type="button"
+                onClick={() => onSubmitPassword(password)}
+                disabled={pending || !password}
+                className="app-btn app-btn-primary h-10 w-full"
+              >
+                {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Confirm password
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <Field
+                label="Login code"
+                value={code}
+                onChange={(value) => setCode(value.replace(/\D/g, "").slice(0, 8))}
+                placeholder="12345"
+                inputMode="numeric"
+                mono
+                error={codeError}
+                hint="Five digits, from the chat named Telegram."
+              />
+              <button
+                type="button"
+                onClick={() => onSubmitCode(code)}
+                disabled={pending || code.length < 4}
+                className="app-btn app-btn-primary h-10 w-full"
+              >
+                {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Confirm code
+              </button>
+            </div>
+          )}
 
-        {job.phase !== "error" && jobError && (
-          <Callout tone="danger" icon={<AlertCircle className="h-3.5 w-3.5" />}>
-            {jobError.body}
-          </Callout>
-        )}
+          {job.phase !== "error" && jobError && (
+            <Callout tone="danger" icon={<AlertCircle className="h-3.5 w-3.5" />}>
+              {jobError.body} {jobError.blamesApiKeys ? backToApiKeys : null}
+            </Callout>
+          )}
 
-        {error && (
-          <Callout tone="danger" icon={<AlertCircle className="h-3.5 w-3.5" />}>
-            {error}
-          </Callout>
-        )}
-
-        {job.phase !== "error" && (
-          <div className="flex items-center justify-between gap-3 border-t border-[var(--app-border)] pt-4 text-[12px] text-[var(--app-text-4)]">
-            <span>
-              {expiresIn > 0
-                ? `This attempt expires in ${formatCountdown(expiresIn)}.`
-                : "This attempt has expired."}
-            </span>
-            <button
-              type="button"
-              onClick={onStartOver}
-              className="text-[var(--app-text-3)] underline underline-offset-2 transition-colors hover:text-[var(--app-text)]"
-            >
-              Start over
-            </button>
-          </div>
-        )}
+          {job.phase !== "error" && (
+            <div className="flex items-center justify-between gap-3 border-t border-[var(--app-border)] pt-4 text-[12px] text-[var(--app-text-4)]">
+              <span>
+                {expiresIn > 0
+                  ? `This attempt expires in ${formatCountdown(expiresIn)}.`
+                  : "This attempt has expired."}
+              </span>
+              <button
+                type="button"
+                onClick={onStartOver}
+                className="text-[var(--app-text-3)] underline underline-offset-2 transition-colors hover:text-[var(--app-text)]"
+              >
+                Start over
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </Card>
   );
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Krok 4 — aktivácia                                                          */
+/*  Krok 4 — kontrolný bot (nepovinný)                                          */
+/* -------------------------------------------------------------------------- */
+
+function ControlBotFooter({
+  paired,
+  onContinue,
+  onSkip,
+}: {
+  paired: boolean;
+  onContinue: () => void;
+  onSkip: () => void;
+}) {
+  return (
+    <div className="space-y-2 border-t border-[var(--app-border)] pt-4">
+      <div className="flex flex-wrap items-center gap-2.5">
+        <button
+          type="button"
+          onClick={onContinue}
+          className={cn("app-btn h-10 px-5", paired ? "app-btn-primary" : "app-btn-ghost")}
+        >
+          Continue
+          <ArrowRight className="h-4 w-4" />
+        </button>
+        {!paired && (
+          <button type="button" onClick={onSkip} className="app-btn app-btn-primary h-10 px-5">
+            Skip for now
+          </button>
+        )}
+      </div>
+      <p className="text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+        She will reply to fans either way. You can add the control bot later in Settings.
+      </p>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Krok 5 — aktivácia                                                          */
 /* -------------------------------------------------------------------------- */
 
 function StepActivate({
@@ -672,13 +949,15 @@ function StepActivate({
   modelName,
   status,
   statusReason,
-  controlBotReady,
+  controlBotPaired,
+  onBackToBot,
 }: {
   modelId: string;
   modelName: string;
   status: string;
   statusReason: string;
-  controlBotReady: boolean;
+  controlBotPaired: boolean;
+  onBackToBot: () => void;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -714,20 +993,25 @@ function StepActivate({
         <ul className="space-y-2 text-[13px] text-[var(--app-text-2)]">
           <Ready>Telegram account connected</Ready>
           <Ready>Persona and behaviour can be tuned any time, no restart needed</Ready>
+          {controlBotPaired && <Ready>Control bot paired — notifications go to your Telegram</Ready>}
         </ul>
 
         {/* Bez kontrolného bota odpisuje ďalej (`runner.py` ho preskočí), ale
             majiteľ o novom fanúšikovi nevie a nemá ako prevziať chat. Nie je to
             teda prekážka aktivácie — je to vec, ktorú treba povedať nahlas. */}
-        {!controlBotReady && (
+        {!controlBotPaired && (
           <Callout tone="gold">
-            No control bot yet, so nothing will ping you about new fans and you cannot take
-            over a chat from your phone. She still replies.{" "}
+            You skipped the control bot, so nothing will ping you about new fans and you cannot
+            take over a chat from your phone. She still replies.{" "}
+            <button type="button" onClick={onBackToBot} className="underline underline-offset-2">
+              Set it up now
+            </button>
+            , or later in{" "}
             <Link
               href={`/app/m/${modelId}/telegram/settings`}
               className="underline underline-offset-2"
             >
-              Set it up in Settings
+              Settings
             </Link>
             .
           </Callout>
@@ -739,13 +1023,12 @@ function StepActivate({
           </Callout>
         )}
 
-        {statusReason && !isLive && (
-          <Callout tone="danger">{prettifyCode(statusReason)}</Callout>
-        )}
+        {statusReason && !isLive && <Callout tone="danger">{prettifyCode(statusReason)}</Callout>}
 
         {isLive || justActivated ? (
           <Callout tone="success" icon={<CheckCircle2 className="h-3.5 w-3.5" />}>
-            Your agent starts within 30 seconds. New DMs get answered from that moment on.
+            She comes online within 30 seconds and answers new DMs from that moment on. Message
+            her from another Telegram account to see it work.
           </Callout>
         ) : (
           <button
@@ -759,6 +1042,8 @@ function StepActivate({
           </button>
         )}
 
+        <ActivateGuide />
+
         <div className="flex flex-wrap gap-4 border-t border-[var(--app-border)] pt-4 text-[12.5px]">
           <Link
             href={`/app/m/${modelId}/persona`}
@@ -770,7 +1055,7 @@ function StepActivate({
             href={`/app/m/${modelId}/telegram/settings`}
             className="text-[var(--app-text-3)] transition-colors hover:text-[var(--app-text)]"
           >
-            {controlBotReady ? "Change control bot" : "Add a control bot"}
+            {controlBotPaired ? "Change control bot" : "Add a control bot"}
           </Link>
         </div>
       </div>
@@ -812,9 +1097,13 @@ function formatCountdown(ms: number): string {
 
 /**
  * Chybové kódy z workera (`login_jobs._error_code`) → vety pre klienta.
- * Neznámy kód aspoň zľudštíme, nech tam nesvieti `phone_number_banned`.
+ *
+ * Kód sa nikdy neukazuje taký, aký je: `flood_wait_600` klientovi nič nepovie,
+ * kým „Telegram ťa brzdí, počkaj 10 minút" povie všetko. `blamesApiKeys`
+ * označuje tie, ktorých príčina leží na prvom kroku — wizard k nim doloží odkaz
+ * späť ku kľúčom, aby sa hláška nedala prečítať pod nesprávnym políčkom.
  */
-export function loginErrorText(code: string): { body: string } {
+export function loginErrorText(code: string): { body: string; blamesApiKeys?: boolean } {
   const flood = /^flood_wait_(\d+)$/.exec(code);
   if (flood) {
     return {
@@ -837,7 +1126,10 @@ export function loginErrorText(code: string): { body: string } {
       return { body: "Telegram rejected that code. Start over and use the newest one." };
     case "api_id_invalid":
       return {
-        body: "Telegram rejected the api_id / api_hash pair. Check them on my.telegram.org and start over.",
+        body:
+          "Telegram did not accept the api_id and api_hash pair. Check both on my.telegram.org — " +
+          "the api_id is the short number, the api_hash the 32-character line.",
+        blamesApiKeys: true,
       };
     case "phone_number_invalid":
       return { body: "Telegram does not know that phone number. Check the country code." };

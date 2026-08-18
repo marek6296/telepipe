@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
-import { controlBotConfigured } from "@/app/app/m/[id]/telegram/actions";
-import { ControlBotForm } from "@/components/app/telegram/control-bot-form";
+import { pollControlBotAction } from "@/app/app/m/[id]/telegram/actions";
+import { ControlBotCard } from "@/components/app/telegram/control-bot-card";
 import {
   TelegramLimitsForm,
   type TelegramLimitsRow,
@@ -27,9 +27,9 @@ export default async function TelegramSettingsPage({
   const { id } = await params;
   const model = await requireModelSubTab(id, "telegram", "settings");
 
-  // Token je šifrovaný a klient naň nemá grant — či existuje, zistí server
-  // action so service kľúčom (po kontrole vlastníctva).
-  const controlBotReady = await controlBotConfigured(model.id);
+  // Token je šifrovaný a klient naň nemá grant — stav bota (uložený token,
+  // spárovaný chat, čakajúci kód) skladá server action so service kľúčom.
+  const controlBot = await pollControlBotAction(model.id);
 
   const supabase = await createClient();
   const { data } = await supabase
@@ -47,11 +47,9 @@ export default async function TelegramSettingsPage({
       />
 
       <div className="flex flex-col gap-5">
-        <ControlBotForm
-          modelId={model.id}
-          ownerChatId={model.owner_chat_id ? String(model.owner_chat_id) : ""}
-          alreadySaved={controlBotReady}
-        />
+        {/* Ten istý komponent, aký je štvrtým krokom sprievodcu — bota si tu
+            klient dorába, mení alebo odpája aj rok po spustení. */}
+        <ControlBotCard modelId={model.id} initial={controlBot} />
 
         {data ? (
           <TelegramLimitsForm limits={data as unknown as TelegramLimitsRow} />

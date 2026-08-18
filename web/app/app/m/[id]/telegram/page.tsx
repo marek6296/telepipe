@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { controlBotConfigured } from "@/app/app/m/[id]/telegram/actions";
+import { pollControlBotAction } from "@/app/app/m/[id]/telegram/actions";
 import { TelegramWizard } from "@/components/app/telegram/wizard";
 import { PageHeader } from "@/components/app/ui";
 import { requireModel } from "@/lib/models";
@@ -14,9 +14,9 @@ export default async function TelegramPage({ params }: PageProps<"/app/m/[id]/te
   const { id } = await params;
   const model = await requireModel(id);
   const connection = await getTelegramConnection(model);
-  // Token je šifrovaný a klient naň nemá grant — či existuje, zistí server
-  // action so service kľúčom (po kontrole vlastníctva).
-  const controlBotReady = await controlBotConfigured(model.id);
+  // Stav kontrolného bota (uložený token, spárovaný chat, čakajúci kód) skladá
+  // server action so service kľúčom — token je šifrovaný a klient naň nevidí.
+  const controlBot = await pollControlBotAction(model.id);
 
   return (
     <>
@@ -36,7 +36,7 @@ export default async function TelegramPage({ params }: PageProps<"/app/m/[id]/te
         apiHash={model.tg_api_hash ?? ""}
         connected={connection.connected}
         connectedPhone={connection.phone}
-        controlBotReady={controlBotReady}
+        controlBot={controlBot}
         initialJob={connection.latestJob}
       />
     </>
