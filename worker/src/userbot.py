@@ -55,6 +55,17 @@ _MAX_CHUNKS = 3
 # Ako často sa pozerá, či dashboard nepýta ukážku hlasovky. Je to tlačidlo
 # v prehliadači, takže sa čaká v sekundách, nie v minútach.
 _VOICE_JOB_POLL_S = 4
+
+# Prečo ukážka nevznikla — KÓDY, nie vety.
+#
+# Stĺpec `voice_jobs.error` číta jediný človek: klient v dashboarde, a ten
+# číta po anglicky. Worker hovorí po slovensky a nemá kde držať preklady,
+# takže sem ide kód a vetu k nemu složí web (`web/lib/voice.ts`). Kód, ktorý
+# web nepozná, sa ukáže tak, ako prišiel — surová chyba je vždy lepšia než
+# „niečo sa pokazilo".
+VOICE_JOB_NO_KEY = "no_eleven_key"
+VOICE_JOB_NO_VOICE = "no_voice_selected"
+VOICE_JOB_NO_AUDIO = "no_audio"
 # Od koľkej správy smie sama od seba poslať hlasovku. Cudziemu človeku sa
 # hlasovkou nezačína — kto ju dostane hneď, dostane skôr podozrenie než dôkaz.
 # Neplatí, keď si ju vypýta alebo keď pochybuje, že je skutočná.
@@ -1331,12 +1342,21 @@ class UserBot:
         ambience: str,
         behavior: Behavior,
         kind: str = "reply",
+        strength: str = "",
+        tempo: float = 0.0,
+        voice_id: str = "",
     ) -> str:
         """Odloží vyrobenú hlasovku do úložiska a zapíše ju do archívu.
 
         Dnes preto, aby si ich Marek vedel v dashboarde vypočuť a doladiť
         podľa nich zvuk. Neskôr preto, že z nich bude zásoba — keď ich budú
         stovky, dá sa siahnuť po hotovej namiesto vyrábania novej.
+
+        `strength`, `tempo` a `voice_id` sú tu preto, že ukážka z dashboardu
+        smie mať iné nastavenie než uložené — klient si v štúdiu posunie
+        posuvník a chce počuť práve to. Bez nich by sa do archívu zapísalo
+        uložené nastavenie a v zozname ukážok by pri každej stálo to isté,
+        hoci znejú inak. Prázdne = plati, čo je uložené (ostrá hlasovka).
 
         Zlyhanie sa ticho prehltne: hlasovka klientovi už odišla.
         """
@@ -1350,9 +1370,9 @@ class UserBot:
                     "text": text[:600],
                     "spoken": (spoken or "")[:600],
                     "ambience": ambience,
-                    "strength": behavior.voice_strength or "rough",
-                    "tempo": float(behavior.voice_tempo or 1.12),
-                    "voice_id": behavior.eleven_voice_id or "",
+                    "strength": strength or behavior.voice_strength or "rough",
+                    "tempo": float(tempo or behavior.voice_tempo or 1.12),
+                    "voice_id": voice_id or behavior.eleven_voice_id or "",
                     "url": url,
                     "bytes": len(data),
                     "kind": kind,
@@ -1370,6 +1390,10 @@ class UserBot:
         požiadavka preto chodí riadkom v databáze. Ukážka ide tým istým
         reťazcom ako ostrá hlasovka, takže čo Marek počuje pri ladení, to
         presne dostane aj klient.
+
+        UKÁŽKA SA NIKOMU NEPOSIELA. Nikde tu nie je `send_file` ani `tg_id` —
+        hotový súbor pristane v úložisku a v archíve (`kind="preview"`,
+        `tg_id=None`) a tam to končí. Fanúšik o nej nevie.
         """
         try:
             job = await self._db.pending_voice_job()
@@ -1383,27 +1407,47 @@ class UserBot:
 
         behavior = await self._behavior()
         text = (job.get("text") or "").strip()
+
+        # Čo naozaj zaznie: hodnota z práce, inak uložená. Vypočíta sa RAZ a
+        # použije sa dvakrát — pri výrobe aj pri zápise do archívu. Kým sa to
+        # počítalo na dvoch miestach, do archívu šlo uložené nastavenie, aj
+        # keď ukážka znela podľa posunutého posuvníka, a zoznam ukážok potom
+        # o všetkých tvrdil to isté.
+        kluc = job.get("eleven_key") or behavior.eleven_key
+        hlas_id = job.get("voice_id") or behavior.eleven_voice_id
+        izba = job.get("ambience") or behavior.voice_ambience or "home"
+        sila = job.get("strength") or behavior.voice_strength or "rough"
+        tempo = float(job.get("tempo") or behavior.voice_tempo or 1.12)
+        hlasitost = float(
+            job.get("ambience_level") or behavior.voice_ambience_level or 0.05
+        )
+
+        # Bez kľúča alebo bez hlasu `speak()` vráti prázdno hneď na prvom
+        # riadku a nič viac sa nedozvieme. Rozlíšiť to treba TU, kým sú obe
+        # hodnoty po ruke — inak dashboard ukáže „nepodarilo sa" na niečo,
+        # čo je jeden preklik.
+        if not kluc:
+            await self._db.finish_voice_job(int(job["id"]), error=VOICE_JOB_NO_KEY)
+            return
+        if not hlas_id:
+            await self._db.finish_voice_job(int(job["id"]), error=VOICE_JOB_NO_VOICE)
+            return
+
         try:
             povedane = await speech.to_spoken(self._llm, text)
             data = await livevoice.speak(
-                text,
-                job.get("eleven_key") or behavior.eleven_key,
-                job.get("voice_id") or behavior.eleven_voice_id,
-                job.get("ambience") or behavior.voice_ambience or "home",
-                job.get("strength") or behavior.voice_strength or "rough",
-                tempo=float(job.get("tempo") or behavior.voice_tempo or 1.12),
-                level=float(job.get("ambience_level") or behavior.voice_ambience_level or 0.05),
-                spoken=povedane,
+                text, kluc, hlas_id, izba, sila,
+                tempo=tempo, level=hlasitost, spoken=povedane,
             )
             if not data:
                 await self._db.finish_voice_job(
-                    int(job["id"]), error="Nahrávku sa nepodarilo vyrobiť"
+                    int(job["id"]), error=VOICE_JOB_NO_AUDIO
                 )
                 return
             url = await self._archive_voice(
-                None, data, text=text, spoken=povedane,
-                ambience=job.get("ambience") or "home",
+                None, data, text=text, spoken=povedane, ambience=izba,
                 behavior=behavior, kind="preview",
+                strength=sila, tempo=tempo, voice_id=hlas_id,
             )
             await self._db.finish_voice_job(int(job["id"]), url=url)
             log.info("Ukážka hlasovky #%s hotová (%s bajtov)", job["id"], len(data))

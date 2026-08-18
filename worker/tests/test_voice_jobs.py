@@ -131,6 +131,123 @@ class TestFrontaUkazok:
         asyncio.run(bot._voice_jobs_once())
         assert "ffmpeg" in db.finished[0]["error"]
 
+    def test_ukazka_sa_nikomu_neposiela(self, monkeypatch):
+        """Ukážka je na počúvanie v dashboarde, nie na doručenie fanúšikovi."""
+        bot, db = build(dict(self.JOB), monkeypatch=monkeypatch)
+        odoslane = []
+        monkeypatch.setattr(
+            bot, "_send_generated_voice",
+            lambda *a, **k: odoslane.append(a),
+        )
+        asyncio.run(bot._voice_jobs_once())
+
+        assert not odoslane, "preview nesmie skončiť v žiadnom chate"
+        assert db.clips[0]["tg_id"] is None, "ukážka nepatrí žiadnemu človeku"
+        assert db.clips[0]["kind"] == "preview"
+
+
+class TestUkazkaVieCoZaznelo:
+    """Zoznam ukážok má hovoriť pravdu o tom, čo je v nich počuť.
+
+    Kým sa nastavenia brali z práce len pri VÝROBE a do archívu sa písalo
+    uložené chovanie, klient si posunul tempo, vypočul si zmenu — a v zozname
+    mal pri oboch ukážkach to isté číslo. A/B ladenie tým stratilo zmysel.
+    """
+
+    JOB = dict(TestFrontaUkazok.JOB)
+
+    def test_archiv_nesie_nastavenie_z_prace_nie_ulozene(self, monkeypatch):
+        bot, db = build(dict(self.JOB), monkeypatch=monkeypatch)
+        asyncio.run(bot._voice_jobs_once())
+
+        zapis = db.clips[0]
+        assert zapis["ambience"] == "gym", "uložené je 'home'"
+        assert zapis["strength"] == "rough", "uložené je 'real'"
+        assert float(zapis["tempo"]) == 1.2, "uložené je 1.12"
+        assert zapis["voice_id"] == "hlas", "uložený je 'v'"
+
+    def test_vyroba_dostane_to_iste_co_archiv(self, monkeypatch):
+        import livevoice
+
+        db = FakeDb(dict(self.JOB))
+        bot = UserBot(make_config(), db, FakeLlm(), None, None)
+        zachytene = {}
+
+        async def fake_speak(text, key, voice, ambience, strength, **kw):
+            zachytene.update(
+                key=key, voice=voice, ambience=ambience, strength=strength, **kw
+            )
+            return b"OGG"
+
+        monkeypatch.setattr(livevoice, "speak", fake_speak)
+        asyncio.run(bot._voice_jobs_once())
+
+        zapis = db.clips[0]
+        assert zachytene["ambience"] == zapis["ambience"]
+        assert zachytene["strength"] == zapis["strength"]
+        assert zachytene["tempo"] == float(zapis["tempo"])
+        assert zachytene["voice"] == zapis["voice_id"]
+        assert zachytene["level"] == 0.08, "hlasitosť pozadia z práce"
+
+    def test_prazdne_polia_v_praci_padnu_na_ulozene(self, monkeypatch):
+        prazdna = dict(self.JOB, ambience="", strength="", tempo=0,
+                       ambience_level=0, voice_id="", eleven_key="")
+        bot, db = build(prazdna, monkeypatch=monkeypatch)
+        asyncio.run(bot._voice_jobs_once())
+
+        zapis = db.clips[0]
+        assert zapis["ambience"] == "home"
+        assert zapis["strength"] == "real"
+        assert float(zapis["tempo"]) == 1.12
+        assert zapis["voice_id"] == "v"
+
+
+class TestPrecoUkazkaNevznikla:
+    """Dashboard potrebuje vetu, nie ticho — a rozlíšiteľnú.
+
+    „Nepodarilo sa" na chýbajúci hlas je najhoršia možná odpoveď: klient to
+    má na jeden preklik a nevie o tom.
+    """
+
+    JOB = dict(TestFrontaUkazok.JOB, voice_id="", eleven_key="")
+
+    def test_bez_kluca_povie_ze_chyba_kluc(self, monkeypatch):
+        import userbot as U
+
+        bot, db = build(dict(self.JOB), monkeypatch=monkeypatch)
+        db.behavior["eleven_key"] = ""
+        asyncio.run(bot._voice_jobs_once())
+
+        assert db.finished[0]["error"] == U.VOICE_JOB_NO_KEY
+        assert not db.uploads, "bez kľúča sa nemá čo vyrábať ani ukladať"
+
+    def test_bez_hlasu_povie_ze_chyba_hlas(self, monkeypatch):
+        import userbot as U
+
+        bot, db = build(dict(self.JOB), monkeypatch=monkeypatch)
+        db.behavior["eleven_voice_id"] = ""
+        asyncio.run(bot._voice_jobs_once())
+
+        assert db.finished[0]["error"] == U.VOICE_JOB_NO_VOICE
+
+    def test_ked_nevznikol_zvuk_je_to_vlastny_kod(self, monkeypatch):
+        import userbot as U
+
+        bot, db = build(dict(TestFrontaUkazok.JOB), speak_returns=None,
+                        monkeypatch=monkeypatch)
+        asyncio.run(bot._voice_jobs_once())
+
+        assert db.finished[0]["error"] == U.VOICE_JOB_NO_AUDIO
+
+    def test_kody_su_rozlisitelne(self):
+        import userbot as U
+
+        kody = {U.VOICE_JOB_NO_KEY, U.VOICE_JOB_NO_VOICE, U.VOICE_JOB_NO_AUDIO}
+        assert len(kody) == 3
+        # Web ich prekladá podľa presnej zhody — medzery ani veľké písmená
+        # by tú zhodu ticho rozbili.
+        assert all(k == k.strip().lower() and " " not in k for k in kody)
+
 
 class TestArchiv:
     def test_zapise_co_a_odkial_znelo(self, monkeypatch):
