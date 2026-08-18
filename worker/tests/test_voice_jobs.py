@@ -726,12 +726,27 @@ class TestKolisanieHlasitosti:
     """Aj pravidelná sínusovka je vzor. Skutočná hlasovka má nepravidelnosti."""
 
     def test_kratka_nahravka_ma_par_udalosti(self):
+        """Počet výkyvov je zhora ohraničený a niektoré nahrávky nemajú žiadny.
+
+        Prítomnosť výkyvu je sama o sebe vzor: keby ho mala každá hlasovka,
+        dalo by sa to po pár nahrávkach začuť rovnako ako pravidelnú vlnu.
+        """
         import random
         import livevoice as L
 
-        for seed in range(30):
-            ud = L.volume_events(7.0, lead=0.9, rng=random.Random(seed))
-            assert 1 <= len(ud) <= L.EVENTS_MAX + 1, f"seed {seed}: {len(ud)}"
+        pocty = [len(L.volume_events(7.0, lead=0.9, rng=random.Random(s))) for s in range(60)]
+        assert all(p <= L.EVENTS_MAX + 1 for p in pocty), pocty
+        assert any(p == 0 for p in pocty), "žiadna hlasovka bez výkyvu"
+        assert any(p > 0 for p in pocty), "žiadna hlasovka s výkyvom"
+
+    def test_bez_vykyvu_je_mensina(self):
+        """Plynulé nahrávky majú byť menšina — inak sa stratí to, čo ich robí živými."""
+        import random
+        import livevoice as L
+
+        r = random.Random(4)
+        bez = sum(1 for _ in range(600) if not L.volume_events(7.0, 0.9, r))
+        assert 0.20 < bez / 600 < 0.50, f"bez výkyvu {bez / 600:.0%}"
 
     def test_udalosti_padnu_do_reci_nie_do_ticha(self):
         import random
@@ -762,8 +777,12 @@ class TestKolisanieHlasitosti:
             ud = L.volume_events(7.0, 0.9, r)
             if any(h >= L.GLITCH_DEPTH[0] for _, h, _ in ud):
                 so_zadrhom += 1
+        # Spodná hranica je nízko schválne. Zádrh sa losuje pri 5 %, ale dostane
+        # sa do nahrávky menej často: tretina hlasoviek nemá výkyvy vôbec
+        # (`NO_DIPS_CHANCE`) a keď sa zádrh trafí k inej udalosti, odstupová
+        # podmienka ho zahodí. Test stráži „vzácny, nie nikdy" — nie presné číslo.
         podiel = so_zadrhom / 600
-        assert 0.01 < podiel < 0.12, f"zádrh v {podiel:.0%} nahrávok"
+        assert 0.002 < podiel < 0.12, f"zádrh v {podiel:.1%} nahrávok"
 
     def test_kolisanie_musi_byt_pocut(self):
         """Jemné kolísanie o pár percent sa stratí pod kompresorom.
@@ -903,7 +922,9 @@ class TestKoniecHlasovky:
 
         assert L.TAIL_MAX > L.LEAD_MAX
         assert L.TAIL_MIN >= 1.0, "kratší koniec vyzerá ako odseknutá nahrávka"
-        assert L.TAIL_MAX <= 3.0
+        assert L.TAIL_MAX <= 4.5
+        # Začiatok je dlhý dosť na to, aby bolo pred prvým slovom počuť, kde je.
+        assert L.LEAD_MIN >= 1.0, "krátky nábeh znie, akoby nahrávanie spustil stroj"
 
     def test_chvost_kolise_v_rozsahu(self):
         import random
@@ -951,3 +972,50 @@ class TestPozadieNieJeZakazdymRovnake:
             ulica = L.ambience_mix("outside", 0.05 * nasobic)[0]
             spalna = L.ambience_mix("bedroom", 0.05 * nasobic)[0]
             assert ulica > spalna
+
+
+class TestPohybPozadia:
+    """Miestnosť sa hýbe počas celej nahrávky, nie len na okrajoch.
+
+    Jedna hladina na celú hlasovku je vzor ako každý iný — chladnička sa zapne
+    a vypne, auto prejde, niekto zavrie dvere. A hýbe sa sama, nie s hlasom:
+    keby kopírovala jeho kolísanie, znelo by to, akoby sa s ňou hýbala izba.
+    """
+
+    def test_udalosti_idu_nahor_aj_nadol(self):
+        import random
+        import livevoice as L
+
+        r = random.Random(11)
+        zmeny = [z for _ in range(200) for _, z, _ in L.room_events(12.0, r)]
+        assert any(z > 0 for z in zmeny), "pozadie sa nikdy nezosilní"
+        assert any(z < 0 for z in zmeny), "pozadie nikdy nestíchne"
+
+    def test_kratka_nahravka_pozadie_nehybe(self):
+        """Pod tri sekundy nie je čo rozvlniť — vyšlo by z toho cukanie."""
+        import livevoice as L
+
+        assert L.room_events(2.0) == []
+
+    def test_udalosti_sa_neprekryvaju(self):
+        import random
+        import livevoice as L
+
+        for seed in range(40):
+            ud = L.room_events(14.0, random.Random(seed))
+            for i in range(1, len(ud)):
+                (t1, _, w1), (t2, _, w2) = ud[i - 1], ud[i]
+                assert t2 - t1 >= (w1 + w2) * 1.5 - 0.01, f"seed {seed}: {ud}"
+
+    def test_vyraz_nikdy_nejde_do_minusu(self):
+        """Miestnosť smie stíchnuť, do zápornej hlasitosti ísť nesmie."""
+        import livevoice as L
+
+        vyraz = L.room_expression(0.15, [(2.0, -0.55, 1.0), (5.0, -0.55, 1.0)])
+        assert vyraz.startswith("max(0\\,")
+
+    def test_pozadie_ma_vlastnu_periodu(self):
+        """Vlnenie izby je pomalšie než kolísanie hlasu a je zakaždým iné."""
+        import livevoice as L
+
+        assert L.ROOM_DRIFT_PERIOD_MIN > L.DRIFT_PERIOD_MAX

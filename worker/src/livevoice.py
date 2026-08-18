@@ -250,6 +250,11 @@ GLITCH_WIDTH = (0.03, 0.08)
 GLITCH_DEPTH = (0.75, 0.92)
 GLITCH_CHANCE = 0.05
 
+# Ako často nemá hlas v nahrávke ŽIADNY výkyv — hovorila plynulo a telefón
+# držala pevne. Bez toho by mala výkyv každá jedna hlasovka a z výnimky by sa
+# stalo pravidlo, ktoré sa dá po pár nahrávkach začuť.
+NO_DIPS_CHANCE = 0.35
+
 # Mikrofón v telefóne, nie kondenzátor pred ústami: dolu odrezané dunenie,
 # okolo 250 Hz stiahnutá „krabica" z blízkeho snímania a mierne zdôraznené
 # stredy, kde telefón nesie zrozumiteľnosť.
@@ -265,10 +270,14 @@ _PHONE_MIC = (
 # chvíľu drží tlačidlo. Nahrávka, ktorá začne prvou slabikou a skončí poslednou,
 # je na to príliš presná. Keď je pod ňou miestnosť, v tom tichu je počuť ju,
 # čo je presne to, čo sa má stať.
-LEAD_MIN, LEAD_MAX = 0.5, 1.5
+# Jedna až tri sekundy: kým nájde tlačidlo, nadýchne sa a rozhodne sa, čím
+# začne. Kratšie ticho pôsobí, akoby nahrávanie spustil stroj presne na slovo.
+# Miestnosť pod tým hrá od nultej sekundy — vetva pozadia sa NEODKLADÁ, odkladá
+# sa len hlas, takže poslucháč najprv počuje, kde je, a až potom ju.
+LEAD_MIN, LEAD_MAX = 1.0, 3.0
 # Koniec je dlhší než začiatok. Človek dohovorí, chvíľu ešte drží tlačidlo a
 # až potom nahrávanie zastaví — a v tom tichu dobehne miestnosť do stratena.
-TAIL_MIN, TAIL_MAX = 1.0, 3.0
+TAIL_MIN, TAIL_MAX = 1.5, 4.0
 
 # Ako hlasno vyjde celá hlasovka. Rovnaká hlasitosť zakaždým znie ako výstup
 # zo stroja; skutočné hlasovky sú raz tichšie, raz hlasnejšie podľa toho, ako
@@ -278,11 +287,12 @@ TAIL_MIN, TAIL_MAX = 1.0, 3.0
 # hlasné. Filter sedí až za kompresorom a pred limiterom, takže sa stíšenie
 # neprežerie späť a prejde celé.
 #
-# Strop je o 30 % nižšie než predtým (0.40): tie najhlasnejšie z rozsahu boli
-# na počúvanie nepríjemné. Spodok klesol menej, nech sa rozpätie nezúži na
-# nič — variabilita hlasitosti je to, čo odlišuje sériu hlasoviek od stroja.
+# Celý rozsah ide dole a hlavne sa ROZŠIRUJE nadol. Strop 0.26 je pod tým, čo
+# bolo predtým bežné; spodok 0.10 je nahrávka, pri ktorej mala telefón položený
+# ďalej alebo hovorila potichu, aby ju nebolo počuť vedľa. Práve tie tiché sú
+# to, čo sérii chýbalo — keď je každá rovnako blízko úst, je to zjavné.
 # Pomer hlasu a miestnosti sa tým nemení, `volume` sedí až na celom mixe.
-NOTE_MIN, NOTE_MAX = 0.18, 0.28
+NOTE_MIN, NOTE_MAX = 0.10, 0.26
 
 # Ako hlasno vyjde miestnosť v tejto konkrétnej nahrávke.
 #
@@ -298,6 +308,72 @@ def ambience_jitter(rng: Optional[random.Random] = None) -> float:
     return round(
         (rng or random).uniform(AMBIENCE_JITTER_MIN, AMBIENCE_JITTER_MAX), 3
     )
+
+
+# Ako sa miestnosť hýbe POČAS nahrávky.
+#
+# Jedna hladina na celú hlasovku je vzor ako každý iný: skutočná izba nie je
+# celý čas rovnako hlasná. Chladnička sa zapne a vypne, auto prejde a stíchne,
+# niekto zavrie dvere vo vedľajšej izbe, ona sa otočí a mikrofón zrazu smeruje
+# inam. Preto má pozadie vlastné pomalé vlnenie a k tomu zopár nepravidelných
+# miest — a keďže sú vlastné, nekopírujú kolísanie hlasu.
+#
+# Perióda je dlhšia než pri hlase (ten kolíše s pohybom ruky, izba s dianím
+# okolo) a hlavne je zakaždým iná, nech sa dve hlasovky nedajú priložiť na seba.
+ROOM_DRIFT = 0.30
+# Spodná hranica je NAD hornou hranicou vlnenia hlasu (9.0) schválne: keby sa
+# obe vlny mohli trafiť na rovnakú periódu, chytili by sa do fázy a stúpali by
+# spolu — a to znie, akoby sa s ňou hýbala celá izba.
+ROOM_DRIFT_PERIOD_MIN, ROOM_DRIFT_PERIOD_MAX = 9.5, 18.0
+
+# Udalosti v pozadí. NAHOR aj NADOL — auto sa priblíži a vzdiali, dvere zvuk
+# odrežú. Šírka je v sekundách: pozadie sa mení pomalšie než hlas, lebo sa hýbe
+# svet, nie ruka.
+ROOM_EVENTS_MIN, ROOM_EVENTS_MAX = 1, 4
+ROOM_EVENT_WIDTH = (0.6, 2.5)
+ROOM_EVENT_DEPTH = (0.20, 0.55)
+ROOM_SWELL_CHANCE = 0.55
+
+
+def room_events(duration: float, rng: Optional[random.Random] = None) -> list:
+    """Kedy sa miestnosť nadvihne alebo stíši. Zoznam (čas, zmena, šírka).
+
+    Kladná zmena = zosilnie, záporná = stíši sa. Udalosti sa nesmú prekrývať,
+    inak by sa sčítali do jedného dlhého kopca a z nepravidelnosti by bol tvar.
+    """
+    r = rng or random
+    if duration < 3.0:
+        return []
+
+    udalosti: list = []
+    for _ in range(r.randint(ROOM_EVENTS_MIN, ROOM_EVENTS_MAX)):
+        sirka = r.uniform(*ROOM_EVENT_WIDTH)
+        kedy = r.uniform(0.2, max(0.3, duration - 0.2))
+        zmena = r.uniform(*ROOM_EVENT_DEPTH)
+        if r.random() >= ROOM_SWELL_CHANCE:
+            zmena = -zmena
+        if any(abs(kedy - t) < (sirka + w) * 1.5 for t, _, w in udalosti):
+            continue
+        udalosti.append((round(kedy, 2), round(zmena, 3), round(sirka, 3)))
+    return sorted(udalosti)
+
+
+def room_expression(
+    base: float,
+    events: list,
+    drift: float = ROOM_DRIFT,
+    drift_period: float = 12.0,
+) -> str:
+    """Výraz pre `volume` na vetve miestnosti — vlnenie plus udalosti.
+
+    Rovnaký tvar ako `volume_expression`, ale zmeny idú oboma smermi a dole je
+    poistka na nulu: miestnosť smie stíchnuť, do mínusu ísť nesmie.
+    """
+    vyraz = f"1+{drift}*sin(2*PI*t/{drift_period:.2f})"
+    for kedy, zmena, sirka in events:
+        znak = "+" if zmena >= 0 else "-"
+        vyraz += f"{znak}{abs(zmena)}*exp(-pow((t-{kedy})/{sirka}\\,2))"
+    return f"max(0\\,{base:.5f}*({vyraz}))"
 
 # Rozptyl tempa okolo nastavenej hodnoty. Skôr rýchlejšie než pomalšie —
 # pomalý prednes je na hlasovke to prvé, čo prezradí, že ju nikto nehovoril.
@@ -318,6 +394,10 @@ def volume_events(
     """
     r = rng or random
     if duration < 1.5:
+        return []
+    # Nie každá hlasovka má výkyv. Keď ho má každá, je pravidelnosťou samotná
+    # jeho prítomnosť — a to je ten istý vzor, pred ktorým sa tu chránime.
+    if r.random() < NO_DIPS_CHANCE:
         return []
     zaciatok, koniec = lead + 0.4, lead + duration - 0.4
     if koniec <= zaciatok:
@@ -523,10 +603,21 @@ async def _mix(
             # `hiss` ide dnu preto, že spodná hranica hlasitosti miestnosti je
             # daná práve šumom kapsuly — a ten sa líši podľa `strength`.
             hlasitost, dolna, horna = ambience_mix(ambience_name, level, hiss)
+            # Miestnosť sa hýbe počas celej nahrávky, nie len na začiatku a na
+            # konci: vlastné pomalé vlnenie plus zopár nepravidelných miest,
+            # kde niečo prejde alebo stíchne. Vlastné je dôležité — keby sa
+            # riadila kolísaním hlasu, znelo by to, akoby sa s ňou hýbala celá
+            # izba, a to je fyzikálny nezmysel.
+            cele_trvanie = lead + (trvanie or 0.0) / max(tempo, 0.1) + tail
+            izba_udalosti = room_events(cele_trvanie)
+            izba_perioda = random.uniform(ROOM_DRIFT_PERIOD_MIN, ROOM_DRIFT_PERIOD_MAX)
+            if izba_udalosti:
+                log.info("Pohyb pozadia: %s", izba_udalosti)
             graf += (
                 f"[1:a]{_NORMALISE},afftdn=nr=32:nf=-38,"
                 f"highpass=f={dolna},lowpass=f={horna},"
-                f"volume={hlasitost:.4f}{stmavni}[izba];"
+                f"volume='{room_expression(hlasitost, izba_udalosti, drift_period=izba_perioda)}'"
+                f":eval=frame{stmavni}[izba];"
             )
             graf += "[hlas][izba][sum]amix=inputs=3:duration=first:dropout_transition=0"
         else:
