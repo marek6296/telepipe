@@ -32,7 +32,11 @@ model, and pay per usage in credits.
 ## Deploy
 
 - **Web:** push to `main` → Vercel builds `web/` and deploys to telepipe.me.
-- **Worker:** `cd worker && railway up` (project `telepipe`, service `worker`).
+- **Worker:** `worker/deploy.sh` (project `telepipe`, service `worker`, env `production`).
+  Nasadzuj **len** cez tento skript, nikdy nie holým `cd worker && railway up`: `railway up`
+  nahráva živý pracovný adresár vrátane necommitnutých súborov, čím raz do produkcie odišiel
+  polorozpísaný modul a zhodil worker. Skript nahráva `git archive HEAD worker` a odmietne
+  bežať, ak má `worker/` rozrobené zmeny.
 
 See `worker/README.md` and `web/.env.example` for environment variables. Before the first
 real tenant, seed the `pricing` table (or let the daily Atlas sync populate it).

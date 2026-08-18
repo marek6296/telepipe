@@ -1,0 +1,7 @@
+# railway up číta .gitignore len z adresára, ktorý nahráva — a ten je worker/,
+# takže koreňový .gitignore sa neuplatní. Toto je jeho náhrada pre prípad, že
+# niekto spustí `railway up` ručne namiesto ./deploy.sh.
+__pycache__/
+.venv/
+.pytest_cache/
+.env
