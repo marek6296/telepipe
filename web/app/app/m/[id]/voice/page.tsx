@@ -1,10 +1,19 @@
 import type { Metadata } from "next";
 
+import { recentPreviewsAction } from "@/app/app/m/[id]/voice/actions";
 import { VoiceForm, type VoiceRow } from "@/components/app/voice-form";
+import { VoiceStudio } from "@/components/app/voice-studio";
 import { Callout, PageHeader } from "@/components/app/ui";
 import { loadVoiceCatalog } from "@/lib/eleven";
 import { getAccount, requireModelTab } from "@/lib/models";
 import { createClient } from "@/lib/supabase/server";
+import { toNumber } from "@/lib/format";
+import {
+  AMBIENCE_DEFAULT,
+  AMBIENCE_LEVEL_DEFAULT,
+  STRENGTH_DEFAULT,
+  TEMPO_DEFAULT,
+} from "@/lib/voice";
 
 export const metadata: Metadata = {
   title: "Voice",
@@ -45,6 +54,12 @@ export default async function VoicePage({ params }: PageProps<"/app/m/[id]/voice
   // ElevenLabs nesmie opustiť server, ani na jedno GET.
   const catalog = await loadVoiceCatalog(account?.id ?? "");
 
+  const voice = data as unknown as VoiceRow;
+
+  // Štúdio má zmysel iba s pripojeným účtom — bez kľúča nie je čím prehovoriť
+  // a tlačidlo „Generate" by sľubovalo niečo, čo nemôže vzniknúť.
+  const clips = catalog.connected ? await recentPreviewsAction(model.id).catch(() => []) : [];
+
   return (
     <>
       <PageHeader
@@ -53,9 +68,28 @@ export default async function VoicePage({ params }: PageProps<"/app/m/[id]/voice
         description="Voice notes convert better than text — and they are the hardest thing to fake. The ElevenLabs account is connected once in Account settings; here you only pick her voice and how she uses it."
       />
       <VoiceForm
-        voice={data as unknown as VoiceRow}
+        voice={voice}
         catalog={catalog}
       />
+      {catalog.connected && (
+        <div className="mt-5">
+          <VoiceStudio
+            modelId={model.id}
+            saved={{
+              hasVoice: Boolean(voice.eleven_voice_id),
+              ambience: voice.voice_ambience || AMBIENCE_DEFAULT,
+              strength: voice.voice_strength || STRENGTH_DEFAULT,
+              tempo: toNumber(voice.voice_tempo) || TEMPO_DEFAULT,
+              // Nula je platná hodnota (ticho pod hlasom), takže `||` by ju
+              // ticho prepísalo na 5 %. Default patrí len chýbajúcemu číslu.
+              ambience_level: Number.isFinite(toNumber(voice.voice_ambience_level))
+                ? toNumber(voice.voice_ambience_level)
+                : AMBIENCE_LEVEL_DEFAULT,
+            }}
+            clips={clips}
+          />
+        </div>
+      )}
     </>
   );
 }

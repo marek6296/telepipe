@@ -310,8 +310,8 @@ function VoiceSettings({ voice }: { voice: VoiceRow }) {
               name="voice_tempo"
               label="Speaking tempo"
               defaultValue={num(voice.voice_tempo)}
-              min={0.5}
-              max={2}
+              min={TEMPO_MIN}
+              max={TEMPO_MAX}
               step={0.01}
               format={(value) => `${value.toFixed(2)}×`}
               help="Above 1 she talks faster. Around 1.10 sounds natural on a phone recording."
@@ -327,11 +327,7 @@ function VoiceSettings({ voice }: { voice: VoiceRow }) {
               name="voice_strength"
               label="Recording quality"
               defaultValue={voice.voice_strength}
-              options={[
-                { value: "soft", label: "Soft — clean studio" },
-                { value: "real", label: "Real — like a phone" },
-                { value: "rough", label: "Rough — noisy room" },
-              ]}
+              options={STRENGTH}
               help="How much phone-microphone character gets mixed in."
             />
             <SliderField

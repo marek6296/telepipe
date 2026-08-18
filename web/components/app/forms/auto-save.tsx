@@ -35,8 +35,19 @@ type AutoSaveApi = {
 
 const AutoSaveContext = createContext<AutoSaveApi | null>(null);
 
+/**
+ * Ako `useAutoSaveField`, ale mimo formulára nevyhodí — vráti `null`.
+ *
+ * Je to pre polia, ktoré vedia obe roly: v karte sa samy ukladajú, v štúdiu
+ * hlasu len hlásia hodnotu von a neukladá sa nič, kým klient nepovie. Hooky
+ * sa nedajú volať podmienene, takže rozhodnúť sa musí až podľa výsledku.
+ */
+export function useOptionalAutoSaveField(): AutoSaveApi | null {
+  return useContext(AutoSaveContext);
+}
+
 export function useAutoSaveField(): AutoSaveApi {
-  const context = useContext(AutoSaveContext);
+  const context = useOptionalAutoSaveField();
   if (!context) {
     throw new Error("Pole formulára musí byť vnútri <AutoSaveForm>.");
   }

@@ -2,14 +2,33 @@
 
 import { useId, useState, type ReactNode } from "react";
 
-import { useAutoSaveField } from "@/components/app/forms/auto-save";
+import {
+  useAutoSaveField,
+  useOptionalAutoSaveField,
+  type SavePatch,
+} from "@/components/app/forms/auto-save";
 import { hhMmToMinutes, minutesToHhMm } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
  * Polia formulárov s auto-save. Každé si drží vlastnú hodnotu a pri zmene ju
  * pošle do bufferu (`set`); pri opustení poľa vynúti zápis (`flush`).
+ *
+ * Dve z nich (`SliderField`, `SelectField`) vedia aj druhú rolu: s `onChange`
+ * sa neukladajú vôbec a hodnotu len ohlásia von. Slúži to štúdiu hlasu, kde
+ * sa nastavenie najprv skúša sluchom a ukladá až na výslovný pokyn.
  */
+
+/** Bez `onChange` musí pole stáť vo formulári — inak nemá kam zapísať. */
+function requireForm(api: {
+  set: (name: string, value: SavePatch[string]) => void;
+  flush: () => void;
+} | null) {
+  if (!api) {
+    throw new Error("Pole formulára musí byť vnútri <AutoSaveForm> alebo dostať onChange.");
+  }
+  return api;
+}
 
 function Shell({
   label,
@@ -190,6 +209,7 @@ export function SliderField({
   step = 0.01,
   format = (value: number) => `${Math.round(value * 100)}%`,
   className,
+  onChange,
 }: {
   name: string;
   label: string;
@@ -200,10 +220,21 @@ export function SliderField({
   step?: number;
   format?: (value: number) => string;
   className?: string;
+  /**
+   * Keď je zadané, pole sa NEUKLADÁ — hodnotu len ohlási von. Tak ho používa
+   * štúdio hlasu, kde sa najprv počúva a ukladá až potom. Bez toho by každé
+   * posunutie posuvníka prepísalo nastavenie, ktoré ide fanúšikom.
+   */
+  onChange?: (value: number) => void;
 }) {
   const id = useId();
-  const { set, flush } = useAutoSaveField();
+  const auto = useOptionalAutoSaveField();
   const [value, setValue] = useState(defaultValue);
+  const emit = (next: number) =>
+    onChange ? onChange(next) : requireForm(auto).set(name, next);
+  const flush = () => {
+    if (!onChange) requireForm(auto).flush();
+  };
 
   return (
     <Shell
@@ -227,7 +258,7 @@ export function SliderField({
         onChange={(event) => {
           const next = Number(event.target.value);
           setValue(next);
-          set(name, next);
+          emit(next);
         }}
         onPointerUp={flush}
         onBlur={flush}
@@ -299,6 +330,7 @@ export function SelectField({
   defaultValue,
   options,
   className,
+  onChange,
 }: {
   name: string;
   label: string;
@@ -306,9 +338,11 @@ export function SelectField({
   defaultValue: string;
   options: { value: string; label: string }[];
   className?: string;
+  /** Viď `SliderField` — s `onChange` sa pole neukladá, len hlási hodnotu. */
+  onChange?: (value: string) => void;
 }) {
   const id = useId();
-  const { set, flush } = useAutoSaveField();
+  const auto = useOptionalAutoSaveField();
   const [value, setValue] = useState(defaultValue);
 
   return (
@@ -317,9 +351,15 @@ export function SelectField({
         id={id}
         value={value}
         onChange={(event) => {
-          setValue(event.target.value);
-          set(name, event.target.value);
-          flush();
+          const next = event.target.value;
+          setValue(next);
+          if (onChange) {
+            onChange(next);
+            return;
+          }
+          const form = requireForm(auto);
+          form.set(name, next);
+          form.flush();
         }}
         className="app-input app-select"
       >
