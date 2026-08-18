@@ -412,9 +412,25 @@ class TestNikdyDvakratRovnako:
         r = random.Random(11)
         vzorky = [L.wobble_tempo(1.12, r) for _ in range(400)]
         rychlejsie = sum(1 for t in vzorky if t > 1.12)
-        assert 0.6 < rychlejsie / len(vzorky) < 0.85, "väčšinou, ale nie vždy"
+        assert 0.5 < rychlejsie / len(vzorky) < 0.75, "väčšinou, ale nie vždy"
         assert min(vzorky) >= 1.12 - L.TEMPO_DOWN - 0.001
         assert max(vzorky) <= 1.12 + L.TEMPO_UP + 0.001
+
+    def test_rozptyl_neprepise_nastavenie(self):
+        """Priemer musí sedieť na nastavenej hodnote, nie ju posúvať.
+
+        Pri +0.18 nahor, -0.06 nadol a 72 % šanci na zrýchlenie vychádzalo
+        z nastavenia 1.22 skutočné tempo 1.28 — klient si nastavil jedno číslo
+        a dostával iné. Rozptyl smie kolísať, nie systematicky posúvať.
+        """
+        import random
+        import livevoice as L
+
+        r = random.Random(3)
+        for zaklad in (1.00, 1.12, 1.22):
+            vzorky = [L.wobble_tempo(zaklad, r) for _ in range(800)]
+            priemer = sum(vzorky) / len(vzorky)
+            assert abs(priemer - zaklad) < 0.03, f"{zaklad} → {priemer:.3f}"
 
     def test_tempo_ostane_v_medziach_atempo(self):
         import livevoice as L

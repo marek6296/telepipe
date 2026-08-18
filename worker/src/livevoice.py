@@ -292,7 +292,7 @@ TAIL_MIN, TAIL_MAX = 1.5, 4.0
 # ďalej alebo hovorila potichu, aby ju nebolo počuť vedľa. Práve tie tiché sú
 # to, čo sérii chýbalo — keď je každá rovnako blízko úst, je to zjavné.
 # Pomer hlasu a miestnosti sa tým nemení, `volume` sedí až na celom mixe.
-NOTE_MIN, NOTE_MAX = 0.10, 0.26
+NOTE_MIN, NOTE_MAX = 0.07, 0.17
 
 # Ako hlasno vyjde miestnosť v tejto konkrétnej nahrávke.
 #
@@ -375,11 +375,18 @@ def room_expression(
         vyraz += f"{znak}{abs(zmena)}*exp(-pow((t-{kedy})/{sirka}\\,2))"
     return f"max(0\\,{base:.5f}*({vyraz}))"
 
-# Rozptyl tempa okolo nastavenej hodnoty. Skôr rýchlejšie než pomalšie —
-# pomalý prednes je na hlasovke to prvé, čo prezradí, že ju nikto nehovoril.
-TEMPO_UP = 0.18
+# Rozptyl tempa okolo nastavenej hodnoty.
+#
+# Malo to byť rozptýlenie, ale bol z toho systematický posun: pri +0.18 nahor a
+# len -0.06 nadol, a k tomu 72 % šancou na zrýchlenie, vychádzalo z nastavenia
+# 1.22 skutočné tempo v priemere 1.28 a v maxime 1.40. Klient to počul ako
+# „strašne rýchlo rozpráva" a mal pravdu — nastavil si 1.22 a dostával 1.28.
+#
+# Mierny sklon nahor ostáva (pomalý prednes hlasovku prezradí ako prvý), ale
+# posun je taký malý, aby sa nastavenie zo slidera dalo brať vážne.
+TEMPO_UP = 0.08
 TEMPO_DOWN = 0.06
-FASTER_CHANCE = 0.72
+FASTER_CHANCE = 0.60
 
 
 def volume_events(
