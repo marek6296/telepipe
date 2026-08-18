@@ -17,8 +17,13 @@ class TestNaCoOdpisuje:
     def test_bezna_sprava_od_fanusika(self):
         assert fa.wants_reply(_event()) is True
 
-    def test_vlastnu_spravu_nekomentuje(self):
-        assert fa.wants_reply(_event(sender="creator")) is False
+    def test_creator_odosielatel_sa_prijme(self):
+        """Fanvue značí `sender="creator"` aj keď Simone napíše INÝ creator
+        (v jej chate je to bežný fanúšik). Prijmeme to — sebe-slučku Simoniných
+        vlastných správ rieši `_reconcile`/`stay_quiet` cez autora v reálnom
+        chate, nie toto pole."""
+        assert fa.wants_reply(_event(sender="creator")) is True
+        assert fa.wants_reply(_event(sender="fan")) is True
 
     def test_na_automat_neodpisuje(self):
         """Automat odpovedajúci automatu je nekonečná slučka."""

@@ -48,12 +48,23 @@ PLATBA = ("creator.payment.succeeded", "payment.succeeded")
 
 
 def wants_reply(event: Dict[str, Any]) -> bool:
-    """Má sa na túto udalosť vôbec odpisovať?"""
+    """Má sa na túto udalosť vôbec odpisovať?
+
+    Prijímame `fan` AJ `creator` odosielateľa: Fanvue značí `sender="creator"`
+    vždy, keď píše z creator účtu — teda aj keď Simone napíše INÝ creator (ten
+    je v jej chate bežný fanúšik). Sebe-slučku (Simonine vlastné odoslané
+    správy majú tiež `sender="creator"`) NErieši toto pole, ale `_reconcile`/
+    `stay_quiet` cez REÁLNY stav chatu: `role_of` porovná autora správy
+    s `creator_uuid`, takže Simonina vlastná správa = „assistant" → mlčí, kým
+    cudzí odosielateľ = „user" → odpovie. Automat na automat je slučka, preto
+    `is_automated` filtrujeme vždy.
+    """
     if event.get("type") != ODPOVEDA_NA:
         return False
     data = (event.get("payload") or {}).get("data") or {}
-    # Vlastnú správu si nekomentuje a na automat odpovedať automatom je slučka.
-    if data.get("sender") != "fan" or data.get("is_automated"):
+    if data.get("is_automated"):
+        return False
+    if data.get("sender") not in ("fan", "creator"):
         return False
     return bool((data.get("text") or "").strip())
 

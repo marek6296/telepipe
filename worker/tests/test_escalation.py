@@ -178,10 +178,14 @@ class TestQuickReplyFlow:
     def test_quick_mode_skips_seen_only_and_long_pause(self, monkeypatch):
         """Keď je pri telefóne, žiadne minútové pauzy sa neuplatnia."""
         import behavior as bhv_mod
+        import den as den_mod
 
         monkeypatch.setattr(bhv_mod, "quick_reply", lambda *a, **k: (1.0, 2.0))
         monkeypatch.setattr(bhv_mod, "seen_only_delay", lambda *a, **k: 999)
         monkeypatch.setattr(bhv_mod, "long_pause_delay", lambda *a, **k: 999)
+        # `den.busy` závisí od reálneho času dňa (šablónový rozvrh) — bez tohto
+        # test v „busy" bloku (fotenie) vypne pozorný režim a padne podľa hodiny.
+        monkeypatch.setattr(den_mod, "busy", lambda *a, **k: False)
         slept = []
         original = asyncio.sleep
 
