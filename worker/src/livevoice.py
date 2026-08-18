@@ -114,7 +114,12 @@ _AMBIENCE_MIX = {
     # V posteli v noci nemá nič buchať. Zostáva len tlmené dunenie televízora
     # spoza steny — má sa tušiť, nie počuť.
     "bedroom":  {"gain": 0.30, "low": 55,  "high": 700,  "loss": -23.0},
-    "home":     {"gain": 1.00, "low": 70,  "high": 1400, "loss": -24.5},
+    # Doma bolo pásmo 70–1400 Hz a pod ním sa z bytu stalo holé hučanie: všetko,
+    # čo sa dá rozpoznať — telka za stenou, chladnička, vŕzgnutie podlahy — leží
+    # nad 1400 Hz a orez to zmazal. Zhora teda 3200 Hz. Celkovej energie to
+    # pridá len necelý decibel, ale je to práve tá, v ktorej sa dá miestnosť
+    # rozoznať od šumu.
+    "home":     {"gain": 1.00, "low": 60,  "high": 3200, "loss": -23.5},
     "kitchen":  {"gain": 1.10, "low": 80,  "high": 2200, "loss": -25.3},  # chladnička, lyžička
     "bathroom": {"gain": 0.85, "low": 120, "high": 3000, "loss": -28.2},  # kachličky nesú výšky
     "car":      {"gain": 1.60, "low": 40,  "high": 900,  "loss": -21.1},  # motor je dole
@@ -272,7 +277,12 @@ TAIL_MIN, TAIL_MAX = 1.0, 3.0
 # Rozsah je polovičný oproti prvej verzii — hlasovky boli celkovo prehnane
 # hlasné. Filter sedí až za kompresorom a pred limiterom, takže sa stíšenie
 # neprežerie späť a prejde celé.
-NOTE_MIN, NOTE_MAX = 0.20, 0.40
+#
+# Strop je o 30 % nižšie než predtým (0.40): tie najhlasnejšie z rozsahu boli
+# na počúvanie nepríjemné. Spodok klesol menej, nech sa rozpätie nezúži na
+# nič — variabilita hlasitosti je to, čo odlišuje sériu hlasoviek od stroja.
+# Pomer hlasu a miestnosti sa tým nemení, `volume` sedí až na celom mixe.
+NOTE_MIN, NOTE_MAX = 0.18, 0.28
 
 # Ako hlasno vyjde miestnosť v tejto konkrétnej nahrávke.
 #

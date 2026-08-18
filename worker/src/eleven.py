@@ -34,7 +34,12 @@ FALLBACK_MODEL_ID = "eleven_multilingual_v2"
 # televízor vo vedľajšej izbe), vyrobí zvuk so štruktúrou, ktorý sa dá stíšiť
 # a ostane z neho dojem miesta.
 AMBIENCES: Dict[str, str] = {
-    "home": "single car passing outside a closed window, distant muffled city, calm",
+    # „Auto za zatvoreným oknom" bolo takmer čisté dunenie — po orezaní pásma
+    # z neho ostalo hučanie na nerozoznanie od šumu. Byt sa pozná podľa vecí,
+    # ktoré v ňom sami od seba cvaknú, nie podľa hluku spoza skla.
+    "home": "quiet apartment in the evening: refrigerator humming in the next room, "
+            "faint television voices behind a wall, one distant car outside, "
+            "a floorboard creak",
     "bedroom": "faint television murmuring in another room at night, very distant, calm",
     "kitchen": "fridge compressor humming quietly, a spoon set down on a counter once",
     "bathroom": "single water drop into a sink, small tiled room, quiet",
