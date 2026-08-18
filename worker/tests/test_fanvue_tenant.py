@@ -464,8 +464,8 @@ def fake_agent(monkeypatch):
     spy = _Spy()
 
     class Fake:
-        def __init__(self, db, api, llm):
-            self.db, self.api, self.llm = db, api, llm
+        def __init__(self, db, api, llm, control=None):
+            self.db, self.api, self.llm, self.control = db, api, llm, control
             spy.made.append(self)
 
         async def run(self):

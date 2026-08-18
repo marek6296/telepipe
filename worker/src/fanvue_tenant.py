@@ -537,12 +537,14 @@ class FanvueSupervisor:
     nemá, sa zruší. Nič z toho nehádže — Fanvue nesmie zhodiť Telegram.
     """
 
-    def __init__(self, cfg, g, transport, llm, poll_s: float = WATCH_S) -> None:
+    def __init__(self, cfg, g, transport, llm, poll_s: float = WATCH_S, control=None) -> None:
         self._cfg = cfg
         self._g = g
         self._transport = transport
         self._llm = llm
         self._poll_s = poll_s
+        # Control bot pre semi-auto (Fanvue karty idú do Telegram bota).
+        self._control = control
         self._db = TenantFanvueDb(
             transport, cfg.model_id, g.encryption_key, getattr(cfg, "account_id", "")
         )
@@ -696,9 +698,11 @@ class FanvueSupervisor:
         # dal podvrhnúť monkeypatchom na module.
         import fanvue_agent
 
-        self.agent_task = asyncio.create_task(
-            fanvue_agent.FanvueAgent(self._db, self._api, self._llm).run()
-        )
+        agent = fanvue_agent.FanvueAgent(self._db, self._api, self._llm, self._control)
+        # Semi-auto: control bot musí vedieť, kam doručiť schválenú Fanvue odpoveď.
+        if self._control is not None:
+            self._control.register_sender("fanvue", agent)
+        self.agent_task = asyncio.create_task(agent.run())
 
     async def _stop_agent(self) -> None:
         await self._zrus(self.agent_task)
@@ -722,7 +726,9 @@ class FanvueSupervisor:
                 await api.close()
 
 
-async def start_fanvue(cfg, g, transport, llm, cleanup: list) -> Optional["FanvueSupervisor"]:
+async def start_fanvue(
+    cfg, g, transport, llm, cleanup: list, control=None
+) -> Optional["FanvueSupervisor"]:
     """Rozbehne dozor nad Fanvue pre tenanta. None = worker o appke nevie.
 
     Vráti sa DOZOR, nie úloha agenta: agent môže vzniknúť aj zaniknúť za behu
@@ -745,7 +751,7 @@ async def start_fanvue(cfg, g, transport, llm, cleanup: list) -> Optional["Fanvu
         log.debug("model %s: Fanvue appka nie je nastavená — preskakujem", cfg.model_id)
         return None
 
-    sup = FanvueSupervisor(cfg, g, transport, llm)
+    sup = FanvueSupervisor(cfg, g, transport, llm, control=control)
     await sup.tick()
     cleanup.append(asyncio.create_task(sup.run()))
     cleanup.append(sup)

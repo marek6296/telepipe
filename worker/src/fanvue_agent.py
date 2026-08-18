@@ -341,10 +341,13 @@ GREETING_PROMPT = (
 class FanvueAgent:
     """Vyberá frontu udalostí a odpisuje na ne."""
 
-    def __init__(self, db, api, llm) -> None:
+    def __init__(self, db, api, llm, control=None) -> None:
         self._db = db
         self._api = api
         self._llm = llm
+        # Control bot pre semi-auto schvaľovanie (Fanvue karty chodia do toho
+        # istého Telegram bota). Dopĺňa supervisor; bez neho semi len mlčí.
+        self._control = control
 
     async def run(self) -> None:
         log.info("Fanvue agent beží, kontroluje frontu každých %.0f s", POLL_S)
@@ -586,6 +589,13 @@ class FanvueAgent:
             log.info("Fanúšik %s má odpisovanie vypnuté", fan["uuid"][:8])
             return
 
+        # Režim (Off / Auto / Semi) — nezávislý od Telegramu. Off = ticho;
+        # Semi = návrhy na schválenie (branch až po zostavení promptu nižšie).
+        reply_mode = str(settings.get("reply_mode") or "auto")
+        if reply_mode == "off":
+            return
+        semi = reply_mode == "semi"
+
         if not row.get("tg_id"):
             await self._try_link(fan, row)
 
@@ -643,6 +653,12 @@ class FanvueAgent:
             ),
         )
         history = await self._db.history(fan["uuid"])
+
+        # Semi: namiesto odoslania vygeneruj návrhy a pošli majiteľovi kartu.
+        if semi:
+            await self._handoff_semi(fan, row, prompt, history)
+            return
+
         text = (await self._llm.reply(prompt, history)).strip()
         text = self._clean(text)
         if not text or not self._safe(text):
@@ -720,6 +736,96 @@ class FanvueAgent:
 
         # Pamäť sa dopĺňa NA POZADÍ — nesmie pridať sekundu do cesty odpovede.
         asyncio.create_task(self._remember(fan["uuid"], persona, settings))
+
+    # ---------- semi-auto: handoff + doručovanie (volá control bot) ----------
+
+    async def _handoff_semi(self, fan, row, prompt, history) -> None:
+        """Vygeneruj návrhy a pošli majiteľovi kartu (supersede rieši control)."""
+        if not self._control:
+            return
+        try:
+            suggestions = await self._llm.suggest(prompt, history)
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Fanvue návrhy zlyhali: %s", exc)
+            return
+        if not suggestions:
+            return
+        name = row.get("display_name") or fan.get("name") or fan["uuid"][:8]
+        await self._control.post_approval(
+            channel="fanvue",
+            conv_key=fan["uuid"],
+            display_name=name,
+            incoming_preview=fan.get("text") or "",
+            suggestions=suggestions,
+        )
+
+    async def deliver_text(self, conv_key: str, text: str) -> bool:
+        sent = await self._api.send(conv_key, text)
+        if not sent:
+            return False
+        await self._db.add_message(conv_key, "assistant", text, "" if sent == "-" else sent)
+        row = await self._db.fan(conv_key) or {}
+        await self._db.update_fan(
+            conv_key, {"msg_count": int(row.get("msg_count") or 0) + 1}
+        )
+        return True
+
+    async def photo_folders(self, conv_key: str) -> List[Dict[str, str]]:
+        out = []
+        for f in await self._db.folders():
+            role = str(f.get("role") or "")
+            if role == "ignore":
+                continue
+            name = str(f.get("name") or "")
+            label = f"{name} · {role}" if role else name
+            out.append({"id": name, "label": label})
+        return out
+
+    async def photo_items(self, conv_key: str, folder_id: str) -> List[Dict[str, Any]]:
+        media = await self._db.media_in(folder_id)
+        return [
+            {
+                "ref": m["media_uuid"],
+                "caption": m.get("caption") or m.get("fits") or "",
+                "price_cents": m.get("price_cents"),
+            }
+            for m in media
+        ]
+
+    async def suggest_caption(self, conv_key: str) -> List[str]:
+        return ["just for you 🙈", "hope you like it 😏", "thinking of you 💋"]
+
+    async def deliver_photo(
+        self, conv_key: str, media_ref: str, caption: str, price_cents=None
+    ) -> bool:
+        price = int(price_cents or 0)
+        sent = await self._api.send(conv_key, caption or "", [media_ref], price)
+        if not sent:
+            return False
+        try:
+            await self._db.record_send(media_ref, conv_key, price)
+        except Exception:  # noqa: BLE001 - odoslané už je, záznam je bonus
+            pass
+        marker = (
+            f"[poslala platenú fotku ${price // 100}: {caption}]"
+            if price > 0
+            else f"[poslala fotku: {caption or 'foto'}]"
+        )
+        await self._db.add_message(conv_key, "assistant", marker, "" if sent == "-" else sent)
+        row = await self._db.fan(conv_key) or {}
+        await self._db.update_fan(
+            conv_key, {"msg_count": int(row.get("msg_count") or 0) + 1}
+        )
+        return True
+
+    async def generate_voice_preview(self, text: str):
+        # Fanvue hlasovka cez schvaľovanie príde ako fast-follow (upload do
+        # vaultu + odoslanie ako platené/free médium). Zatiaľ nedostupná —
+        # tlačidlo to majiteľovi povie.
+        return None
+
+    async def deliver_voice(self, conv_key: str, text: str, ogg: bytes) -> bool:
+        return False
 
     async def _reconcile(self, fan: Dict[str, Any], row: Dict[str, Any]) -> bool:
         """Doplní, čo v pamäti chýba. False = teraz sa neodpisuje.

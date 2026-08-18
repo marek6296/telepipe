@@ -140,7 +140,7 @@ class TenantRunner:
         with contextlib.suppress(Exception):
             await self._reg.release(self.model_id)
 
-    async def _start_fanvue(self, cfg, g, llm) -> None:
+    async def _start_fanvue(self, cfg, g, llm, control=None) -> None:
         """Best-effort rozbehnutie dozoru nad Fanvue. Nikdy nehádže.
 
         Dozor (`fanvue_tenant.FanvueSupervisor`) beží celý život tenanta a
@@ -152,7 +152,7 @@ class TenantRunner:
         try:
             from fanvue_tenant import start_fanvue
 
-            await start_fanvue(cfg, g, self._transport, llm, self._cleanup)
+            await start_fanvue(cfg, g, self._transport, llm, self._cleanup, control)
         except Exception as exc:  # noqa: BLE001 — Telegram musí bežať aj tak
             log.error(
                 "model %s: Fanvue agent sa nespustil (%s) — beží len Telegram",
@@ -270,7 +270,7 @@ class TenantRunner:
             # odpisovanie na Telegrame. Vlastný `run()` agenta si pády kôl
             # rieši sám, toto chráni pred pádom pri ŠTARTE (nedostupná DB,
             # poškodený token, chýbajúca appka).
-            await self._start_fanvue(cfg, g, llm)
+            await self._start_fanvue(cfg, g, llm, control if bot_ready else None)
 
             # Po výpadku dotiahni, čo ušlo — nikomu sa nepíše, len sa doplní
             # kontext a rozhodne, na čo sa ešte oplatí odpovedať.
