@@ -27,19 +27,19 @@ PERSONA_FIELDS = (
 )
 
 PERSONA_LABELS = {
-    "name": "meno",
-    "age": "vek",
-    "city": "mesto",
-    "language": "jazyk odpovedí",
-    "languages": "aké jazyky vie",
-    "backstory": "kto to je",
-    "tone": "tón",
-    "msg_style": "štýl správ",
-    "boundaries": "čo nikdy nerobí",
-    "funnel_rules": "ako navedie na obsah",
+    "name": "name",
+    "age": "age",
+    "city": "city",
+    "language": "reply language",
+    "languages": "languages she knows",
+    "backstory": "who she is",
+    "tone": "tone",
+    "msg_style": "message style",
+    "boundaries": "what she never does",
+    "funnel_rules": "how she leads to content",
     "cta_link": "fanvue link",
-    "extra_rules": "ďalšie pokyny",
-    "examples": "ukážky ako píše",
+    "extra_rules": "extra instructions",
+    "examples": "how she writes (samples)",
 }
 
 # Kým sa neprepíšu, ide o čisté spoznávanie — žiadne tlačenie na stránku.

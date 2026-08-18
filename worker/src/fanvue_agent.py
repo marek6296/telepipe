@@ -607,7 +607,9 @@ class FanvueAgent:
         persona = await self._db.persona()
         behavior = await self._db.behavior()
         teraz = local_now(behavior)
-        if not within_hours(settings, teraz):
+        # V Semi riadi tempo majiteľ — návrh mu má prísť hneď, aj mimo aktívnych
+        # hodín (rovnako ako na Telegrame). Auto naďalej rešpektuje rozvrh.
+        if not semi and not within_hours(settings, teraz):
             log.info("Mimo času na Fanvue — %s ostáva bez odpovede", fan["uuid"][:8])
             return
 
@@ -742,6 +744,7 @@ class FanvueAgent:
     async def _handoff_semi(self, fan, row, prompt, history) -> None:
         """Vygeneruj návrhy a pošli majiteľovi kartu (supersede rieši control)."""
         if not self._control:
+            log.warning("Fanvue semi: control bot nie je pripojený — %s bez karty", fan["uuid"][:8])
             return
         try:
             suggestions = await self._llm.suggest(prompt, history)
@@ -751,13 +754,14 @@ class FanvueAgent:
         if not suggestions:
             return
         name = row.get("display_name") or fan.get("name") or fan["uuid"][:8]
-        await self._control.post_approval(
+        ok = await self._control.post_approval(
             channel="fanvue",
             conv_key=fan["uuid"],
             display_name=name,
             incoming_preview=fan.get("text") or "",
             suggestions=suggestions,
         )
+        log.info("Fanvue semi: karta pre %s %s", fan["uuid"][:8], "poslaná" if ok else "NEposlaná")
 
     async def deliver_text(self, conv_key: str, text: str) -> bool:
         sent = await self._api.send(conv_key, text)
