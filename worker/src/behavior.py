@@ -43,6 +43,7 @@ FIELD_LABELS = {
     "question_chance": "chance she asks a question",
     "gag_chance": "chance of a cheeky joke",
     "photo_cooldown_min": "gap between photos (min)",
+    "photos_enabled": "posielať fotky",
     "summary_every": "summary every N messages",
     "max_replies_per_hour": "max replies/h",
     "max_links_per_hour": "max links/h",
@@ -76,7 +77,7 @@ FIELD_LABELS = {
 # Čo sa nedá posúvať číslom: prepínače a výbery z pevného zoznamu.
 _NON_NUMERIC = (
     "mode", "active_tz", "no_diacritics", "slang", "activity_waves", "heat",
-    "voices_enabled", "morning_enabled", "voice_ambience", "voice_strength",
+    "voices_enabled", "morning_enabled", "photos_enabled", "voice_ambience", "voice_strength",
     "voice_when_asked", "voice_when_doubted", "voice_when_he_voices",
     "voice_when_away", "voice_on_goodnight", "voice_when_hot",
 )
@@ -142,6 +143,10 @@ class Behavior:
     # Odstup medzi fotkami. Doteraz sa čítal cez getattr z poľa, ktoré tu
     # nebolo — takže to bola konštanta 45 tváriaca sa ako nastavenie.
     photo_cooldown_min: int = 45
+    # Posielať fotky na Telegrame? Default VYPNUTÉ (migrácia 20260819) —
+    # bez fotiek v albumoch nie je čo posielať a web to pustí zapnúť len keď
+    # v albumoch fotky sú. Album podľa miesta rieši `photos.folder_for`.
+    photos_enabled: bool = False
     summary_every: int = 10
     max_replies_per_hour: int = 25
     max_links_per_hour: int = 2

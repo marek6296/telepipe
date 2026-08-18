@@ -745,13 +745,16 @@ class UserBot:
                     allow_link and (wants_link or explicit),
                 )
 
-        # --- fotka: len keď je dôvod, nikdy tá istá dvakrát ---
+        # --- fotka: len keď je zapnuté, je dôvod, a nikdy tá istá dvakrát ---
         chosen_photo = None
-        # Testovací účet dostáva výhradne hlasovky — ani fotku. Inak sa v ladení
-        # zvuku nedá rozoznať, čo pokryla nahrávka a čo prišlo popri nej.
+        # Gate `photos_enabled`: klient musí posielanie fotiek zapnúť na stránke
+        # (a to sa dá až keď v albumoch fotky sú). Bez toho sa fotka nepošle
+        # nikdy. Testovací účet dostáva výhradne hlasovky — ani fotku, inak sa
+        # v ladení zvuku nedá rozoznať, čo pokryla nahrávka a čo prišlo popri nej.
         photo_reason = (
-            photos.send_reason(last_user_text, user, gap_hours=gap)
-            if media_ok and tg_id not in self._cfg.voice_only_ids
+            photos.send_reason(last_user_text, user)
+            if media_ok and behavior.photos_enabled
+            and tg_id not in self._cfg.voice_only_ids
             else None
         )
         # Hlasovka a fotka naraz sú tri až štyri notifikácie za sebou od
@@ -762,8 +765,10 @@ class UserBot:
             log.info("%s: fotku (%s) odkladám, ide hlasovka", tg_id, photo_reason)
             photo_reason = None
         if photo_reason:
+            # Album podľa toho, KDE práve je (jej harmonogram) + hodina.
+            schedule_folder = photos.folder_for(den.where(dnesny_blok, ""), now_local.hour)
             chosen_photo = await self._pick_photo(
-                user, behavior, now_local, explicit, photo_reason
+                user, now_local, explicit, photo_reason, schedule_folder
             )
         if chosen_photo and chosen_voice and not len_hlasovka:
             log.info("%s: hlasovku odkladám, ide vypýtaná fotka", tg_id)
@@ -1345,16 +1350,21 @@ class UserBot:
     async def _pick_photo(
         self,
         user: Dict[str, Any],
-        behavior: Behavior,
         now_local: datetime,
         explicit: bool,
         reason: str,
+        schedule_folder: str,
     ) -> Optional[Dict[str, Any]]:
-        """Vyberie fotku, ktorú tento človek ešte nevidel. None = neposiela sa."""
+        """Vyberie fotku podľa albumovej logiky. None = neposiela sa.
+
+        Album sa v chate použije najviac raz; druhá fotka z toho istého smie
+        odísť len do 30 min a len keď si ju vypýta alebo pochybuje.
+        """
         tg_id = user["tg_id"]
-        cooldown = int(getattr(behavior, "photo_cooldown_min", 45) or 45)
-        if not photos.cooldown_passed(user, cooldown):
-            log.info("%s: fotka (%s) — nedávno jednu dostal", tg_id, reason)
+        # Cooldown na VLASTNÚ iniciatívu (first). Vyžiadanú fotku (asked/proof)
+        # neblokuje — na „pošli ešte jednu" sa čakať 45 min nedá.
+        if reason == "first" and not photos.cooldown_passed(user, 45):
+            log.info("%s: fotka (first) — nedávno jednu dostal", tg_id)
             return None
         try:
             library = await self._db.photo_library()
@@ -1363,32 +1373,31 @@ class UserBot:
             log.warning("Fotoknižnicu sa nepodarilo načítať: %s", exc)
             return None
         if not library:
-            log.info("%s: fotka (%s) — knižnica je prázdna", tg_id, reason)
+            log.info("%s: fotka (%s) — žiadne albumy nie sú naplnené", tg_id, reason)
             return None
-        part = bhv.part_of_day(now_local)
-        # Fotka sa nikdy neopakuje, takže knižnica sa vyčerpáva. Keď dôjde,
-        # `pick` začne ticho vracať None a fotky prestanú chodiť bez toho, aby
-        # sa to niekde ozvalo. Preto sa to hlási skôr, než sa tak stane.
+
+        # Knižnica sa vyčerpáva (každá fotka raz). Keď dôjde, `pick` ticho vráti
+        # None — hlásime skôr, než sa tak stane.
         await self._warn_low_library(tg_id, photos.remaining(library, seen))
+
         photo = photos.pick(
             library,
             seen,
-            part,
+            schedule_folder,
+            reason,
+            open_folder=photos.last_folder(library, seen),
+            can_reopen=photos.window_open(user),
             prefer_spicy=explicit,
-            # Sama od seba pošle len fotku, ktorá sedí na kalifornský čas.
-            # Keď si ju vypýtal, radšej nesediacu než žiadnu.
-            strict_time=reason != "asked",
-            same_set=photos.set_continues(user),
         )
         if not photo:
             log.info(
-                "%s: fotka (%s) — nič nesedí na %s alebo už všetko videl (%s v knižnici)",
-                tg_id, reason, part, len(library),
+                "%s: fotka (%s) — album %s prázdny/použitý alebo už všetko videl",
+                tg_id, reason, schedule_folder,
             )
             return None
         log.info(
-            "%s: posielam fotku #%s (%s) — dôvod %s",
-            tg_id, photo["id"], photo.get("caption"), reason,
+            "%s: posielam fotku #%s [%s] — dôvod %s",
+            tg_id, photo["id"], photo.get("folder"), reason,
         )
         return photo
 

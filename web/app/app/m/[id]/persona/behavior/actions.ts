@@ -42,6 +42,7 @@ const BOOLEANS = [
   "activity_waves",
   "voices_enabled",
   "morning_enabled",
+  "photos_enabled",
   // Výnimky z pravidiel hlasoviek (migrácia 010) — karta Voice.
   "voice_when_asked",
   "voice_when_doubted",

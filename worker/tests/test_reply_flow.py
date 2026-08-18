@@ -60,7 +60,11 @@ def make_config(**overrides):
 
 class FakeDb:
     def __init__(self, user, messages=None, paused=False, behavior=None):
-        self.behavior = behavior or {"active_start_min": 0, "active_end_min": 0}
+        # `photos_enabled: True` je testovacie pohodlie — fotky sa v produkcii
+        # posielajú len zapnuté, ale testy fotiek chcú, aby default posielal.
+        self.behavior = behavior or {
+            "active_start_min": 0, "active_end_min": 0, "photos_enabled": True,
+        }
         self.links_last_hour = 0
         self.facts_rows = []
         self.fact_plans = []
@@ -634,11 +638,11 @@ class TestJednoMediumNaOdpoved:
         "transcript": "the gym today was brutal honestly, my legs are done",
         "fits": "",
     }
-    FOTKA = {"id": 1, "url": "https://x.co/a.jpg", "active": True, "parts": [],
-             "caption": "selfie", "collection": "", "spicy": False}
+    FOTKA = {"id": 1, "url": "https://x.co/a.jpg", "active": True,
+             "caption": "selfie", "folder": "universal", "spicy": False}
 
     @staticmethod
-    def _bot(text, monkeypatch, msg_count=6, last_photo_at=None):
+    def _bot(text, monkeypatch, msg_count=16, last_photo_at=None):
         bot, db, llm, client, notes = build(
             user_row(msg_count=msg_count, last_photo_at=last_photo_at),
             [{"role": "user", "content": text}],

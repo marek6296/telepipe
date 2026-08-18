@@ -20,13 +20,20 @@ export default async function PhotosPage({
   const model = await requireModelSubTab(id, "telegram", "photos");
 
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("photos")
-    .select(PHOTO_COLUMNS)
-    .eq("model_id", model.id)
-    .order("created_at", { ascending: false });
+  const [{ data }, { data: behavior }] = await Promise.all([
+    supabase
+      .from("photos")
+      .select(PHOTO_COLUMNS)
+      .eq("model_id", model.id)
+      .order("created_at", { ascending: false }),
+    supabase.from("behavior").select("photos_enabled").eq("model_id", model.id).maybeSingle(),
+  ]);
 
   return (
-    <PhotoLibrary modelId={model.id} photos={(data ?? []) as unknown as PhotoRow[]} />
+    <PhotoLibrary
+      modelId={model.id}
+      photos={(data ?? []) as unknown as PhotoRow[]}
+      photosEnabled={Boolean(behavior?.photos_enabled)}
+    />
   );
 }

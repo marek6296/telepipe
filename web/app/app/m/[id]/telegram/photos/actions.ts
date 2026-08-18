@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import { supabaseUrl } from "@/lib/env";
 import { getModel } from "@/lib/models";
-import { DAY_PARTS } from "@/lib/photos";
+import { isFolder } from "@/lib/photos";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -19,10 +19,14 @@ const BUCKET = "photos";
 
 export async function createPhotoAction(
   modelId: string,
-  input: { url: string; caption?: string },
+  input: { url: string; folder: string; caption?: string },
 ): Promise<PhotoResult> {
   const model = await getModel(modelId);
   if (!model) return { error: "Model not found." };
+
+  // Album je pevný — fotka musí padnúť do jedného zo šiestich priečinkov,
+  // inak by ju modelka nikdy nevytiahla (`photos.folder_for`).
+  if (!isFolder(input.folder)) return { error: "Unknown album." };
 
   // Klient nahráva priamo do bucketu a sem posiela public URL. Tá musí smerovať
   // na NÁŠ storage a do priečinka TEJTO modelky — inak by šlo do evidencie
@@ -36,6 +40,7 @@ export async function createPhotoAction(
   const { error } = await supabase.from("photos").insert({
     model_id: model.id,
     url: input.url,
+    folder: input.folder,
     caption: (input.caption ?? "").slice(0, 500),
   });
 
@@ -54,23 +59,16 @@ export async function updatePhotoAction(
   for (const [key, value] of Object.entries(patch)) {
     switch (key) {
       case "caption":
-      case "situation":
-      case "collection":
         update[key] = typeof value === "string" ? value.slice(0, 500) : "";
         break;
       case "spicy":
       case "active":
         update[key] = Boolean(value);
         break;
-      case "parts": {
-        if (!Array.isArray(value)) return { error: "Unexpected value for parts." };
-        const parts = value.filter(
-          (part): part is string =>
-            typeof part === "string" && (DAY_PARTS as readonly string[]).includes(part),
-        );
-        update.parts = Array.from(new Set(parts));
+      case "folder":
+        if (!isFolder(value)) return { error: "Unknown album." };
+        update.folder = value;
         break;
-      }
       default:
         return { error: `Unknown field: ${key}` };
     }
