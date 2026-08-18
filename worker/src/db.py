@@ -388,14 +388,20 @@ class TenantDb:
         `fanvue` nemusí existovať (nepripojené) — vtedy default auto/None."""
         rows = await self._get(
             "/fanvue",
-            {"model_id": self._mine, "select": "reply_mode,fallback_minutes"},
+            {"model_id": self._mine, "select": "reply_mode,fallback_minutes,connected"},
         )
         row = rows[0] if rows else {}
         mins = row.get("fallback_minutes")
         return {
             "mode": str(row.get("reply_mode") or "auto"),
             "fallback_minutes": int(mins) if mins not in (None, "") else None,
+            # Či je Fanvue vôbec pripojené — control bot podľa toho ukáže/skryje
+            # prepínač (bez pripojenia nemá čo prepínať).
+            "connected": bool(row.get("connected")) if rows else False,
         }
+
+    async def set_fanvue_reply_mode(self, mode: str) -> None:
+        await self._patch("/fanvue", {"model_id": self._mine}, {"reply_mode": mode})
 
     # ---------- schvaľovacia fronta (semi-auto) ----------
 

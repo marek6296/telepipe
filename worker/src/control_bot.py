@@ -405,6 +405,9 @@ class ControlBot:
         elif head == "rm":
             # Prepnutie Telegram režimu: off → auto → semi → off
             await self._cycle_reply_mode(event)
+        elif head == "rmf":
+            # Prepnutie Fanvue režimu (samostatne od Telegramu)
+            await self._cycle_fanvue_reply_mode(event)
         elif head == "m":
             await self._send_main(event, edit=True)
         elif head == "pz":
@@ -899,7 +902,16 @@ class ControlBot:
         nxt = {"off": "auto", "auto": "semi", "semi": "off"}.get(cur, "auto")
         await self._db.set_tg_reply_mode(nxt)
         await event.answer(
-            {"off": "Vypnuté", "auto": "Automatické", "semi": "Poloautomatické"}[nxt]
+            "Telegram: " + {"off": "Vypnuté", "auto": "Automatické", "semi": "Poloautomatické"}[nxt]
+        )
+        await self._send_main(event, edit=True)
+
+    async def _cycle_fanvue_reply_mode(self, event) -> None:
+        cur = (await self._db.fanvue_reply_mode()).get("mode", "auto")
+        nxt = {"off": "auto", "auto": "semi", "semi": "off"}.get(cur, "auto")
+        await self._db.set_fanvue_reply_mode(nxt)
+        await event.answer(
+            "Fanvue: " + {"off": "Vypnuté", "auto": "Automatické", "semi": "Poloautomatické"}[nxt]
         )
         await self._send_main(event, edit=True)
 
@@ -1032,18 +1044,30 @@ class ControlBot:
 
         window = bhv.format_window(behavior.active_start_min, behavior.active_end_min)
         mode = "skutočná osoba" if behavior.mode == bhv.REAL else "priznaná AI"
+        labels = {"off": "⛔️ Vypnuté", "auto": "🤖 Automatické", "semi": "✋ Poloautomatické"}
         reply = await self._db.tg_reply_mode()
         rmode = reply.get("mode", "auto")
-        rmode_label = {"off": "⛔️ Vypnuté", "auto": "🤖 Automatické", "semi": "✋ Poloautomatické"}.get(rmode, rmode)
+        rmode_label = labels.get(rmode, rmode)
+        fv = await self._db.fanvue_reply_mode()
+        fv_connected = bool(fv.get("connected"))
+        fvmode_label = labels.get(fv.get("mode", "auto"), fv.get("mode", "auto"))
+
+        fv_line = f"Odpisovanie (Fanvue): *{fvmode_label}*\n" if fv_connected else ""
         text = (
             f"*{persona.get('name') or 'Modelka'}* · {'⏸ PAUZA' if paused else '✅ beží'}\n\n"
             f"Odpisovanie (Telegram): *{rmode_label}*\n"
+            f"{fv_line}"
             f"Režim: *{mode}*\n"
             f"Aktívna: *{window}* ({behavior.active_tz})\n"
             f"Odkaz: {_short(persona.get('cta_link'), 40)}"
         )
         buttons = [
-            [Button.inline(f"🔁 Odpisovanie: {rmode_label}", b"rm")],
+            [Button.inline(f"🔁 Telegram: {rmode_label}", b"rm")],
+        ]
+        # Fanvue prepínač len keď je Fanvue pripojené — inak nemá čo prepínať.
+        if fv_connected:
+            buttons.append([Button.inline(f"🔁 Fanvue: {fvmode_label}", b"rmf")])
+        buttons += [
             [Button.inline("▶️ Zapnúť AI" if paused else "⏸ Vypnúť AI", b"pz")],
             [Button.inline("👤 Persona", b"pm"), Button.inline("🎭 Chovanie", b"bm")],
             [Button.inline("⏰ Časy", b"tm"), Button.inline("📊 Štatistika", b"st")],

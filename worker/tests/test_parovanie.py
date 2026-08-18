@@ -44,6 +44,9 @@ class FakeDb:
     async def tg_reply_mode(self) -> dict:
         return {"mode": "auto", "fallback_minutes": None}
 
+    async def fanvue_reply_mode(self) -> dict:
+        return {"mode": "auto", "fallback_minutes": None, "connected": False}
+
     async def get_persona(self) -> dict:
         return {"name": "Lucia", "cta_link": ""}
 

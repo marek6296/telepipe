@@ -120,6 +120,7 @@ CALLS = {
     "set_tg_reply_mode": (("semi",), {}),
     "set_tg_fallback_minutes": ((15,), {}),
     "fanvue_reply_mode": ((), {}),
+    "set_fanvue_reply_mode": (("semi",), {}),
     "create_pending": ((), {"channel": "telegram", "conv_key": "7", "suggestions": ["a"]}),
     "get_pending": (("00000000-0000-0000-0000-000000000000",), {}),
     "claim_pending": (("00000000-0000-0000-0000-000000000000",), {}),
