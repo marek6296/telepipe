@@ -90,31 +90,8 @@ export async function settlePayment(
   return (data ?? null) as SettleResult | null;
 }
 
-/**
- * Doptaj sa POSKYTOVATEĽA na aktuálny stav a zúčtuj. Jedno miesto pre všetky
- * cesty (webhook, poll, cron) a pre oboch providerov:
- *
- *   plisio → getOperation (secret key, stavy completed/mismatch/expired…)
- *   onramp → payment-status.php (ipn_token; binárne paid/unpaid, takže sumy
- *            netreba — „paid" znamená, že USDC odišlo na našu adresu)
- */
+/** Doptaj sa Plisia na aktuálny stav a zúčtuj. Jedno miesto pre všetky tri cesty. */
 export async function refreshPayment(paymentId: string): Promise<SettleResult | null> {
-  const admin = createServiceClient();
-  const { data: row } = await admin
-    .from(T)
-    .select("provider, provider_token")
-    .eq("payment_id", paymentId)
-    .maybeSingle();
-
-  if (row?.provider === "onramp") {
-    const { paymentStatus } = await import("@/lib/onramp");
-    const status = await paymentStatus(String(row.provider_token ?? ""));
-    if (status === null) return null;
-    return status === "paid"
-      ? settlePayment(paymentId, "completed")
-      : settlePayment(paymentId, "pending_confirm");
-  }
-
   if (!plisioEnabled()) return null;
   const op = await getOperation(paymentId);
   if (!op) return null;
@@ -129,12 +106,13 @@ export async function refreshPayment(paymentId: string): Promise<SettleResult | 
 export async function reconcileOpenPayments(
   maxAgeHours = 72,
 ): Promise<{ checked: number; credited: number }> {
+  if (!plisioEnabled()) return { checked: 0, credited: 0 };
   const admin = createServiceClient();
   const since = new Date(Date.now() - maxAgeHours * 3_600_000).toISOString();
 
   const { data: rows } = await admin
     .from(T)
-    .select("payment_id, status, provider")
+    .select("payment_id, status")
     .eq("credited", false)
     .gte("created_at", since)
     .limit(100);
@@ -143,9 +121,6 @@ export async function reconcileOpenPayments(
   let credited = 0;
   for (const row of rows ?? []) {
     if (FINAL_STATUSES.has(String(row.status))) continue;
-    // Vypnutý provider sa preskočí namiesto toho, aby zhodil celý beh —
-    // onramp platby sa naháňajú aj keď Plisio kľúč chýba, a naopak.
-    if (String(row.provider ?? "plisio") === "plisio" && !plisioEnabled()) continue;
     const out = await refreshPayment(String(row.payment_id));
     if (!out) continue;
     checked += 1;
