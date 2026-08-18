@@ -17,6 +17,22 @@ function HeaderSkeleton() {
   );
 }
 
+export function ModelChromeSkeleton() {
+  return (
+    <div aria-hidden>
+      <HeaderSkeleton />
+      <div className="mb-8 border-b border-[var(--app-border)] pb-2">
+        <div className="flex gap-5">
+          <Skeleton className="h-5 w-20" />
+          <Skeleton className="h-5 w-16" />
+          <Skeleton className="h-5 w-20" />
+          <Skeleton className="h-5 w-16" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function StatsSkeleton() {
   return (
     <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 sm:gap-4 lg:grid-cols-4" aria-hidden>

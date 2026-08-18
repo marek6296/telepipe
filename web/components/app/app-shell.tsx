@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
@@ -116,12 +116,15 @@ export function AppShell({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const navigationKey = searchParams.size > 0 ? `${pathname}?${searchParams}` : pathname;
   const [menuOpen, setMenuOpen] = useState(false);
-  const [navigationPending, setNavigationPending] = useState(false);
+  const [pendingRoute, setPendingRoute] = useState<string | null>(null);
+  const navigationPending = pendingRoute !== null && pendingRoute !== navigationKey;
   const reduceMotion = useReducedMotion();
 
   const backgroundRoutes = useMemo(() => {
-    const routes = ["/app", "/app/models", "/app/usage", "/app/account"];
+    const routes = ["/app", "/app/models", "/app/usage", "/app/virtual-sim", "/app/account"];
     if (isAdmin) routes.push("/app/admin", "/app/admin/users", "/app/admin/models");
 
     // Modelky sa zo sidebaru otvárajú na Personu. Zahrejeme len vstupnú
@@ -140,12 +143,8 @@ export function AppShell({
   }, [menuOpen]);
 
   useEffect(() => {
-    setNavigationPending(false);
-  }, [pathname]);
-
-  useEffect(() => {
     if (!navigationPending) return;
-    const timeout = window.setTimeout(() => setNavigationPending(false), 6000);
+    const timeout = window.setTimeout(() => setPendingRoute(null), 6000);
     return () => window.clearTimeout(timeout);
   }, [navigationPending]);
 
@@ -172,7 +171,7 @@ export function AppShell({
       return;
     }
 
-    setNavigationPending(true);
+    setPendingRoute(`${next.pathname}${next.search}`);
   }, []);
 
   const sidebar = (
@@ -277,7 +276,7 @@ export function AppShell({
           <div className="mx-auto w-full max-w-[1140px]">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
-                key={pathname}
+                key={navigationKey}
                 initial={
                   reduceMotion
                     ? { opacity: 1 }
