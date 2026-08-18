@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { isTimeZone } from "@/lib/timezone";
 
 /**
  * Uloženie chovania. Stĺpce presne podľa migrácie 003 (+ 010) — `eleven_key`
@@ -175,14 +176,4 @@ export async function saveBehaviorAction(
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
-}
-
-/** Overenie cez Intl — zoznam zón na serveri je zdroj pravdy, nie náš select. */
-function isTimeZone(value: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value });
-    return true;
-  } catch {
-    return false;
-  }
 }
