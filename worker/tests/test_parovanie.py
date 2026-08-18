@@ -83,9 +83,9 @@ class TestSpravnyKod:
 
         assert db.pokusy == [("TP-4F9K2X", 777)]
         assert cfg.owner_chat_id == 777, "chat id sa musí zapísať do configu"
-        assert any("Spárované" in t for t in event.odpovede)
+        assert any("Paired" in t for t in event.odpovede)
         # Po potvrdení hneď menu — klient nemá hľadať, čo ďalej.
-        assert any("Persona" in t or "beží" in t for t in event.odpovede)
+        assert any("Persona" in t or "running" in t for t in event.odpovede)
 
     def test_kod_prezije_male_pismena_aj_chybajuci_prefix(self):
         for napisane in ("tp-4f9k2x", "4F9K2X", "  TP 4f9k2x  ", "4f9k2x\n"):

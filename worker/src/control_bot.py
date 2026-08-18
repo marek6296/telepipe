@@ -88,11 +88,11 @@ _HINT_MAX_CHATS = 200
 # Miestnosť, z ktorej má hlasovka znieť. Je to len východisko — keď z rozhovoru
 # vyplynie, kde práve je, prebije to nastavenie.
 _AMBIENCE_LABEL = {
-    "home": "doma", "bedroom": "spálňa", "kitchen": "kuchyňa",
-    "bathroom": "kúpeľňa", "car": "auto", "outside": "vonku",
-    "cafe": "kaviareň", "gym": "fitko", "none": "ticho",
+    "home": "home", "bedroom": "bedroom", "kitchen": "kitchen",
+    "bathroom": "bathroom", "car": "car", "outside": "outside",
+    "cafe": "cafe", "gym": "gym", "none": "silence",
 }
-_HEAT_LABEL = {"mild": "slušná", "medium": "pikantná", "hot": "veľmi otvorená"}
+_HEAT_LABEL = {"mild": "tame", "medium": "spicy", "hot": "very open"}
 
 
 def _hhmm(minutes: int) -> str:
@@ -225,8 +225,8 @@ class ControlBot:
         log.info("model %s: kontrolný bot spárovaný s chatom %s", self._cfg.model_id, chat_id)
 
         await event.reply(
-            "✅ *Spárované*\n\nOd teraz sem chodia upozornenia na nových "
-            "fanúšikov a odtiaľto ju ovládaš. Menu máš vždy pod `/menu`.",
+            "✅ *Paired*\n\nFrom now on you'll get alerts about new "
+            "followers here, and you control her from here. The menu is always at `/menu`.",
             link_preview=False,
         )
         await self._send_main(event)
@@ -258,9 +258,9 @@ class ControlBot:
             return
         self._hinted.add(chat_id)
         await event.reply(
-            "Tento bot patrí k tvojmu Telepipe účtu, ale ešte nie je spárovaný.\n\n"
+            "This bot belongs to your Telepipe account but isn't paired yet.\n\n"
             "V dashboarde otvor *Telegram → Settings*, klikni *Generate pairing code* "
-            "a kód sem pošli ako správu. Vyzerá takto: `TP-4F9K2X`.",
+            "and send the code here as a message. It looks like this: `TP-4F9K2X`.",
             link_preview=False,
         )
 
@@ -277,14 +277,14 @@ class ControlBot:
                 await self._send_main(event)
             elif command == "/cancel":
                 self._awaiting.pop(event.chat_id, None)
-                await event.reply("Zrušené.")
+                await event.reply("Cancelled.")
                 await self._send_main(event)
             elif command == "/den":
                 await self._send_day(event)
             else:
-                await event.reply("Použi /menu — všetko sa nastavuje klikaním.")
+                await event.reply("Use /menu — everything is set by tapping.")
         except Exception as exc:  # noqa: BLE001
-            log.exception("Príkaz zlyhal")
+            log.exception("Command failed")
             await event.reply(f"⚠️ {exc}")
         raise events.StopPropagation
 
@@ -327,7 +327,7 @@ class ControlBot:
             return
         self._awaiting.pop(chat_id, None)
         label = PERSONA_LABELS.get(field) or bhv.FIELD_LABELS.get(field, field)
-        await event.reply(f"✅ *{label}* nastavené. Platí od najbližšej odpovede.")
+        await event.reply(f"✅ *{label}* saved. Applies from the next reply.")
         if kind == "persona":
             await self._send_persona(event)
         elif kind == "time":
@@ -340,7 +340,7 @@ class ControlBot:
         if kind == "persona":
             if field == "age":
                 if not value.isdigit():
-                    return "Vek musí byť číslo. Pošli znova, alebo /cancel."
+                    return "Age must be a number. Send again, or /cancel."
                 await self._db.set_persona_field(field, int(value))
             else:
                 await self._db.set_persona_field(field, value)
@@ -353,12 +353,12 @@ class ControlBot:
 
                     ZoneInfo(value)
                 except Exception:  # noqa: BLE001
-                    return "Neznáma zóna. Napr. `America/Los_Angeles`. Alebo /cancel."
+                    return "Unknown zone. E.g. `America/Los_Angeles`. Or /cancel."
                 await self._db.set_behavior_field(field, value)
                 return None
             minutes = _parse_hhmm(value)
             if minutes is None:
-                return "Zadaj čas ako `12:12`. Alebo /cancel."
+                return "Enter a time like `12:12`. Or /cancel."
             await self._db.set_behavior_field(field, minutes)
             return None
 
@@ -367,16 +367,16 @@ class ControlBot:
             try:
                 number = float(value.replace(",", ".").rstrip("%"))
             except ValueError:
-                return "Zadaj číslo, napr. `0.15` alebo `15%`. Alebo /cancel."
+                return "Enter a number, e.g. `0.15` or `15%`. Or /cancel."
             if number > 1:
                 number /= 100
             if not 0 <= number <= 1:
-                return "Šanca musí byť medzi 0 a 1 (alebo 0–100 %)."
+                return "Chance must be between 0 and 1 (or 0–100%)."
             await self._db.set_behavior_field(field, round(number, 4))
             return None
 
         if not value.isdigit():
-            return "Zadaj celé číslo. Alebo /cancel."
+            return "Enter a whole number. Or /cancel."
         await self._db.set_behavior_field(field, int(value))
         return None
 
@@ -413,7 +413,7 @@ class ControlBot:
         elif head == "pz":
             paused = await self._db.is_paused()
             await self._db.set_paused(not paused)
-            await event.answer("AI zapnutá" if paused else "AI vypnutá")
+            await event.answer("AI on" if paused else "AI off")
             await self._send_main(event, edit=True)
         elif head == "pm":
             await self._send_persona(event, edit=True)
@@ -430,9 +430,9 @@ class ControlBot:
         elif head == "t":
             await self._ask_value(event, "time", arg)
         elif head == "ti":
-            await self._send_fields(event, "Časovanie", _TIMING_FIELDS, "b", "bm")
+            await self._send_fields(event, "Timing", _TIMING_FIELDS, "b", "bm")
         elif head == "ra":
-            await self._send_fields(event, "Náhodnosť", _RANDOM_FIELDS, "b", "bm")
+            await self._send_fields(event, "Randomness", _RANDOM_FIELDS, "b", "bm")
         elif head == "sf":
             await self._send_safety(event, edit=True)
         elif head == "vx":
@@ -452,7 +452,7 @@ class ControlBot:
         elif head == "wy":
             await self._wipe(event, int(arg))
         else:
-            await event.answer("Neznáma akcia")
+            await event.answer("Unknown action")
 
     async def _ask_value(self, event: events.CallbackQuery.Event, kind: str, field: str) -> None:
         if kind == "persona":
@@ -468,14 +468,14 @@ class ControlBot:
         self._awaiting[event.chat_id] = (kind, field)
         hint = ""
         if kind == "time" and field != "active_tz":
-            hint = "\n\nFormát `12:12` (24-hodinový)."
+            hint = "\n\nFormat `12:12` (24-hour)."
         elif field.endswith("_chance"):
-            hint = "\n\nČíslo 0–1 alebo v procentách (`15%`)."
+            hint = "\n\nA number 0–1 or a percentage (`15%`)."
 
         await event.answer()
         await event.respond(
             f"✏️ *{label}*\n\nTeraz: `{current if current not in (None, '') else '—'}`"
-            f"{hint}\n\nPošli novú hodnotu ako správu. /cancel zruší.",
+            f"{hint}\n\nSend the new value as a message. /cancel to cancel.",
             link_preview=False,
         )
 
@@ -483,7 +483,7 @@ class ControlBot:
         row = await self._db.get_behavior()
         if field == "mode":
             new_value: Any = bhv.AI if (row.get("mode") or bhv.REAL) == bhv.REAL else bhv.REAL
-            answer = "Režim: skutočná" if new_value == bhv.REAL else "Režim: AI"
+            answer = "Mode: real person" if new_value == bhv.REAL else "Mode: AI"
         elif field == "no_diacritics":
             new_value = not bool(row.get("no_diacritics"))
             answer = "Bez diakritiky" if new_value else "S diakritikou"
@@ -491,26 +491,26 @@ class ControlBot:
             current = row.get("heat") or "medium"
             index = (_HEAT_CYCLE.index(current) + 1) % len(_HEAT_CYCLE) if current in _HEAT_CYCLE else 1
             new_value = _HEAT_CYCLE[index]
-            answer = f"Pikantnosť: {_HEAT_LABEL[new_value]}"
+            answer = f"Spiciness: {_HEAT_LABEL[new_value]}"
         elif field == "activity_waves":
             new_value = not bool(row.get("activity_waves"))
-            answer = "Vlny aktivity zapnuté" if new_value else "Vlny vypnuté"
+            answer = "Activity waves on" if new_value else "Waves off"
         elif field == "morning_enabled":
             new_value = not bool(row.get("morning_enabled", True))
-            answer = "Ranné správy zapnuté" if new_value else "Ranné správy vypnuté"
+            answer = "Morning messages on" if new_value else "Morning messages off"
         elif field == "voices_enabled":
             new_value = not bool(row.get("voices_enabled", True))
-            answer = "Hlasovky zapnuté" if new_value else "Hlasovky vypnuté — bude len písať"
+            answer = "Voice notes on" if new_value else "Voice notes off — she'll only text"
         elif field == "voice_ambience":
             current = row.get("voice_ambience") or "home"
             cyklus = bhv.AMBIENCE_CYCLE
             index = (cyklus.index(current) + 1) % len(cyklus) if current in cyklus else 0
             new_value = cyklus[index]
-            answer = f"Miestnosť: {_AMBIENCE_LABEL.get(new_value, new_value)}"
+            answer = f"Room: {_AMBIENCE_LABEL.get(new_value, new_value)}"
         elif field in bhv.VOICE_EXCEPTIONS:
             new_value = not bool(row.get(field, True))
             popis = bhv.FIELD_LABELS.get(field, field)
-            answer = f"{popis}: {'áno' if new_value else 'nie'}"
+            answer = f"{popis}: {'yes' if new_value else 'no'}"
         elif field == "voice_strength":
             current = row.get("voice_strength") or "real"
             cyklus = bhv.STRENGTH_CYCLE
@@ -523,7 +523,7 @@ class ControlBot:
             new_value = _SLANG_CYCLE[index]
             answer = f"Slang: {new_value}"
         else:
-            await event.answer("Neznámy prepínač")
+            await event.answer("Unknown toggle")
             return
         await self._db.set_behavior_field(field, new_value)
         await event.answer(answer)
@@ -939,7 +939,7 @@ class ControlBot:
         if kind == "semi_custom":
             if not await self._db.claim_pending(pid):
                 self._cards.pop(mid, None)
-                await event.reply("Už vybavené.")
+                await event.reply("Already handled.")
                 return
             ok = await sender.deliver_text(conv, value)
             self._cards.pop(mid, None)
@@ -968,7 +968,7 @@ class ControlBot:
                 await event.reply("No photo selected.")
                 return
             if not await self._db.claim_pending(pid):
-                await event.reply("Už vybavené.")
+                await event.reply("Already handled.")
                 return
             ok = await sender.deliver_photo(conv, media_ref, value, price)
             self._cards.pop(mid, None)
@@ -978,7 +978,7 @@ class ControlBot:
                     pid, "sent", chosen_text=value, kind="photo",
                     media_ref=str(media_ref), price_cents=price,
                 )
-                await self._clear_card(mid, "✅ _Fotka odoslaná._")
+                await self._clear_card(mid, "✅ _Photo sent._")
                 await event.reply("✅ Photo sent.")
             else:
                 await self._db.mark_pending(pid, "awaiting")
@@ -1043,7 +1043,7 @@ class ControlBot:
         behavior = Behavior.from_row(await self._db.get_behavior())
 
         window = bhv.format_window(behavior.active_start_min, behavior.active_end_min)
-        mode = "skutočná osoba" if behavior.mode == bhv.REAL else "priznaná AI"
+        mode = "real person" if behavior.mode == bhv.REAL else "disclosed AI"
         labels = {"off": "⛔️ Off", "auto": "🤖 Automatic", "semi": "✋ Semi-automatic"}
         reply = await self._db.tg_reply_mode()
         rmode = reply.get("mode", "auto")
@@ -1054,12 +1054,12 @@ class ControlBot:
 
         fv_line = f"Replies (Fanvue): *{fvmode_label}*\n" if fv_connected else ""
         text = (
-            f"*{persona.get('name') or 'Modelka'}* · {'⏸ PAUZA' if paused else '✅ beží'}\n\n"
+            f"*{persona.get('name') or 'Model'}* · {'⏸ PAUSED' if paused else '✅ running'}\n\n"
             f"Replies (Telegram): *{rmode_label}*\n"
             f"{fv_line}"
-            f"Režim: *{mode}*\n"
-            f"Aktívna: *{window}* ({behavior.active_tz})\n"
-            f"Odkaz: {_short(persona.get('cta_link'), 40)}"
+            f"Mode: *{mode}*\n"
+            f"Active: *{window}* ({behavior.active_tz})\n"
+            f"Link: {_short(persona.get('cta_link'), 40)}"
         )
         buttons = [
             [Button.inline(f"🔁 Telegram: {rmode_label}", b"rm")],
@@ -1068,13 +1068,13 @@ class ControlBot:
         if fv_connected:
             buttons.append([Button.inline(f"🔁 Fanvue: {fvmode_label}", b"rmf")])
         buttons += [
-            [Button.inline("▶️ Zapnúť AI" if paused else "⏸ Vypnúť AI", b"pz")],
+            [Button.inline("▶️ Turn AI on" if paused else "⏸ Turn AI off", b"pz")],
             [Button.inline("👤 Persona", b"pm"), Button.inline("🎭 Behaviour", b"bm")],
             [Button.inline("⏰ Times", b"tm"), Button.inline("📊 Stats", b"st")],
             [Button.inline("💬 Conversations", b"cv")],
             [
                 Button.inline(
-                    "🧹 Vymazať môj testovací chat",
+                    "🧹 Wipe my test chat",
                     f"wq:{self._cfg.owner_chat_id}".encode(),
                 )
             ],
@@ -1095,61 +1095,61 @@ class ControlBot:
             rows.append(pair)
         rows.append([Button.inline("← Back", b"m")])
 
-        lines = [f"*Persona* — klikni na pole a pošli novú hodnotu\n"]
+        lines = [f"*Persona* — tap a field and send a new value\n"]
         for field in PERSONA_FIELDS:
             lines.append(f"*{PERSONA_LABELS.get(field, field)}*: {_short(persona.get(field), 60)}")
         await self._render(event, "\n".join(lines), rows, edit)
 
     async def _send_behavior(self, event, edit: bool = False) -> None:
         behavior = Behavior.from_row(await self._db.get_behavior())
-        mode_label = "skutočná osoba" if behavior.mode == bhv.REAL else "priznaná AI"
+        mode_label = "real person" if behavior.mode == bhv.REAL else "disclosed AI"
         text = (
             "*Chovanie*\n\n"
-            f"Režim: *{mode_label}*\n"
-            f"{'Nepriznáva, že je AI.' if behavior.mode == bhv.REAL else 'Na otázku prizná, že je AI.'}\n\n"
-            f"Diakritika: *{'nepíše ju' if behavior.no_diacritics else 'píše ju'}*\n"
+            f"Mode: *{mode_label}*\n"
+            f"{'Does not admit being AI.' if behavior.mode == bhv.REAL else 'Admits being AI when asked.'}\n\n"
+            f"Diacritics: *{'off' if behavior.no_diacritics else 'on'}*\n"
             f"Slang: *{behavior.slang}*\n\n"
-            f"Rýchla odpoveď: {behavior.quick_reply_chance:.0%} "
+            f"Quick reply: {behavior.quick_reply_chance:.0%} "
             f"({behavior.quick_reply_min_s}–{behavior.quick_reply_max_s} s)\n"
-            f"Prečíta po: {behavior.read_delay_min_s}–{behavior.read_delay_max_s} s\n"
-            f"Odpíše po: {behavior.reply_delay_min_s}–{behavior.reply_delay_max_s} s\n"
+            f"Reads after: {behavior.read_delay_min_s}–{behavior.read_delay_max_s} s\n"
+            f"Replies after: {behavior.reply_delay_min_s}–{behavior.reply_delay_max_s} s\n"
             f"Len „videné“: {behavior.seen_only_chance:.0%} "
             f"({behavior.seen_only_min_s // 60}–{behavior.seen_only_max_s // 60} min)\n"
-            f"Dlhá pauza: {behavior.long_pause_chance:.0%} "
+            f"Long pause: {behavior.long_pause_chance:.0%} "
             f"({behavior.long_pause_min_s // 60}–{behavior.long_pause_max_s // 60} min)\n"
-            f"Odloží na hodiny: {behavior.defer_reply_chance:.0%} "
+            f"Defers for hours: {behavior.defer_reply_chance:.0%} "
             f"({behavior.defer_min_s // 3600}–{behavior.defer_max_s // 3600} h)\n"
-            f"Pozdraví po: {behavior.greeting_gap_hours} h\n"
+            f"Greets after: {behavior.greeting_gap_hours} h\n"
             f"Odkazov max: {behavior.max_links_per_hour}/h\n"
-            f"Vlny aktivity: {'áno' if behavior.activity_waves else 'nie'}\n"
-            f"Hlasovky: {'áno' if behavior.voices_enabled else 'nie'}"
+            f"Activity waves: {'yes' if behavior.activity_waves else 'no'}\n"
+            f"Voice notes: {'yes' if behavior.voices_enabled else 'no'}"
             f" ({behavior.voice_chance:.0%}, {behavior.voice_tempo:.2f}×"
-            f"{', hlas nenastavený' if not behavior.eleven_voice_id else ''})\n"
-            f"Ranné správy: {'áno' if behavior.morning_enabled else 'nie'}"
+            f"{', voice not set' if not behavior.eleven_voice_id else ''})\n"
+            f"Morning messages: {'yes' if behavior.morning_enabled else 'no'}"
         )
         buttons = [
-            [Button.inline(f"🎭 Režim: {mode_label}", b"bt:mode")],
-            [Button.inline(f"🌡 Pikantnosť: {_HEAT_LABEL.get(behavior.heat, behavior.heat)}", b"bt:heat")],
+            [Button.inline(f"🎭 Mode: {mode_label}", b"bt:mode")],
+            [Button.inline(f"🌡 Spiciness: {_HEAT_LABEL.get(behavior.heat, behavior.heat)}", b"bt:heat")],
             [
                 Button.inline(
-                    f"✍️ Diakritika: {'nie' if behavior.no_diacritics else 'áno'}",
+                    f"✍️ Diacritics: {'no' if behavior.no_diacritics else 'yes'}",
                     b"bt:no_diacritics",
                 ),
                 Button.inline(f"🗣 Slang: {behavior.slang}", b"bt:slang"),
             ],
             [
                 Button.inline(
-                    f"🌊 Vlny: {'áno' if behavior.activity_waves else 'nie'}",
+                    f"🌊 Waves: {'yes' if behavior.activity_waves else 'no'}",
                     b"bt:activity_waves",
                 ),
                 Button.inline(
-                    f"🎙 Hlasovky: {'áno' if behavior.voices_enabled else 'nie'}",
+                    f"🎙 Voice notes: {'yes' if behavior.voices_enabled else 'no'}",
                     b"bt:voices_enabled",
                 ),
             ],
             [
                 Button.inline(
-                    f"🌅 Ranné správy: {'áno' if behavior.morning_enabled else 'nie'}",
+                    f"🌅 Morning messages: {'yes' if behavior.morning_enabled else 'no'}",
                     b"bt:morning_enabled",
                 )
             ],
@@ -1158,7 +1158,7 @@ class ControlBot:
             # do tlačidiel sa dlhý kľúč rozumne nezmestí.
             [
                 Button.inline(
-                    f"🏠 Miestnosť: {_AMBIENCE_LABEL.get(behavior.voice_ambience, behavior.voice_ambience)}",
+                    f"🏠 Room: {_AMBIENCE_LABEL.get(behavior.voice_ambience, behavior.voice_ambience)}",
                     b"bt:voice_ambience",
                 ),
                 Button.inline(
@@ -1177,7 +1177,7 @@ class ControlBot:
         row = await self._db.get_behavior()
         rows: List[List[Button]] = []
         pair: List[Button] = []
-        lines = [f"*{title}* — klikni a pošli novú hodnotu\n"]
+        lines = [f"*{title}* — tap and send a new value\n"]
         for field in fields:
             value = row.get(field)
             if field.endswith("_chance") and value is not None:
@@ -1197,12 +1197,12 @@ class ControlBot:
     async def _send_times(self, event, edit: bool = False) -> None:
         behavior = Behavior.from_row(await self._db.get_behavior())
         text = (
-            "*Časy*\n\n"
-            f"Aktívna od *{_hhmm(behavior.active_start_min)}* "
+            "*Times*\n\n"
+            f"Active from *{_hhmm(behavior.active_start_min)}* "
             f"do *{_hhmm(behavior.active_end_min)}*\n"
-            f"Zóna: *{behavior.active_tz}*\n\n"
-            "Mimo tohto okna neodpisuje — správy sa odložia a dobehnú, "
-            "keď sa okno otvorí."
+            f"Zone: *{behavior.active_tz}*\n\n"
+            "Outside this window she doesn't reply — messages are deferred and caught up "
+            "when the window opens."
         )
         buttons = [
             [
@@ -1226,20 +1226,20 @@ class ControlBot:
             else "*bez obmedzenia*"
         )
         text = (
-            "*Bezpečnosť Telegramu*\n\n"
+            "*Telegram safety*\n\n"
             f"Rozhovorov naraz: {naraz}\n"
-            f"Miesto sa uvoľní po *{b.chat_slot_min} min* ticha\n\n"
-            "Keď píše veľa ľudí, baví sa len s toľkými naraz. Ostatní počkajú "
-            "a prídu na rad, keď niektorý z rozhovorov utíchne. Nič sa "
-            "nestratí — každý má odpoveď odloženú, nie zahodenú.\n\n"
-            f"Max odpovedí: *{b.max_replies_per_hour}/h*\n"
-            f"Sama osloví max *{b.max_outreach_per_hour}* ľudí/h, "
-            f"*{b.morning_max_per_day}* za deň\n"
+            f"A slot frees up after *{b.chat_slot_min} min* of silence\n\n"
+            "When many people write, she only chats with so many at once. The rest wait "
+            "and get their turn when a conversation quiets down. Nothing "
+            "is lost — every reply is deferred, not dropped.\n\n"
+            f"Max replies: *{b.max_replies_per_hour}/h*\n"
+            f"She first-messages max *{b.max_outreach_per_hour}* people/h, "
+            f"*{b.morning_max_per_day}* per day\n"
             f"Odkazov max: *{b.max_links_per_hour}/h*\n\n"
-            "_Odpovedať tomu, kto napísal prvý, je bezpečné. Riziko je v tom, "
-            "keď účet sám oslovuje ľudí — preto sú tie dva stropy oddelené._\n\n"
-            "Ak Telegram pošle FloodWait, počká presne toľko, koľko si vypýtal. "
-            "Ak označí účet za rozposielanie, všetko sa zastaví a napíšem ti."
+            "_Replying to whoever wrote first is safe. The risk is "
+            "when the account first-messages people — that's why the two caps are separate._\n\n"
+            "If Telegram sends a FloodWait, she waits exactly as long as asked. "
+            "If it flags the account for spam, everything stops and I'll message you."
         )
         rows: List[List[Button]] = []
         pair: List[Button] = []
@@ -1267,10 +1267,10 @@ class ControlBot:
         row = await self._db.get_behavior()
         behavior = bhv.Behavior.from_row(row)
         text = (
-            "*Kedy smie hlasovku* — mimo bežných pravidiel\n\n"
-            f"Bežne: až od {6}. správy a so šancou {behavior.voice_chance:.0%}.\n"
-            "Zapnuté výnimky to obchádzajú — vtedy odíde hneď.\n\n"
-            f"Hlasovky celkovo: {'zapnuté' if behavior.voices_enabled else '*VYPNUTÉ*'}"
+            "*When she may send voice* — outside the usual rules\n\n"
+            f"Normally: from message {6} on and with a {behavior.voice_chance:.0%} chance.\n"
+            "Enabled exceptions bypass that — then it goes right away.\n\n"
+            f"Voice notes overall: {'on' if behavior.voices_enabled else '*OFF*'}"
         )
         buttons = [
             [
@@ -1306,11 +1306,11 @@ class ControlBot:
         blok = den_mod.block_at(teraz, self._cfg.supabase_schema, rozvrh)
         riadky = den_mod.summary(teraz.date(), self._cfg.supabase_schema, rozvrh)
         text = (
-            f"*Dnešok* — {teraz.strftime('%A %d.%m.')} u nej {teraz.strftime('%H:%M')}\n\n"
+            f"*Today* — {teraz.strftime('%A %d.%m.')} her time {teraz.strftime('%H:%M')}\n\n"
             + "\n".join(f"`{r}`" for r in riadky)
-            + f"\n\n*Práve:* {den_mod.describe(blok) or 'mimo rozvrhu (spí)'}"
-            + f"\n*Odpovede:* ×{den_mod.pace(blok):.1f}"
-            + (" — zaneprázdnená" if den_mod.busy(blok) else "")
+            + f"\n\n*Now:* {den_mod.describe(blok) or 'off schedule (asleep)'}"
+            + f"\n*Replies:* ×{den_mod.pace(blok):.1f}"
+            + (" — busy" if den_mod.busy(blok) else "")
         )
         await event.reply(text, link_preview=False)
 
@@ -1319,11 +1319,11 @@ class ControlBot:
         total = max(stats["users"], 1)
         text = (
             "*Funnel*\n\n"
-            f"Konverzácie: {stats['users']}\n"
+            f"Conversations: {stats['users']}\n"
             f"Warm: {stats['warm']}\n"
-            f"Odkaz poslaný: {stats['link_sent']}\n"
+            f"Link sent: {stats['link_sent']}\n"
             f"Predplatitelia: {stats['converted']}\n"
-            f"Prevzaté tebou: {stats['takeover']}\n\n"
+            f"Taken over by you: {stats['takeover']}\n\n"
             f"Konverzia: *{stats['converted'] / total * 100:.1f} %*"
         )
         await self._render(event, text, [[Button.inline("← Back", b"m")]], True)
@@ -1332,7 +1332,7 @@ class ControlBot:
         rows = await self._db.recent_conversations(10)
         if not rows:
             await self._render(
-                event, "Ešte nikto nenapísal.", [[Button.inline("← Back", b"m")]], True
+                event, "Nobody has written yet.", [[Button.inline("← Back", b"m")]], True
             )
             return
         buttons = [
@@ -1346,25 +1346,25 @@ class ControlBot:
             for r in rows
         ]
         buttons.append([Button.inline("← Back", b"m")])
-        await self._render(event, "*Konverzácie*", buttons, True)
+        await self._render(event, "*Conversations*", buttons, True)
 
     async def _send_conversation(self, event, tg_id: int) -> None:
         user = await self._db.get_user(tg_id)
         if not user:
-            await event.answer("Nenašiel som to", alert=True)
+            await event.answer("Not found", alert=True)
             return
         messages = await self._db.recent_messages(tg_id, 14)
         lines = [
             f"*{user.get('first_name') or tg_id}*"
             + (f" · @{user['username']}" if user.get("username") else ""),
-            f"stage: {user.get('funnel_stage')} · správ: {user.get('msg_count')} "
+            f"stage: {user.get('funnel_stage')} · msgs: {user.get('msg_count')} "
             f"· odkaz {user.get('link_push_count')}×",
         ]
         if user.get("style_note"):
-            lines.append(f"_píše: {user['style_note']}_")
+            lines.append(f"_writes: {user['style_note']}_")
         if user.get("summary"):
-            lines.append(f"\n*Pamätá si:*\n{user['summary']}")
-        lines.append("\n*Posledné správy:*")
+            lines.append(f"\n*Remembers:*\n{user['summary']}")
+        lines.append("\n*Recent messages:*")
         for message in messages:
             who = "🩷" if message["role"] == "assistant" else "👤"
             lines.append(f"{who} {message['content'][:160]}")
@@ -1372,11 +1372,11 @@ class ControlBot:
         buttons = [
             [
                 Button.inline(
-                    "↩️ Vrátiť AI" if user.get("human_takeover") else "✋ Take over",
+                    "↩️ Give back to AI" if user.get("human_takeover") else "✋ Take over",
                     f"to:{tg_id}".encode(),
                 ),
                 Button.inline(
-                    "❌ Neplatí" if user.get("paid") else "💚 Platí",
+                    "❌ Not paying" if user.get("paid") else "💚 Paying",
                     f"pd:{tg_id}".encode(),
                 ),
             ],
@@ -1392,17 +1392,17 @@ class ControlBot:
 
     async def _confirm_wipe(self, event, tg_id: int) -> None:
         if tg_id != self._cfg.owner_chat_id:
-            await event.answer("Mazať sa dá len tvoj testovací chat", alert=True)
+            await event.answer("Only your test chat can be wiped", alert=True)
             return
         user = await self._db.get_user(tg_id)
         count = (user or {}).get("msg_count") or 0
         await event.answer()
         await self._render(
             event,
-            f"*Vymazať pamäť testovacieho chatu?*\n\n"
-            f"Zmaže sa história ({count} správ), zhrnutie, štýl aj funnel stav.\n"
-            f"Bude sa chovať, akoby ste si nikdy nepísali.\n\n"
-            f"Ostatných konverzácií sa to netýka.",
+            f"*Wipe the test chat's memory?*\n\n"
+            f"History ({count} messages), summary, style and funnel state will be erased.\n"
+            f"She'll act as if you never talked.\n\n"
+            f"Other conversations are unaffected.",
             [
                 [Button.inline("🧹 Yes, wipe", f"wy:{tg_id}".encode())],
                 [Button.inline("← No, back", b"m")],
@@ -1412,15 +1412,15 @@ class ControlBot:
 
     async def _wipe(self, event, tg_id: int) -> None:
         if tg_id != self._cfg.owner_chat_id:
-            await event.answer("Mazať sa dá len tvoj testovací chat", alert=True)
+            await event.answer("Only your test chat can be wiped", alert=True)
             return
         deleted = await self._db.wipe_conversation(tg_id)
         log.info("Vymazaná pamäť konverzácie %s (%s správ)", tg_id, deleted)
-        await event.answer(f"Vymazané ({deleted} správ)")
+        await event.answer(f"Wiped ({deleted} messages)")
         await self._render(
             event,
-            f"✅ *Pamäť vymazaná* — {deleted} správ.\n\n"
-            f"Napíš jej z testovacieho účtu a začne od nuly.",
+            f"✅ *Memory wiped* — {deleted} messages.\n\n"
+            f"Message her from your test account and she'll start fresh.",
             [[Button.inline("← Menu", b"m")]],
             True,
         )
@@ -1428,21 +1428,21 @@ class ControlBot:
     async def _toggle_takeover(self, event, tg_id: int) -> None:
         user = await self._db.get_user(tg_id)
         if not user:
-            await event.answer("Nenašiel som to", alert=True)
+            await event.answer("Not found", alert=True)
             return
         value = not bool(user.get("human_takeover"))
         await self._db.update_user(tg_id, {"human_takeover": value})
-        await event.answer("Píšeš ty" if value else "AI pokračuje")
+        await event.answer("You're writing" if value else "AI continues")
         await self._send_conversation(event, tg_id)
 
     async def _toggle_paid(self, event, tg_id: int) -> None:
         user = await self._db.get_user(tg_id)
         if not user:
-            await event.answer("Nenašiel som to", alert=True)
+            await event.answer("Not found", alert=True)
             return
         paid = not bool(user.get("paid"))
         await self._db.update_user(
             tg_id, {"paid": paid, "funnel_stage": "converted" if paid else "warm"}
         )
-        await event.answer("Označený ako predplatiteľ" if paid else "Zrušené")
+        await event.answer("Marked as subscriber" if paid else "Cleared")
         await self._send_conversation(event, tg_id)
