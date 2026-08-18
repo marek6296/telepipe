@@ -232,9 +232,14 @@ export function CodeGuide() {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Krok 4 — kontrolný bot                                                     */
+/*  Blok 2 — kontrolný bot (len jeho vyrobenie a token)                        */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Návod končí uloženým tokenom. Párovanie zámerne NIE JE súčasťou — je to iná
+ * vec (blok 3) a keď boli obe v jednom zozname piatich krokov, splynuli do
+ * jedného „nastav si bota" a nedalo sa povedať, ktorá polovica chýba.
+ */
 export function ControlBotGuide() {
   return (
     <div className="space-y-4">
@@ -254,27 +259,63 @@ export function ControlBotGuide() {
           BotFather replies with a token like <Lit>123456789:AAE…</Lit>. Copy the whole line into
           the <Click>Bot token</Click> field here and save.
         </GuideStep>
-        <GuideStep n={5}>
-          Open your new bot through the <Lit>t.me/…</Lit> link in that same message, then send it
-          the pairing code shown here. It replies <Lit>Paired</Lit> and opens the menu.
-        </GuideStep>
       </GuideList>
+
+      <p className="text-[12px] leading-relaxed text-[var(--app-text-3)]">
+        That is the bot done. Telling it who to write to is the next block — a bot with a token
+        but no paired chat runs and stays silent.
+      </p>
 
       <Troubleshoot>
         <Problem when="You lost the token.">
           Send <Lit>/mybots</Lit> to BotFather, pick the bot, choose <Click>API Token</Click>,
           then <Click>Revoke</Click>. Paste the new token here — the old one stops working.
         </Problem>
-        <Problem when="The bot does not answer the code.">
-          Check that you sent it to your own bot in a private chat, that the code has not expired,
-          and that the token above is saved. Generate a fresh code and send that.
-        </Problem>
         <Problem when="Every username is taken.">
           Add something of your own in front of the ending, like{" "}
           <Lit>lucia_studio_control_bot</Lit>.
         </Problem>
+        <Problem when="You do not want a bot at all.">
+          Then skip it. She replies to fans without it; you simply get no notifications and no
+          menu, and you steer her from this dashboard instead.
+        </Problem>
+      </Troubleshoot>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Blok 3 — spárovanie súkromného Telegramu                                   */
+/* -------------------------------------------------------------------------- */
+
+export function PairingGuide() {
+  return (
+    <div className="space-y-4">
+      <GuideList>
+        <GuideStep n={1}>
+          Press <Click>Generate pairing code</Click> here. The code lives ten minutes.
+        </GuideStep>
+        <GuideStep n={2}>
+          Open your bot in <Click>your own</Click> Telegram — the <Lit>t.me/…</Lit> link is in
+          BotFather&apos;s message — and press <Click>Start</Click>.
+        </GuideStep>
+        <GuideStep n={3}>
+          Send it the code as a normal message. It replies <Lit>Paired</Lit> and opens the menu.
+          The account you sent it from is the one that gets everything from now on.
+        </GuideStep>
+      </GuideList>
+
+      <Troubleshoot>
+        <Problem when="The bot does not answer the code.">
+          Check that you sent it to your own bot in a private chat, that the code has not expired,
+          and that the token in the block above is saved. Generate a fresh code and send that.
+        </Problem>
         <Problem when="You want the notifications elsewhere later.">
-          Unlink here and pair again from the other Telegram account. The bot itself stays.
+          Unpair here and pair again from the other Telegram account. The bot itself stays.
+        </Problem>
+        <Problem when="You would rather not connect a personal account.">
+          Leave this block empty. Everything on this page keeps working, and she keeps replying —
+          you just manage her from here instead of from your phone.
         </Problem>
       </Troubleshoot>
     </div>
@@ -291,6 +332,12 @@ export function ActivateGuide() {
       <Problem when="Nothing happens after 30 seconds.">
         Send her a message from a different Telegram account — your own does not count unless
         you switched that on. Replies do not start instantly; she answers like a person does.
+      </Problem>
+      <Problem when="A friend wrote to her and got nothing back.">
+        Check whether that person is saved in her Telegram contacts. By default she does not
+        reply to her own contacts, so that family and friends never get an AI answer. Turn{" "}
+        <Click>Talk to people already in her contacts</Click> on, or add just that one chat ID as
+        an exception — both are on this page, in the block about her account.
       </Problem>
       <Problem when="She went back to an error state.">
         The reason is shown on this page. Most often the sign-in expired, in which case

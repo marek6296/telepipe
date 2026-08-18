@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 
-import { pollControlBotAction } from "@/app/app/m/[id]/telegram/actions";
-import { ControlBotCard } from "@/components/app/telegram/control-bot-card";
 import {
   TelegramLimitsForm,
   type TelegramLimitsRow,
@@ -15,21 +14,20 @@ export const metadata: Metadata = {
 };
 
 /**
- * Nastavenia telegramového účtu — nie jej povahy.
+ * Anti-ban stropy, a nič viac.
  *
- * Sú tu dve veci, ktoré patria k účtu a nie k osobe: kontrolný bot (diaľkové
- * ovládanie majiteľa) a tri anti-ban stropy. Pripojenie samotné je vedľa na
- * podkarte Connection; kto je a ako píše, je na karte Persona.
+ * PREČO TU UŽ NIE JE KONTROLNÝ BOT. Bol tu aj na karte Connection, zakaždým
+ * inými slovami — a klient tak musel medzi dvoma podkartami preklikávať, aby
+ * zistil, čo je vlastne nastavené. Bot aj súkromný Telegram sú stavy jedného
+ * pripojenia, takže sedia pri ňom (`/telegram`), ako druhý a tretí blok. Tu
+ * ostali tri čísla, ktoré s pripojením nesúvisia vôbec: chránia účet pred
+ * banom bez ohľadu na to, kto dostáva notifikácie.
  */
 export default async function TelegramSettingsPage({
   params,
 }: PageProps<"/app/m/[id]/telegram/settings">) {
   const { id } = await params;
   const model = await requireModelSubTab(id, "telegram", "settings");
-
-  // Token je šifrovaný a klient naň nemá grant — stav bota (uložený token,
-  // spárovaný chat, čakajúci kód) skladá server action so service kľúčom.
-  const controlBot = await pollControlBotAction(model.id);
 
   const supabase = await createClient();
   const { data } = await supabase
@@ -43,14 +41,10 @@ export default async function TelegramSettingsPage({
       <PageHeader
         eyebrow="Telegram agent"
         title="Telegram settings"
-        description="The account side of her Telegram agent: who gets the notifications, and the caps that keep the account out of Telegram's sights. How she talks lives on the Persona tab."
+        description="The caps that keep her account out of Telegram's sights. The connection itself, your control bot and your private Telegram are all on the Telegram tab; how she talks lives on the Persona tab."
       />
 
       <div className="flex flex-col gap-5">
-        {/* Ten istý komponent, aký je štvrtým krokom sprievodcu — bota si tu
-            klient dorába, mení alebo odpája aj rok po spustení. */}
-        <ControlBotCard modelId={model.id} initial={controlBot} />
-
         {data ? (
           <TelegramLimitsForm limits={data as unknown as TelegramLimitsRow} />
         ) : (
@@ -59,6 +53,17 @@ export default async function TelegramSettingsPage({
             and contact us if it stays empty.
           </Callout>
         )}
+
+        <p className="text-[12.5px] text-[var(--app-text-3)]">
+          Looking for the control bot or the pairing with your own Telegram?{" "}
+          <Link
+            href={`/app/m/${model.id}/telegram`}
+            className="underline underline-offset-2 transition-colors hover:text-[var(--app-text)]"
+          >
+            They live on the Telegram tab
+          </Link>
+          , each with its own block.
+        </p>
       </div>
     </>
   );

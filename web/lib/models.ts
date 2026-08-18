@@ -22,7 +22,7 @@ import {
 export const MODEL_COLUMNS =
   "id, account_id, name, model_type, status, status_reason, claimed_by, heartbeat_at, " +
   "tg_api_id, tg_api_hash, owner_chat_id, owner_as_client, voice_only_ids, " +
-  "created_at, updated_at";
+  "skip_contacts, contact_exceptions, created_at, updated_at";
 
 export type ModelRow = {
   id: string;
@@ -39,6 +39,15 @@ export type ModelRow = {
   owner_chat_id: number | null;
   owner_as_client: boolean;
   voice_only_ids: number[];
+  /**
+   * Kontaktový filter (migrácia 023b). `skip_contacts = true` znamená „nepíš
+   * ľuďom, ktorých má v Telegram kontaktoch" — rodine a známym. Bolo to
+   * globálne v env repliky, čo umlčalo kamaráta jedného klienta bez toho, aby
+   * o tom ktokoľvek vedel; odteraz je to vec jednej modelky.
+   */
+  skip_contacts: boolean;
+  /** Telegram chat id, ktoré filtrom prejdú aj tak — na testovanie s kamošmi. */
+  contact_exceptions: number[];
   created_at: string;
   updated_at: string;
 };

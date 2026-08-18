@@ -470,16 +470,40 @@ export async function controlBotConfigured(modelId: string): Promise<boolean> {
  */
 export type PairingCode = { code: string; expiresAt: string };
 
+/**
+ * Stav DVOCH nezávislých vecí, nie jednej.
+ *
+ * `hasToken` = „bot existuje a jeho token je uložený". `paired` = „ten bot vie,
+ * komu má písať". Sú to dva kroky a dá sa mať prvý bez druhého (uložený token
+ * bez spárovaného chatu je bot, ktorý beží a mlčí). UI ich preto ukazuje ako dva
+ * bloky s vlastným stavom — kým sa po spárovaní všetko zbalilo do jedného
+ * „Connected as X", nedalo sa prečítať, čo z toho je čo, ani to druhé zmeniť bez
+ * rozbitia prvého.
+ */
 export type ControlBotState = {
   /** Je uložený token? Bez neho nemá kód komu poslať. */
   hasToken: boolean;
+  /** `@meno` samotného bota (z `getMe`), ak sa dá zistiť. */
+  botLabel: string | null;
   /** Spárované = `models.owner_chat_id` nie je prázdne. */
   paired: boolean;
   ownerChatId: number | null;
   /** `@meno` majiteľa, ak sa dá zistiť; inak sa ukáže samotné chat id. */
   ownerLabel: string | null;
+  /** `models.owner_as_client` — odpisuje modelka aj do majiteľovho chatu? */
+  ownerAsClient: boolean;
   /** Živý (nepoužitý, nevypršaný) kód, ak nejaký je. */
   pending: PairingCode | null;
+};
+
+const EMPTY_CONTROL_BOT: ControlBotState = {
+  hasToken: false,
+  botLabel: null,
+  paired: false,
+  ownerChatId: null,
+  ownerLabel: null,
+  ownerAsClient: false,
+  pending: null,
 };
 
 /** Živý kód modelky — nepoužitý a ešte nevypršaný. */
@@ -536,60 +560,95 @@ export async function createPairingCodeAction(
 
 export async function pollControlBotAction(modelId: string): Promise<ControlBotState> {
   const model = await ownedModel(modelId);
-  if (!model) {
-    return { hasToken: false, paired: false, ownerChatId: null, ownerLabel: null, pending: null };
-  }
+  if (!model) return EMPTY_CONTROL_BOT;
 
-  const [hasToken, pending] = await Promise.all([
-    controlBotConfigured(model.id),
+  const ownerChatId = model.owner_chat_id ?? null;
+  const [labels, pending] = await Promise.all([
+    telegramLabels(model.id, ownerChatId),
     livePairingCode(model.id),
   ]);
 
-  const ownerChatId = model.owner_chat_id ?? null;
   return {
-    hasToken,
+    hasToken: labels.hasToken,
+    botLabel: labels.bot,
     paired: Boolean(ownerChatId),
     ownerChatId,
-    ownerLabel: ownerChatId ? await ownerLabel(model.id, ownerChatId) : null,
+    ownerLabel: labels.owner,
+    ownerAsClient: Boolean(model.owner_as_client),
     pending,
   };
 }
 
 /**
- * `@meno` chatu, do ktorého bot píše. Je to len ozdoba potvrdenia — keď sa
- * nedá zistiť (bot padol, sieť, chat bez username), vráti sa `null` a UI ukáže
- * číslo. Nikdy to nesmie zhodiť pollovanie.
+ * Mená bota a majiteľovho chatu — jedno dešifrovanie tokenu, dva dotazy naraz.
+ *
+ * Sú to len ozdoby potvrdenia: keď sa nedajú zistiť (bot padol, sieť, chat bez
+ * username), vrátia sa `null` a UI ukáže samotné číslo. Nikdy to nesmie zhodiť
+ * pollovanie — preto je celé telo v `try`.
+ *
+ * `hasToken` sa berie odtiaľto, a nie zo samostatného dotazu: je to ten istý
+ * riadok a ten istý stĺpec, takže dva dotazy by len znamenali dve pravdy.
  */
-async function ownerLabel(modelId: string, chatId: number): Promise<string | null> {
+async function telegramLabels(
+  modelId: string,
+  ownerChatId: number | null,
+): Promise<{ hasToken: boolean; bot: string | null; owner: string | null }> {
+  const user = await requireUser();
+  const admin = createServiceClient();
+  const { data } = await admin
+    .from("models")
+    .select("control_bot_token_enc")
+    .eq("id", modelId)
+    .eq("account_id", user.id)
+    .maybeSingle();
+
+  const enc = (data?.control_bot_token_enc as string | undefined) ?? "";
+  if (!enc) return { hasToken: false, bot: null, owner: null };
+
   try {
-    const admin = createServiceClient();
-    const { data } = await admin
-      .from("models")
-      .select("control_bot_token_enc")
-      .eq("id", modelId)
-      .maybeSingle();
-
-    const enc = data?.control_bot_token_enc as string | undefined;
-    if (!enc) return null;
-
     const token = await decrypt(enc, encryptionKey());
-    const response = await fetch(
-      `https://api.telegram.org/bot${token}/getChat?chat_id=${chatId}`,
-      { cache: "no-store", signal: AbortSignal.timeout(6000) },
-    );
+    const [me, chat] = await Promise.all([
+      telegramCall(token, "getMe"),
+      ownerChatId ? telegramCall(token, `getChat?chat_id=${ownerChatId}`) : null,
+    ]);
+    return {
+      hasToken: true,
+      bot: me?.username ? `@${me.username}` : null,
+      owner: chat ? (chat.username ? `@${chat.username}` : (chat.first_name ?? null)) : null,
+    };
+  } catch {
+    // Token je uložený aj keď sa Telegram nedovolá — to je stav, nie chyba.
+    return { hasToken: true, bot: null, owner: null };
+  }
+}
+
+async function telegramCall(
+  token: string,
+  method: string,
+): Promise<{ username?: string; first_name?: string } | null> {
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(6000),
+    });
     const body = (await response.json()) as {
       ok?: boolean;
       result?: { username?: string; first_name?: string };
     };
-    if (!body.ok) return null;
-    const { username, first_name: firstName } = body.result ?? {};
-    return username ? `@${username}` : (firstName ?? null);
+    return body.ok ? (body.result ?? null) : null;
   } catch {
     return null;
   }
 }
 
-/** Odpojenie — bot ostáva uložený, len už nemá majiteľa a dá sa spárovať znova. */
+/**
+ * Odpojenie SÚKROMNÉHO TELEGRAMU (blok 3), nie bota.
+ *
+ * Token ostáva uložený, zmizne len `owner_chat_id` — bot ďalej existuje, len
+ * nemá komu písať a dá sa spárovať z iného účtu. Zmazať samotného bota vie
+ * `removeControlBotAction` nižšie; sú to zámerne dve tlačidlá, lebo je to
+ * zámerne dvoje.
+ */
 export async function unlinkControlBotAction(modelId: string): Promise<WizardResult> {
   const model = await ownedModel(modelId);
   if (!model) return { error: "Model not found." };
@@ -607,4 +666,239 @@ export async function unlinkControlBotAction(modelId: string): Promise<WizardRes
 
   revalidatePath(`/app/m/${model.id}/telegram`, "layout");
   return { ok: true };
+}
+
+/**
+ * Zmazanie BOTA (blok 2). Berie so sebou aj spárovanie — bot bez tokenu nemá
+ * ako doručiť notifikáciu, takže ponechaný `owner_chat_id` by tvrdil niečo, čo
+ * už neplatí.
+ *
+ * Ide to service kľúčom (na `control_bot_token_enc` klient grant nemá), a preto
+ * je tu `eq("account_id")` povinné — service kľúč RLS obchádza. Oba stĺpce sa
+ * menia jedným príkazom, nech nemôže vzniknúť polovičný stav.
+ */
+export async function removeControlBotAction(modelId: string): Promise<WizardResult> {
+  const user = await requireUser();
+  const model = await ownedModel(modelId);
+  if (!model) return { error: "Model not found." };
+
+  const admin = createServiceClient();
+  const { error } = await admin
+    .from("models")
+    .update({
+      control_bot_token_enc: null,
+      owner_chat_id: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", model.id)
+    .eq("account_id", user.id);
+  if (error) return { error: error.message };
+
+  await restartTenantIfRunning(model.id, model.status);
+  revalidatePath(`/app/m/${model.id}/telegram`, "layout");
+  return { ok: true };
+}
+
+/* -------------------------------------------------------------------------- */
+/*  6. „Odpisuje aj mne" — models.owner_as_client (migrácia 023)               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Prepínač, ktorý z majiteľovho chatu spraví bežný fanúšikovský chat.
+ *
+ * ČO SA ZAPNE. `userbot.py:198` inak správu od majiteľa preskočí (je to
+ * ovládací kanál, nie fanúšik). So zapnutým `owner_as_client` sa spracuje ako
+ * ktorákoľvek iná — modelka odpisuje aj tebe, a `userbot.py:319` ten chat
+ * označí za testovací. Až vtedy má „vymazať testovací chat" čo mazať.
+ *
+ * PREČO REŠTART. `TenantConfig` sa skladá RAZ, pri claime (`main.py`, krok 3),
+ * a `owner_as_client` sa z neho číta priamo (`self._cfg.owner_as_client`) —
+ * žiadny TTL, žiadne osvieženie. Prepnutie pod bežiacim runnerom by teda ležalo
+ * v databáze bez účinku až do najbližšieho reštartu repliky. Preto to isté, čo
+ * robí zmena tokenu: pustiť lease a nechať sa doklaimovať s čerstvým configom.
+ * Telethon session sa nemení, takže sa nikto nanovo neprihlasuje.
+ *
+ * PREČO LEN SO SPÁROVANÝM SÚKROMNÝM TELEGRAMOM. Bez `owner_chat_id` prepínač
+ * nemá čo označiť — `is_owner` sa porovnáva práve s ním. Zapnúť ho „dopredu" by
+ * znamenalo zaškrtnuté políčko bez akéhokoľvek účinku.
+ */
+export async function setOwnerAsClientAction(
+  modelId: string,
+  value: boolean,
+): Promise<WizardResult> {
+  const model = await ownedModel(modelId);
+  if (!model) return { error: "Model not found." };
+  if (!model.owner_chat_id) {
+    return { error: "Pair your private Telegram first — without it there is no chat to switch." };
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("models")
+    .update({ owner_as_client: value, updated_at: new Date().toISOString() })
+    .eq("id", model.id);
+  if (error) return { error: error.message };
+
+  await restartTenantIfRunning(model.id, model.status);
+  revalidatePath(`/app/m/${model.id}/telegram`, "layout");
+  return { ok: true };
+}
+
+/* -------------------------------------------------------------------------- */
+/*  6b. Kontaktový filter — models.skip_contacts / contact_exceptions (023b)   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * „Smie písať ľuďom, ktorých má v kontaktoch?"
+ *
+ * PREČO TO TU JE. Marekovmu kamarátovi (chat 6977754097) Simona neodpovedala,
+ * kým Marekovi odpovedala. `userbot.py:203-210` preskočí odosielateľa, ktorý je
+ * v kontaktoch účtu — a majiteľ ten filter obchádza, takže to vyzeralo, že
+ * produkt funguje jednému a druhému nie. Obe hodnoty pritom žili v PROCESNOM
+ * prostredí repliky, teda jedna pre všetkých tenantov; na Railway neboli
+ * nastavené vôbec. Od migrácie 023b sú to stĺpce modelky a toto je jediné
+ * miesto, kde ich klient mení.
+ *
+ * REŠTART. Rovnako ako `owner_as_client`: `TenantConfig` sa skladá pri claime a
+ * `userbot` číta `self._cfg.skip_contacts` priamo, takže bez pustenia lease by
+ * zmena ležala v databáze bez účinku. `restartTenantIfRunning` to spraví do 30 s
+ * bez opätovného prihlasovania.
+ */
+export type ContactRule = { skipContacts: boolean; exceptions: number[] };
+
+export async function setContactRuleAction(
+  modelId: string,
+  rule: ContactRule,
+): Promise<WizardResult> {
+  const model = await ownedModel(modelId);
+  if (!model) return { error: "Model not found." };
+
+  // Duplicity a nuly von — `models_contact_exceptions_check` nulu odmieta a
+  // dvakrát to isté id nemá význam.
+  const seen = new Set<number>();
+  for (const raw of rule.exceptions) {
+    if (!Number.isSafeInteger(raw) || raw === 0) {
+      return { error: "A chat ID is a whole number, the one @userinfobot replies with.", field: "chat_id" };
+    }
+    seen.add(raw);
+  }
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("models")
+    .update({
+      skip_contacts: rule.skipContacts,
+      contact_exceptions: [...seen],
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", model.id);
+  if (error) return { error: error.message, field: "chat_id" };
+
+  await restartTenantIfRunning(model.id, model.status);
+  revalidatePath(`/app/m/${model.id}/telegram`, "layout");
+  return { ok: true };
+}
+
+/* -------------------------------------------------------------------------- */
+/*  7. Vymazanie testovacieho chatu                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * To isté, čo robí „🧹 Vymazať pamäť tejto konverzácie" v menu kontrolného bota
+ * (`control_bot.py::_wipe` → `db.wipe_conversation`), len z dashboardu.
+ *
+ * BEZPEČNOSŤ. Akcia NEBERIE `tg_id` — berie len `modelId`. Číslo chatu si vždy
+ * prečíta z `models.owner_chat_id` tej modelky, presne ako to robí bot cez
+ * `cfg.owner_chat_id`. Z prehliadača sa teda nedá poslať cudzie číslo a zmazať
+ * niekomu skutočnú konverzáciu; jediné, čo sa dá vymazať, je chat, ktorý si sám
+ * spároval. Vlastníctvo modelky overuje `ownedModel` user-scoped klientom (RLS),
+ * až potom sa siahne po service kľúči — ten RLS obchádza, takže každý dotaz má
+ * navyše `model_id` filter.
+ *
+ * ROZSAH. Presne tie tabuľky, ktoré maže worker, a v tom istom poradí: správy,
+ * záznamy o odoslaných fotkách a hlasovkách, fakty, epizódy, otvorené sľuby a
+ * tvrdenia o sebe. Nič mimo `(model_id, tg_id)` — ostatné konverzácie sa
+ * nedotkne ani jeden príkaz.
+ *
+ * `last_msg_id` sa ZÁMERNE nenuluje (rovnako ako v `db.py`): Telegram si históriu
+ * drží aj po vymazaní tej našej a Reconciler by pri nule stiahol posledných
+ * tridsať správ a odpovedal na ne, akoby prišli teraz.
+ */
+export type WipeResult = { ok?: boolean; error?: string; deleted?: number };
+
+/** Tabuľky, z ktorých sa maže — 1:1 s `db.wipe_conversation`. */
+const WIPE_TABLES = [
+  "dm_messages",
+  "photo_sends",
+  "voice_sends",
+  "facts",
+  "episodes",
+  "open_loops",
+  "self_claims",
+] as const;
+
+/** Reset riadku v `dm_users` — 1:1 s `db.wipe_conversation`. */
+const WIPE_USER_RESET = {
+  msg_count: 0,
+  funnel_stage: "cold",
+  summary: "",
+  summary_at_msg: 0,
+  style_note: "",
+  partner_name: "",
+  name_asked: false,
+  asked_topics: {},
+  used_gags: {},
+  link_sent_at: null,
+  link_push_count: 0,
+  paid: false,
+  human_takeover: false,
+  pending_reply: false,
+  reply_after: null,
+  notified: false,
+  last_incoming_at: null,
+  last_reply_at: null,
+  last_photo_at: null,
+  last_voice_at: null,
+  last_outreach_at: null,
+  outreach_silent: 0,
+  tidied_at: null,
+} as const;
+
+export async function wipeTestChatAction(modelId: string): Promise<WipeResult> {
+  const model = await ownedModel(modelId);
+  if (!model) return { error: "Model not found." };
+
+  const tgId = model.owner_chat_id;
+  if (!tgId) {
+    return { error: "Nothing to wipe — no private Telegram is paired with this model." };
+  }
+
+  const admin = createServiceClient();
+
+  // Počet správ pred mazaním — je to jediné číslo, ktoré vieme klientovi
+  // úprimne povedať („koľko toho zmizlo"), a po delete už neexistuje.
+  const { count } = await admin
+    .from("dm_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("model_id", model.id)
+    .eq("tg_id", tgId);
+
+  for (const table of WIPE_TABLES) {
+    const { error } = await admin
+      .from(table)
+      .delete()
+      .eq("model_id", model.id)
+      .eq("tg_id", tgId);
+    if (error) return { error: `Could not clear ${table}: ${error.message}` };
+  }
+
+  const { error: resetError } = await admin
+    .from("dm_users")
+    .update(WIPE_USER_RESET)
+    .eq("model_id", model.id)
+    .eq("tg_id", tgId);
+  if (resetError) return { error: resetError.message };
+
+  revalidatePath(`/app/m/${model.id}/telegram`, "layout");
+  return { ok: true, deleted: count ?? 0 };
 }

@@ -30,7 +30,8 @@ import {
   type WizardField,
 } from "@/app/app/m/[id]/telegram/actions";
 import { setModelStatusAction } from "@/app/app/actions";
-import { ControlBotCard } from "@/components/app/telegram/control-bot-card";
+import { ControlBotBlock } from "@/components/app/telegram/control-bot-block";
+import { PrivateTelegramBlock } from "@/components/app/telegram/private-telegram-block";
 import { Field } from "@/components/app/telegram/field";
 import {
   ActivateGuide,
@@ -55,13 +56,17 @@ const LIVE_PHASES: LoginJob["phase"][] = [
 ];
 
 /**
- * Päť krokov, nie štyri.
+ * Päť krokov — a len pri PRVOM nastavení.
  *
- * Kontrolný bot tu raz bol, potom sa presunul do Settings — a klientovi po
- * zadaní kódu naskočila rovno aktivácia, takže o bote nikdy nepočul. Je
- * NEPOVINNÝ (odpisovanie na ňom nestojí, `runner.py` ho pri zlyhaní preskočí),
- * ale musí byť VIDIEŤ, s jasným „Skip for now". Nastavenia ho ukazujú tým
- * istým komponentom, aby sa obe obrazovky nemohli rozísť.
+ * Sprievodca beží, kým modelka nie je prihlásená alebo kým ju klient ani raz
+ * nezapol (`page.tsx`: `!connected || status === "draft"`). Potom sa stránka
+ * prepne na trvalé bloky (`overview.tsx`), lebo bot a súkromný Telegram nie sú
+ * postupnosť, ale stav — a stav sa nemá „preklikávať".
+ *
+ * Štvrtý krok drží OBE nepovinné veci naraz, tými istými komponentmi, aké sú
+ * potom v prehľade. Bola to najdrahšia chyba pôvodnej obrazovky: bot bol raz tu
+ * a raz v Settings, zakaždým inými slovami, a párovanie sa v spárovanom stave
+ * schovalo úplne. Jeden komponent = obe miesta sa nemajú ako rozísť.
  */
 const STEPS = [
   { n: 1, label: "API keys", icon: KeyRound },
@@ -85,14 +90,20 @@ export type WizardProps = {
   connectedPhone: string | null;
   controlBot: ControlBotState;
   initialJob: LoginJob | null;
+  /**
+   * Prišlo sa sem z prehľadu cez „Reconnect" (`?reconnect=1`). Sprievodca
+   * potom začína na prvom kroku aj pri prihlásenej modelke — a „Cancel" vracia
+   * na prehľad, nie do polovičného stavu bez adresy.
+   */
+  reconnect?: boolean;
 };
 
 export function TelegramWizard(props: WizardProps) {
   const router = useRouter();
 
   const [job, setJob] = useState<LoginJob | null>(props.initialJob);
-  const [connected, setConnected] = useState(props.connected);
-  const [reconnecting, setReconnecting] = useState(false);
+  const [connected, setConnected] = useState(props.connected && !props.reconnect);
+  const [reconnecting, setReconnecting] = useState(Boolean(props.reconnect));
   const [now, setNow] = useState(() => Date.now());
 
   const [apiId, setApiId] = useState(props.apiId);
@@ -113,6 +124,7 @@ export function TelegramWizard(props: WizardProps) {
   const [botSkipped, setBotSkipped] = useState(false);
 
   const [localStep, setLocalStep] = useState(() => {
+    if (props.reconnect) return 1;
     if (props.status === "active") return ACTIVATE_STEP;
     if (props.connected) return props.controlBot.paired ? ACTIVATE_STEP : CONTROL_BOT_STEP;
     return props.apiId && props.apiHash ? 2 : 1;
@@ -300,7 +312,15 @@ export function TelegramWizard(props: WizardProps) {
           setJob(null);
         }}
         reconnecting={reconnecting}
-        onCancelReconnect={() => setReconnecting(false)}
+        onCancelReconnect={() => {
+          // Z prehľadu sa sem prišlo adresou, tak sa ňou aj odchádza — inak by
+          // v URL ostalo `?reconnect=1` a refresh by sprievodcu vrátil späť.
+          if (props.reconnect) {
+            router.push(`/app/m/${props.modelId}/telegram`);
+            return;
+          }
+          setReconnecting(false);
+        }}
       />
 
       <Stepper active={activeStep} tone={stepTone} onJump={setLocalStep} unlocked={connected} />
@@ -405,24 +425,33 @@ export function TelegramWizard(props: WizardProps) {
           )}
 
           {activeStep === CONTROL_BOT_STEP && (
-            <ControlBotCard
-              modelId={props.modelId}
-              initial={controlBot}
-              onStateChange={setControlBot}
-              footer={
-                <ControlBotFooter
-                  paired={controlBot.paired}
-                  onContinue={() => setLocalStep(ACTIVATE_STEP)}
-                  onSkip={() => {
-                    // „Preskočené" je len navigácia. V DB sa nič nemení, takže
-                    // model neostane v polovičnom stave — bot buď je, alebo nie
-                    // je, a dorobiť sa dá kedykoľvek v Settings.
-                    setBotSkipped(true);
-                    setLocalStep(ACTIVATE_STEP);
-                  }}
-                />
-              }
-            />
+            <div className="space-y-4">
+              <Callout tone="neutral">
+                Two separate things, and you can stop after either one — or skip both. She replies
+                to fans without any of it.
+              </Callout>
+              <ControlBotBlock
+                modelId={props.modelId}
+                state={controlBot}
+                onState={setControlBot}
+              />
+              <PrivateTelegramBlock
+                modelId={props.modelId}
+                state={controlBot}
+                onState={setControlBot}
+              />
+              <ControlBotFooter
+                paired={controlBot.paired}
+                onContinue={() => setLocalStep(ACTIVATE_STEP)}
+                onSkip={() => {
+                  // „Preskočené" je len navigácia. V DB sa nič nemení, takže
+                  // model neostane v polovičnom stave — bot buď je, alebo nie
+                  // je, a dorobiť sa dá kedykoľvek z prehľadu.
+                  setBotSkipped(true);
+                  setLocalStep(ACTIVATE_STEP);
+                }}
+              />
+            </div>
           )}
 
           {activeStep === ACTIVATE_STEP && (
@@ -923,7 +952,7 @@ function ControlBotFooter({
   onSkip: () => void;
 }) {
   return (
-    <div className="space-y-2 border-t border-[var(--app-border)] pt-4">
+    <div className="space-y-2 rounded-lg border border-[var(--app-border)] bg-[#0c0c0c] px-5 py-4">
       <div className="flex flex-wrap items-center gap-2.5">
         <button
           type="button"
@@ -940,7 +969,8 @@ function ControlBotFooter({
         )}
       </div>
       <p className="text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-        She will reply to fans either way. You can add the control bot later in Settings.
+        She will reply to fans either way. Once she is switched on, both of these keep their own
+        block on this page and can be added, changed or removed at any time.
       </p>
     </div>
   );
@@ -1012,14 +1042,7 @@ function StepActivate({
             <button type="button" onClick={onBackToBot} className="underline underline-offset-2">
               Set it up now
             </button>
-            , or later in{" "}
-            <Link
-              href={`/app/m/${modelId}/telegram/settings`}
-              className="underline underline-offset-2"
-            >
-              Settings
-            </Link>
-            .
+            , or later — once she is switched on, this page lists it as its own block.
           </Callout>
         )}
 
@@ -1061,12 +1084,13 @@ function StepActivate({
           >
             Set up her persona →
           </Link>
-          <Link
-            href={`/app/m/${modelId}/telegram/settings`}
+          <button
+            type="button"
+            onClick={onBackToBot}
             className="text-[var(--app-text-3)] transition-colors hover:text-[var(--app-text)]"
           >
-            {controlBotPaired ? "Change control bot" : "Add a control bot"}
-          </Link>
+            {controlBotPaired ? "Change the control bot" : "Add a control bot"}
+          </button>
         </div>
       </div>
     </Card>
