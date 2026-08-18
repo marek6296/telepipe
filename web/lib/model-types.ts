@@ -26,7 +26,13 @@ export type ModelTabSlug = "telegram" | "fanvue" | "persona" | "voice";
  * `/app/m/[id]/persona` = Identity) — nie redirect na `/connection`, aby staré
  * odkazy aj návrat z Fanvue OAuth (`?error=`) pristáli presne tam, kde predtým.
  */
-export type ModelSubTabSlug = "index" | "settings" | "photos" | "chats" | "behavior";
+export type ModelSubTabSlug =
+  | "index"
+  | "settings"
+  | "photos"
+  | "chats"
+  | "behavior"
+  | "day";
 
 export type ModelTypeInfo = {
   value: ModelType;
@@ -94,9 +100,14 @@ export const MODEL_TYPE_TABS: Record<ModelType, readonly ModelTabSlug[]> = {
  * fotky (vault) aj svoje vlastné konverzácie (`fv_users`/`fv_messages`) — sú to
  * dvaja agenti, nie dva pohľady na to isté.
  *
- * Persona a Behavior sú jedna karta z toho istého dôvodu: persona je, KTO je,
- * chovanie je, AKO sa správa — tá istá osoba z dvoch strán. Rozdeliť ich do
- * dvoch tabov znamenalo dvakrát otvárať to isté.
+ * Persona, Behavior a Daily life sú jedna karta z toho istého dôvodu: persona
+ * je, KTO je, chovanie je, AKO sa správa, a deň je, KDE je — tá istá osoba
+ * z troch strán. Rozdeliť ich do troch tabov znamenalo trikrát otvárať to isté.
+ *
+ * Prečo je deň VLASTNÁ podkarta a nie ďalšia sekcia Identity: Identity je
+ * formulár s textami, ktoré sa píšu raz; deň je zoznam, ktorý sa pridáva, maže
+ * a preusporadúva, a k tomu ukážka vygenerovaného dňa. Simona ich má tridsaťdeväť
+ * — pod Identity by to bola dlhá obrazovka s dvoma nesúvisiacimi režimami práce.
  *
  * Karta bez riadku tu podkarty nemá a druhý tab bar sa jej nevykreslí (Voice).
  * Rozdiely medzi typmi ostávajú na jednom mieste: osobný agent fotky neposiela,
@@ -109,10 +120,12 @@ export const MODEL_TYPE_SUBTABS: Record<
   persona: {
     telegram: ["index", "settings", "photos", "chats"],
     fanvue: ["index", "settings", "photos", "chats"],
-    persona: ["index", "behavior"],
+    persona: ["index", "behavior", "day"],
   },
   business: {
     telegram: ["index", "settings", "photos", "chats"],
+    // Firemný agent nemá denný život: firma nechodí do posilňovne a jej
+    // odpovede sa nemajú spomaľovať tým, že „je na fotení".
     persona: ["index", "behavior"],
   },
   private: {

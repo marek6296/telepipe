@@ -9,7 +9,8 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test:crypto": "node --env-file=.env.local scripts/crypto-interop.mts",
-    "test:persona": "node scripts/persona-draft-test.mts"
+    "test:persona": "node scripts/persona-draft-test.mts",
+    "test:schedule": "node scripts/schedule-draft-test.mts"
   },
   "dependencies": {
     "@number-flow/react": "^0.6.2",

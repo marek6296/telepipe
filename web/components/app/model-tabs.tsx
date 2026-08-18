@@ -48,6 +48,7 @@ const SUB_TAB_LABEL: Partial<Record<ModelTabSlug, Partial<Record<ModelSubTabSlug
     persona: {
       index: "Identity",
       behavior: "Behavior",
+      day: "Daily life",
     },
   };
 
