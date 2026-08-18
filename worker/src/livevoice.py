@@ -26,6 +26,7 @@ Kontrakt endpointu (POST, JSON):
 from __future__ import annotations
 
 import logging
+import math
 import random
 from typing import Optional
 
@@ -105,26 +106,86 @@ DEFAULT_AMBIENCE_LEVEL = 0.05
 #   gain — násobič nastavenej hlasitosti
 #   high — dokiaľ siaha zhora (Hz); vyššie = viac prítomná, bližšie k mikrofónu
 #   low  — odkiaľ zdola (Hz); nižšie = viac dunenia
+#   loss — o koľko dB stiahne samotné pásmo znormalizované pozadie. NAMERANÉ
+#          (ffmpeg volumedetect, 10 s vzorka z `sound-generation`, po
+#          `loudnorm` a `afftdn`), nie odhadnuté — bez toho sa nedá povedať,
+#          kde pozadie skončí voči hlasu a voči šumu kapsuly.
 _AMBIENCE_MIX = {
     # V posteli v noci nemá nič buchať. Zostáva len tlmené dunenie televízora
     # spoza steny — má sa tušiť, nie počuť.
-    "bedroom":  {"gain": 0.30, "low": 55,  "high": 700},
-    "home":     {"gain": 1.00, "low": 70,  "high": 1400},
-    "kitchen":  {"gain": 1.10, "low": 80,  "high": 2200},  # chladnička, lyžička
-    "bathroom": {"gain": 0.85, "low": 120, "high": 3000},  # kachličky nesú výšky
-    "car":      {"gain": 1.60, "low": 40,  "high": 900},   # motor je dole
+    "bedroom":  {"gain": 0.30, "low": 55,  "high": 700,  "loss": -23.0},
+    "home":     {"gain": 1.00, "low": 70,  "high": 1400, "loss": -24.5},
+    "kitchen":  {"gain": 1.10, "low": 80,  "high": 2200, "loss": -25.3},  # chladnička, lyžička
+    "bathroom": {"gain": 0.85, "low": 120, "high": 3000, "loss": -28.2},  # kachličky nesú výšky
+    "car":      {"gain": 1.60, "low": 40,  "high": 900,  "loss": -21.1},  # motor je dole
     # Na ulici je hluk okolo teba, nie za stenou — tam smie byť výrazný.
-    "outside":  {"gain": 2.10, "low": 90,  "high": 3800},
-    "cafe":     {"gain": 1.40, "low": 90,  "high": 2600},
-    "gym":      {"gain": 1.70, "low": 60,  "high": 2800},  # činky aj hudba
-    "none":     {"gain": 0.00, "low": 70,  "high": 1400},
+    "outside":  {"gain": 2.10, "low": 90,  "high": 3800, "loss": -26.0},
+    "cafe":     {"gain": 1.40, "low": 90,  "high": 2600, "loss": -26.0},
+    "gym":      {"gain": 1.70, "low": 60,  "high": 2800, "loss": -23.5},  # činky aj hudba
+    "none":     {"gain": 0.00, "low": 70,  "high": 1400, "loss": -24.5},
 }
 
+# Korekcia hlasitosti miestnosti.
+#
+# PREČO VÔBEC. Nameral som, kde jednotlivé vrstvy naozaj končia: pozadie pri
+# nastavenej hladine 0.05 vyšlo na −52.4 dB, šum kapsuly (`hiss` 0.004 pri
+# strength „real") na −52.7 dB. Miestnosť a náš vlastný sykot teda ležali na
+# tej istej úrovni — pozadie sa v šume stratilo a z hlasovky bolo počuť iba
+# syčanie. Klientovi to znelo, že sa pozadie nerobí vôbec; pritom sa vyrábalo,
+# platilo a mixovalo, len ho nebolo za čím počuť.
+#
+# ×3.0 (+9.5 dB) posunie `home` na −42.9 dB: desať decibelov nad šumom a
+# devätnásť pod hlasom. Pomery medzi miestnosťami sa NEMENIA — `gain` ostáva
+# tak, ako je vyladený, mení sa spoločná hladina.
+AMBIENCE_MAKEUP = 3.0
 
-def ambience_mix(name: str, level: float) -> tuple:
-    """(hlasitosť, dolná hranica, horná hranica) pre danú miestnosť."""
+# Hranice, v ktorých musí miestnosť skončiť, nech ju klient nastaví akokoľvek.
+#
+# Bez spodnej by tiché miestnosti (spálňa) ležali pod šumom kapsuly a nebolo
+# by ich počuť ani pri troche dobrej vôle. Bez hornej by posuvník na maxime
+# spravil izbu hlasnejšiu než ju samu — `home` pri hladine 1.0 vychádza na
+# −15 dB, teda deväť decibelov NAD hlasom.
+AMBIENCE_MIN_OVER_HISS_DB = 6.0
+AMBIENCE_MIN_UNDER_VOICE_DB = 6.0
+
+# Stredná hlasitosť bieleho šumu je nižšia než jeho `volume` násobič — namerané
+# −52.7 dB pri 0.004, čo je o 4.7 dB menej, než by dal samotný prepočet.
+_WHITE_NOISE_OFFSET_DB = -4.7
+
+# Kam `loudnorm` normalizuje hlas, kým sa naň pustí `VOICE_GAIN`.
+_NORMALISE_TARGET_DB = -20.0
+
+
+def _db(value: float) -> float:
+    return 20.0 * math.log10(value) if value > 0 else -120.0
+
+
+def ambience_mix(name: str, level: float, hiss: float = 0.004) -> tuple:
+    """(hlasitosť, dolná hranica, horná hranica) pre danú miestnosť.
+
+    Hlasitosť sa počíta v decibeloch, lebo v nich sú aj hranice: „nad šumom" a
+    „pod hlasom" sú pomery, nie násobky, a v násobkoch by ich musel každý
+    prepočítavať v hlave.
+    """
     r = _AMBIENCE_MIX.get(name or "home", _AMBIENCE_MIX["home"])
-    return round(max(0.0, level) * r["gain"], 4), r["low"], r["high"]
+    if r["gain"] <= 0:
+        return 0.0, r["low"], r["high"]
+
+    surova = max(0.0, level) * r["gain"] * AMBIENCE_MAKEUP
+    if surova <= 0:
+        return 0.0, r["low"], r["high"]
+
+    # Kde tá hlasitosť po pásme skutočne skončí, a kde ležia obe hranice.
+    vysledok_db = r["loss"] + _db(surova)
+    sum_db = _db(hiss) + _WHITE_NOISE_OFFSET_DB
+    hlas_db = _NORMALISE_TARGET_DB + _db(VOICE_GAIN)
+    dolna_db = sum_db + AMBIENCE_MIN_OVER_HISS_DB
+    horna_db = hlas_db - AMBIENCE_MIN_UNDER_VOICE_DB
+
+    orezane_db = min(max(vysledok_db, dolna_db), horna_db)
+    if orezane_db != vysledok_db:
+        surova *= 10.0 ** ((orezane_db - vysledok_db) / 20.0)
+    return round(surova, 4), r["low"], r["high"]
 
 
 def _tempo_filter(tempo: float) -> str:
@@ -449,7 +510,9 @@ async def _mix(
             # afftdn zoberie zo vzorky široký šum a nechá v nej len to, čo má
             # štruktúru — auto, televízor, kvapku. Bez neho je pozadie sykot
             # bez ohľadu na to, o akú miestnosť sme požiadali.
-            hlasitost, dolna, horna = ambience_mix(ambience_name, level)
+            # `hiss` ide dnu preto, že spodná hranica hlasitosti miestnosti je
+            # daná práve šumom kapsuly — a ten sa líši podľa `strength`.
+            hlasitost, dolna, horna = ambience_mix(ambience_name, level, hiss)
             graf += (
                 f"[1:a]{_NORMALISE},afftdn=nr=32:nf=-38,"
                 f"highpass=f={dolna},lowpass=f={horna},"
