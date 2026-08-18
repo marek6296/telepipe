@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   BarChart3,
@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 
 import { signOutAction } from "@/app/(auth)/actions";
+import { useBackgroundPrefetch } from "@/components/app/use-background-prefetch";
 import { coins } from "@/lib/coins";
 import { asStatus, STATUS_DOT } from "@/lib/status";
 import { cn } from "@/lib/utils";
@@ -116,6 +117,20 @@ export function AppShell({
 }) {
   const pathname = usePathname();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [navigationPending, setNavigationPending] = useState(false);
+  const reduceMotion = useReducedMotion();
+
+  const backgroundRoutes = useMemo(() => {
+    const routes = ["/app", "/app/models", "/app/usage", "/app/account"];
+    if (isAdmin) routes.push("/app/admin", "/app/admin/users", "/app/admin/models");
+
+    // Modelky sa zo sidebaru otvárajú na Personu. Zahrejeme len vstupnú
+    // kartu; jej vlastný tab bar po vykreslení prednačíta zvyšok.
+    routes.push(...models.slice(0, 8).map((model) => `/app/m/${model.id}/persona`));
+    return routes.filter((href) => href !== pathname);
+  }, [isAdmin, models, pathname]);
+
+  useBackgroundPrefetch(backgroundRoutes);
 
   useEffect(() => {
     document.body.style.overflow = menuOpen ? "hidden" : "";
@@ -123,6 +138,42 @@ export function AppShell({
       document.body.style.overflow = "";
     };
   }, [menuOpen]);
+
+  useEffect(() => {
+    setNavigationPending(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!navigationPending) return;
+    const timeout = window.setTimeout(() => setNavigationPending(false), 6000);
+    return () => window.clearTimeout(timeout);
+  }, [navigationPending]);
+
+  const handleNavigationIntent = useCallback((event: MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) {
+      return;
+    }
+
+    const target = event.target as Element;
+    const anchor = target.closest("a");
+    if (!anchor || anchor.target === "_blank" || anchor.hasAttribute("download")) return;
+
+    const href = anchor.getAttribute("href");
+    if (!href || href.startsWith("#")) return;
+
+    const next = new URL(anchor.href, window.location.href);
+    const current = new URL(window.location.href);
+    if (next.origin !== current.origin || !next.pathname.startsWith("/app")) return;
+    if (
+      next.pathname === current.pathname &&
+      next.search === current.search &&
+      next.hash === current.hash
+    ) {
+      return;
+    }
+
+    setNavigationPending(true);
+  }, []);
 
   const sidebar = (
     <SidebarContent
@@ -135,7 +186,23 @@ export function AppShell({
   );
 
   return (
-    <div className="app-scope relative flex min-h-svh w-full">
+    <div
+      className="app-scope relative flex min-h-svh w-full"
+      onClickCapture={handleNavigationIntent}
+    >
+      <AnimatePresence>
+        {navigationPending && (
+          <motion.div
+            key="navigation-progress"
+            initial={{ opacity: 0, scaleX: 0.08 }}
+            animate={{ opacity: 1, scaleX: 0.82 }}
+            exit={{ opacity: 0, scaleX: 1 }}
+            transition={{ duration: reduceMotion ? 0 : 0.45, ease: [0.22, 1, 0.36, 1] }}
+            className="fixed left-0 right-0 top-14 z-[70] h-px origin-left bg-white/70 lg:left-[240px]"
+            aria-hidden
+          />
+        )}
+      </AnimatePresence>
       {/* --- Desktop sidebar ---------------------------------------------- */}
       <aside className="fixed inset-y-0 left-0 z-40 hidden w-[240px] flex-col border-r border-[var(--app-border)] bg-[var(--app-bg-sidebar)] lg:flex">
         {sidebar}
@@ -203,8 +270,30 @@ export function AppShell({
           </Link>
         </header>
 
-        <main className="relative flex-1 px-4 pb-16 pt-8 sm:px-6 lg:px-8">
-          <div className="mx-auto w-full max-w-[1140px]">{children}</div>
+        <main
+          className="relative flex-1 px-4 pb-16 pt-8 sm:px-6 lg:px-8"
+          aria-busy={navigationPending}
+        >
+          <div className="mx-auto w-full max-w-[1140px]">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={pathname}
+                initial={
+                  reduceMotion
+                    ? { opacity: 1 }
+                    : { opacity: 0, y: 8, scale: 0.995, filter: "blur(4px)" }
+                }
+                animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+                exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -4 }}
+                transition={{
+                  duration: reduceMotion ? 0 : 0.24,
+                  ease: [0.22, 1, 0.36, 1],
+                }}
+              >
+                {children}
+              </motion.div>
+            </AnimatePresence>
+          </div>
         </main>
       </div>
     </div>

@@ -28,7 +28,7 @@ export function ModelCard({
   const type = modelTypeInfo(model.model_type);
 
   return (
-    <div className="app-card p-5 transition-colors hover:border-[var(--app-border-strong)]">
+    <div className="app-card app-card-interactive p-5 transition-[border-color,box-shadow,transform] hover:border-[var(--app-border-strong)]">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <Link

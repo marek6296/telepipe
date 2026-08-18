@@ -12,10 +12,10 @@ import { getUser } from "@/lib/supabase/server";
  * a RLS.
  */
 export default async function AppLayout({ children }: LayoutProps<"/app">) {
-  const user = await getUser();
+  // Auth, účet aj sidebar sú od seba nezávislé a RLS chráni oba dátové dotazy.
+  // Spustíme ich naraz, aby layout nevytváral sekvenčný waterfall.
+  const [user, account, models] = await Promise.all([getUser(), getAccount(), listModels()]);
   if (!user) redirect("/login");
-
-  const [account, models] = await Promise.all([getAccount(), listModels()]);
 
   return (
     <AppShell

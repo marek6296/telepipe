@@ -1,3 +1,5 @@
+import { cache } from "react";
+
 import { createClient } from "@/lib/supabase/server";
 import type { ModelRow } from "@/lib/models";
 
@@ -52,21 +54,24 @@ export async function getLatestLoginJob(modelId: string): Promise<LoginJob | nul
   return (data as LoginJob | null) ?? null;
 }
 
-export async function getTelegramConnection(model: ModelRow): Promise<TelegramConnection> {
+const getTelegramConnectionCached = cache(async function getTelegramConnectionCached(
+  modelId: string,
+  modelStatus: string,
+): Promise<TelegramConnection> {
   const supabase = await createClient();
 
   const [latest, done] = await Promise.all([
     supabase
       .from("tg_login_jobs")
       .select(LOGIN_JOB_COLUMNS)
-      .eq("model_id", model.id)
+      .eq("model_id", modelId)
       .order("id", { ascending: false })
       .limit(1)
       .maybeSingle(),
     supabase
       .from("tg_login_jobs")
       .select(LOGIN_JOB_COLUMNS)
-      .eq("model_id", model.id)
+      .eq("model_id", modelId)
       .eq("phase", "done")
       .order("id", { ascending: false })
       .limit(1)
@@ -76,18 +81,21 @@ export async function getTelegramConnection(model: ModelRow): Promise<TelegramCo
   const doneJob = (done.data as LoginJob | null) ?? null;
   // Modelka, ktorú už worker niekedy dvihol, session určite má — aj keby jej
   // joby niekto v DB upratal.
-  const running = model.status === "active" || model.status === "paused";
+  const running = modelStatus === "active" || modelStatus === "paused";
 
   return {
     connected: Boolean(doneJob) || running,
     phone: doneJob?.phone ?? null,
     latestJob: (latest.data as LoginJob | null) ?? null,
   };
+});
+
+export async function getTelegramConnection(model: ModelRow): Promise<TelegramConnection> {
+  return getTelegramConnectionCached(model.id, model.status);
 }
 
 /** Rýchla verzia pre zoznamy — len áno/nie, jeden dotaz na modelku. */
 export async function getConnectedMap(models: ModelRow[]): Promise<Record<string, boolean>> {
-  const supabase = await createClient();
   const map: Record<string, boolean> = {};
   for (const model of models) {
     map[model.id] = model.status === "active" || model.status === "paused";
@@ -96,6 +104,7 @@ export async function getConnectedMap(models: ModelRow[]): Promise<Record<string
   const pending = models.filter((model) => !map[model.id]);
   if (pending.length === 0) return map;
 
+  const supabase = await createClient();
   const { data } = await supabase
     .from("tg_login_jobs")
     .select("model_id, phase")

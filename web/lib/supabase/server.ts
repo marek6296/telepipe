@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { createServerClient } from "@supabase/ssr";
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
@@ -40,13 +41,13 @@ export async function createClient(options?: { rememberMe?: boolean }) {
  * Vráti prihláseného používateľa alebo null. Vždy `getUser()` (overuje token
  * u Supabase), nikdy nie `getSession()` — tá číta cookie bez validácie.
  */
-export async function getUser() {
+export const getUser = cache(async function getUser() {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   return user;
-}
+});
 
 /**
  * Service-role klient — OBCHÁDZA RLS. Používať výhradne v server actions, ktoré

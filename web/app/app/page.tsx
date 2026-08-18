@@ -96,86 +96,169 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
         <ResetStatsButton since={account?.stats_since ?? null} />
       </div>
 
-      {/* --- Dlaždice --------------------------------------------------------- */}
-      <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
-        <StatTile
-          label="Replies sent"
-          value={compactNumber(repliesThis)}
-          delta={percentDelta(repliesThis, repliesPrev)}
-          hint={`messages she wrote, ${range.hint}`}
-        />
-        <StatTile
-          label="Conversations"
-          value={compactNumber(totalChats)}
-          hint="fans she is talking to"
-        />
-        <StatTile
-          label="Converted"
-          value={compactNumber(totalConverted)}
-          hint={conversionHint(totalConverted, totalChats)}
-        />
-        <StatTile
-          label="Pipe Coins spent"
-          value={coinsPrecise(spendThis)}
-          delta={percentDelta(spendThis, spendPrev)}
-          hint={range.hint}
-        />
-      </div>
+      <Suspense fallback={<StatsSkeleton />}>
+        <DashboardStats models={models} range={range} statsPromise={statsPromise} eventsPromise={eventsPromise} />
+      </Suspense>
 
-      {/* --- Grafy ------------------------------------------------------------ */}
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <Card>
-          <CardHeader title="Usage spend" description={`Pipe Coins spent, ${range.hint}`} />
-          <SpendChart data={spendSeries} />
-        </Card>
+      <Suspense fallback={<ChartsSkeleton />}>
+        <DashboardCharts models={models} range={range} eventsPromise={eventsPromise} />
+      </Suspense>
 
-        <Card>
-          <CardHeader title="Messages by model" description={`Replies sent, ${range.hint}`} />
-          {series.length === 0 ? (
-            <p className="px-5 py-[92px] text-center text-[12.5px] text-[var(--app-text-4)]">
-              No replies in this period.
-            </p>
-          ) : (
-            <MessagesChart data={messageSeries} series={series} />
-          )}
-        </Card>
-      </div>
-
-      {/* --- Modelky ---------------------------------------------------------- */}
-      <div className="mt-10">
-        {models.length === 0 ? (
-          <EmptyState
-            icon={<Bot className="h-[18px] w-[18px]" strokeWidth={1.5} />}
-            title="No models yet"
-            description="Add your first model, connect her Telegram account, and she starts replying to fans within 30 seconds."
-            action={<AddModelDialog label="Add your first model" className="h-9 px-4" />}
-          />
-        ) : (
-          <>
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="app-group-label">Your models</h2>
-              <Link
-                href="/app/models"
-                className="text-[12.5px] text-[var(--app-text-3)] transition-colors hover:text-[var(--app-text)]"
-              >
-                Manage all
-              </Link>
-            </div>
-            <div className="grid gap-4 xl:grid-cols-2">
-              {models.map((model) => (
-                <ModelCard
-                  key={model.id}
-                  model={model}
-                  stats={stats[model.id] ?? { chats: 0, converted: 0, spentToday: 0 }}
-                  connected={connected[model.id] ?? false}
-                  aiPaused={paused[model.id] ?? false}
-                />
-              ))}
-            </div>
-          </>
-        )}
-      </div>
+      <Suspense
+        fallback={
+          <div className="mt-10">
+            <ModelCardsSkeleton count={Math.min(2, Math.max(1, models.length))} />
+          </div>
+        }
+      >
+        <DashboardModels
+          models={models}
+          statsPromise={statsPromise}
+          connectedPromise={connectedPromise}
+          pausedPromise={pausedPromise}
+        />
+      </Suspense>
     </>
+  );
+}
+
+async function DashboardStats({
+  models,
+  range,
+  statsPromise,
+  eventsPromise,
+}: {
+  models: ModelRow[];
+  range: Range;
+  statsPromise: ReturnType<typeof getModelStats>;
+  eventsPromise: Promise<UsageRow[]>;
+}) {
+  const [stats, events] = await Promise.all([statsPromise, eventsPromise]);
+  const totalChats = models.reduce((sum, model) => sum + (stats[model.id]?.chats ?? 0), 0);
+  const totalConverted = models.reduce(
+    (sum, model) => sum + (stats[model.id]?.converted ?? 0),
+    0,
+  );
+  const spendThis = sumCharged(events, 0, range.days);
+  const spendPrev = sumCharged(events, range.days, range.days * 2);
+  const repliesThis = countKind(events, "chat", 0, range.days);
+  const repliesPrev = countKind(events, "chat", range.days, range.days * 2);
+
+  return (
+    <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+      <StatTile
+        label="Replies sent"
+        value={compactNumber(repliesThis)}
+        delta={percentDelta(repliesThis, repliesPrev)}
+        hint={`messages she wrote, ${range.hint}`}
+      />
+      <StatTile
+        label="Conversations"
+        value={compactNumber(totalChats)}
+        hint="fans she is talking to"
+      />
+      <StatTile
+        label="Converted"
+        value={compactNumber(totalConverted)}
+        hint={conversionHint(totalConverted, totalChats)}
+      />
+      <StatTile
+        label="Pipe Coins spent"
+        value={coinsPrecise(spendThis)}
+        delta={percentDelta(spendThis, spendPrev)}
+        hint={range.hint}
+      />
+    </div>
+  );
+}
+
+async function DashboardCharts({
+  models,
+  range,
+  eventsPromise,
+}: {
+  models: ModelRow[];
+  range: Range;
+  eventsPromise: Promise<UsageRow[]>;
+}) {
+  const events = await eventsPromise;
+  const buckets = bucketsFor(range);
+  const spendSeries = dailySpend(events, buckets);
+  const { data: messageSeries, series } = dailyMessagesByModel(events, models, buckets);
+
+  return (
+    <div className="mt-4 grid gap-4 xl:grid-cols-2">
+      <Card>
+        <CardHeader title="Usage spend" description={`Pipe Coins spent, ${range.hint}`} />
+        <SpendChart data={spendSeries} />
+      </Card>
+      <Card>
+        <CardHeader title="Messages by model" description={`Replies sent, ${range.hint}`} />
+        {series.length === 0 ? (
+          <p className="px-5 py-[92px] text-center text-[12.5px] text-[var(--app-text-4)]">
+            No replies in this period.
+          </p>
+        ) : (
+          <MessagesChart data={messageSeries} series={series} />
+        )}
+      </Card>
+    </div>
+  );
+}
+
+async function DashboardModels({
+  models,
+  statsPromise,
+  connectedPromise,
+  pausedPromise,
+}: {
+  models: ModelRow[];
+  statsPromise: ReturnType<typeof getModelStats>;
+  connectedPromise: ReturnType<typeof getConnectedMap>;
+  pausedPromise: ReturnType<typeof getPausedMap>;
+}) {
+  if (models.length === 0) {
+    return (
+      <div className="mt-10">
+        <EmptyState
+          icon={<Bot className="h-[18px] w-[18px]" strokeWidth={1.5} />}
+          title="No models yet"
+          description="Add your first model, connect her Telegram account, and she starts replying to fans within 30 seconds."
+          action={<AddModelDialog label="Add your first model" className="h-9 px-4" />}
+        />
+      </div>
+    );
+  }
+
+  const [stats, connected, paused] = await Promise.all([
+    statsPromise,
+    connectedPromise,
+    pausedPromise,
+  ]);
+
+  return (
+    <div className="mt-10">
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="app-group-label">Your models</h2>
+        <Link
+          href="/app/models"
+          className="text-[12.5px] text-[var(--app-text-3)] transition-colors hover:text-[var(--app-text)]"
+        >
+          Manage all
+        </Link>
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        {models.map((model) => (
+          <ModelCard
+            key={model.id}
+            model={model}
+            stats={stats[model.id] ?? { chats: 0, converted: 0, spentToday: 0 }}
+            connected={connected[model.id] ?? false}
+            aiPaused={paused[model.id] ?? false}
+          />
+        ))}
+      </div>
+    </div>
   );
 }
 

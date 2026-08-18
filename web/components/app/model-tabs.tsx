@@ -1,13 +1,17 @@
 "use client";
 
+import { useMemo } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { motion, useReducedMotion } from "framer-motion";
 import { AudioLines, Heart, Send, UserRound, type LucideIcon } from "lucide-react";
 
+import { useBackgroundPrefetch } from "@/components/app/use-background-prefetch";
 import {
   MODEL_TYPE_TABS,
   activeModelTab,
   asModelType,
+  modelTypeSubTabs,
   subTabHref,
   type ModelSubTabSlug,
   type ModelTabSlug,
@@ -64,12 +68,30 @@ export function ModelTabs({
 }) {
   const pathname = usePathname();
   const tabs = MODEL_TYPE_TABS[asModelType(modelType)];
+  const reduceMotion = useReducedMotion();
 
   const {
     tab: activeTab,
     sub: activeSub,
     subTabs,
   } = activeModelTab(pathname, modelId, modelType);
+
+  const backgroundRoutes = useMemo(
+    () =>
+      tabs
+        .flatMap((tab) => {
+          const subTabsForTab = modelTypeSubTabs(modelType, tab);
+          return subTabsForTab.length > 0
+            ? subTabsForTab.map((sub) => subTabHref(modelId, tab, sub))
+            : [`/app/m/${modelId}/${tab}`];
+        })
+        .filter((href) => href !== pathname),
+    [modelId, modelType, pathname, tabs],
+  );
+
+  // Aktívna karta je už na obrazovke. Po prvom vykreslení potichu zahrejeme
+  // ostatné karty modelky, aby ďalší preklik pôsobil ako v natívnej aplikácii.
+  useBackgroundPrefetch(backgroundRoutes, 260);
 
   return (
     <div className="mb-8">
@@ -100,7 +122,16 @@ export function ModelTabs({
                 />
               )}
               {active && (
-                <span className="absolute inset-x-0 -bottom-px h-px bg-[var(--app-text)]" />
+                <motion.span
+                  layoutId={`model-primary-tab-${modelId}`}
+                  className="absolute inset-x-0 -bottom-px h-px bg-[var(--app-text)]"
+                  transition={
+                    reduceMotion
+                      ? { duration: 0 }
+                      : { type: "spring", stiffness: 470, damping: 38, mass: 0.7 }
+                  }
+                  aria-hidden
+                />
               )}
             </Link>
           );
@@ -128,7 +159,16 @@ export function ModelTabs({
               >
                 {label}
                 {active && (
-                  <span className="absolute inset-x-2 -bottom-px h-px bg-[var(--app-text-2)]" />
+                  <motion.span
+                    layoutId={`model-sub-tab-${modelId}`}
+                    className="absolute inset-x-2 -bottom-px h-px bg-[var(--app-text-2)]"
+                    transition={
+                      reduceMotion
+                        ? { duration: 0 }
+                        : { type: "spring", stiffness: 500, damping: 40, mass: 0.65 }
+                    }
+                    aria-hidden
+                  />
                 )}
               </Link>
             );
