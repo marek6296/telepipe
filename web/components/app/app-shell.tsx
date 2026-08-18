@@ -16,6 +16,7 @@ import {
   Plus,
   Settings,
   Shield,
+  Smartphone,
   Users,
   X,
 } from "lucide-react";
@@ -41,6 +42,7 @@ type NavItem = {
 const OVERVIEW: NavItem[] = [
   { href: "/app", label: "Dashboard", icon: LayoutDashboard, exact: true },
   { href: "/app/usage", label: "Usage", icon: BarChart3, exact: false },
+  { href: "/app/virtual-sim", label: "Virtual SIM", icon: Smartphone, exact: false },
 ];
 
 const WORKSPACE: NavItem[] = [
@@ -72,6 +74,7 @@ function pageTitle(pathname: string, models: ShellModel[]): string {
   if (pathname === "/app") return "Dashboard";
   if (pathname.startsWith("/app/models")) return "Models";
   if (pathname.startsWith("/app/usage")) return "Usage";
+  if (pathname.startsWith("/app/virtual-sim")) return "Virtual SIM";
   if (pathname.startsWith("/app/account")) return "Account";
 
   if (pathname.startsWith("/app/admin")) {
