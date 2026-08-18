@@ -189,8 +189,14 @@ export function TelegramWizard(props: WizardProps) {
       type="button"
       onClick={() => {
         setError(null);
-        setReconnecting(true);
-        setConnected(false);
+        // Späť na krok 1 sa u UŽ pripojenej modelky dá dostať len cez
+        // „reconnect" — bez toho by `activeStep` hodnotu 1 nikdy nepustil.
+        // U nepripojenej sa nič prepínať nemusí (a „Cancel" v pásiku by tam
+        // len mýlil).
+        if (connected) {
+          setReconnecting(true);
+          setConnected(false);
+        }
         setJob(null);
         setLocalStep(1);
       }}
