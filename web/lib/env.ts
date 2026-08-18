@@ -56,5 +56,16 @@ export function fanvueConfigured(): boolean {
   return Boolean(process.env.FANVUE_CLIENT_ID && process.env.FANVUE_CLIENT_SECRET);
 }
 
+/** VRNUM API token — SERVER ONLY. Pouziva sa vyhradne na Telegram OTP route. */
+export function vrnumApiToken(): string {
+  return required(process.env.VRNUM_API_TOKEN, "VRNUM_API_TOKEN");
+}
+
+/** Minimalne 50 % nad aktualnou VRNUM nakupnou cenou. */
+export function vrnumOtpPriceMultiplier(): number {
+  const value = Number(process.env.VRNUM_OTP_PRICE_MULTIPLIER ?? "1.50");
+  return Number.isFinite(value) ? Math.max(value, 1.5) : 1.5;
+}
+
 // Feature flagy žijú v `lib/flags.ts` (client-safe) — tu ich len reexportujeme
 export { googleAuthEnabled } from "@/lib/flags";
