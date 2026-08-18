@@ -15,7 +15,7 @@ export default function NotFound() {
           width={160}
           height={51}
           priority
-          className="mx-auto h-7 w-auto"
+          className="brand-logo-neutral mx-auto h-7 w-auto"
         />
         <p className="mt-12 text-[72px] font-semibold leading-none text-gradient-gold">404</p>
         <h1 className="mt-4 text-[19px] font-semibold text-white">

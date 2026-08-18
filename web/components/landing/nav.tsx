@@ -15,7 +15,7 @@ const LINKS = [
 ];
 
 /**
- * Fixná blur navigácia v štýle dashboardu — monochróm, zlatá len v logu.
+ * Fixná blur navigácia v štýle dashboardu — kompletne monochromatická.
  *
  * Dva varianty, jeden komponent (markup sa neduplikuje):
  *
@@ -96,7 +96,7 @@ export function LandingNav() {
               width={148}
               height={47}
               priority
-              className="h-7 w-auto"
+              className="brand-logo-neutral h-7 w-auto"
             />
           )}
         </Link>

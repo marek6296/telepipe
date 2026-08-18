@@ -38,6 +38,14 @@
   --surface-3: #1a1a1a;
   --hairline: rgba(255, 255, 255, 0.08);
   --hairline-gold: rgba(212, 175, 55, 0.18);
+
+  /* Jednotný bezfarebný kovový vzhľad loga naprieč celým produktom. */
+  --brand-logo-neutral-filter:
+    grayscale(1)
+    saturate(0)
+    brightness(0.68)
+    contrast(1.12)
+    drop-shadow(0 0 5px rgba(255, 255, 255, 0.08));
 }
 
 @theme inline {
@@ -61,6 +69,11 @@ body {
   font-family: var(--font-poppins), ui-sans-serif, system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
+}
+
+.brand-logo-neutral {
+  filter: var(--brand-logo-neutral-filter);
+  opacity: 0.96;
 }
 
 ::selection {
