@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -14,9 +14,9 @@ import {
   disconnectFanvueAction,
   setFanvueEnabledAction,
 } from "@/app/app/m/[id]/fanvue/actions";
+import { Switch } from "@/components/app/forms/fields";
 import { Callout, Card, CardHeader } from "@/components/app/ui";
 import { dateTime, isPast } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import type { FanvueConnection } from "@/lib/fanvue";
 
 /**
@@ -60,6 +60,7 @@ export function FanvueConnectCard({
   configured: boolean;
   error: string;
 }) {
+  const agentHelpId = useId();
   const [pending, startTransition] = useTransition();
   const [failed, setFailed] = useState<string | null>(null);
   // Optimistický stav prepínača: server action prekreslí stránku, ale
@@ -74,8 +75,7 @@ export function FanvueConnectCard({
     });
   };
 
-  const toggleAgent = () => {
-    const next = !enabled;
+  const toggleAgent = (next: boolean) => {
     setFailed(null);
     setEnabled(next);
     startTransition(async () => {
@@ -166,30 +166,22 @@ export function FanvueConnectCard({
               <div className="flex items-start justify-between gap-4 rounded-xl border border-[var(--app-border)] bg-[#0c0c0c] px-4 py-3">
                 <div className="min-w-0">
                   <p className="text-[13px] font-medium text-[var(--app-text-2)]">Agent enabled</p>
-                  <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+                  <p
+                    id={agentHelpId}
+                    className="mt-1 text-[11.5px] leading-relaxed text-[var(--app-text-4)]"
+                  >
                     When enabled, the AI replies to Fanvue messages using this
                     model&apos;s persona and credits.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={enabled}
-                  aria-label="Agent enabled"
-                  onClick={toggleAgent}
+                <Switch
+                  checked={enabled}
+                  label="Agent enabled"
+                  describedBy={agentHelpId}
                   disabled={pending}
-                  className={cn(
-                    "relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-60",
-                    enabled ? "bg-[var(--app-text)]" : "bg-[#2e2e2e]",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform",
-                      enabled ? "translate-x-[22px]" : "translate-x-0.5",
-                    )}
-                  />
-                </button>
+                  onCheckedChange={toggleAgent}
+                  className="mt-0.5"
+                />
               </div>
 
               {scopes.length > 0 && (
