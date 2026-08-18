@@ -5,6 +5,7 @@ import {
   TelegramLimitsForm,
   type TelegramLimitsRow,
 } from "@/components/app/telegram/limits-form";
+import { ReplyModeForm } from "@/components/app/reply-mode-form";
 import { Callout, PageHeader } from "@/components/app/ui";
 import { requireModelSubTab } from "@/lib/models";
 import { createClient } from "@/lib/supabase/server";
@@ -30,11 +31,18 @@ export default async function TelegramSettingsPage({
   const model = await requireModelSubTab(id, "telegram", "settings");
 
   const supabase = await createClient();
-  const { data } = await supabase
-    .from("behavior")
-    .select("model_id, max_active_chats, chat_slot_min, max_outreach_per_hour, morning_enabled")
-    .eq("model_id", model.id)
-    .maybeSingle();
+  const [{ data }, { data: settings }] = await Promise.all([
+    supabase
+      .from("behavior")
+      .select("model_id, max_active_chats, chat_slot_min, max_outreach_per_hour, morning_enabled")
+      .eq("model_id", model.id)
+      .maybeSingle(),
+    supabase
+      .from("settings")
+      .select("tg_reply_mode, tg_fallback_minutes")
+      .eq("model_id", model.id)
+      .maybeSingle(),
+  ]);
 
   return (
     <>
@@ -45,6 +53,14 @@ export default async function TelegramSettingsPage({
       />
 
       <div className="flex flex-col gap-5">
+        <ReplyModeForm
+          modelId={model.id}
+          channel="telegram"
+          mode={String(settings?.tg_reply_mode ?? "auto")}
+          fallbackMinutes={
+            settings?.tg_fallback_minutes == null ? null : Number(settings.tg_fallback_minutes)
+          }
+        />
         {data ? (
           <TelegramLimitsForm limits={data as unknown as TelegramLimitsRow} />
         ) : (
