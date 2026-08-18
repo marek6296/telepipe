@@ -59,12 +59,17 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
             placeholder="Los Angeles"
             help="Where she says she lives. Drives her local time and small talk."
           />
-          <TextField
+          {/* Viacriadkové zámerne: jazyk na riadok aj s úrovňou („Slovak —
+              mother tongue"), presne ako to worker číta do sekcie „ČO OVLÁDAŠ
+              ZA JAZYKY". Jednoriadkový input tie riadky pri prvej úprave ticho
+              zlepil do jedného — a asistovaná persona ich píše vždy. */}
+          <TextAreaField
             name="languages"
             label="Languages she speaks"
             defaultValue={persona.languages}
-            placeholder="English, a little Slovak"
-            help="What she claims to understand when a fan switches language."
+            rows={3}
+            placeholder={"English — this is what she writes in with everyone.\nSlovak — fluent, her mother tongue."}
+            help="What she claims to understand when a fan switches language. One language per line."
           />
           <TextField
             name="language"

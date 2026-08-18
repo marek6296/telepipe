@@ -5,7 +5,11 @@ import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
 import { requireUser } from "@/lib/models";
-import { DEFAULT_MODEL_TYPE, isModelTypeEnabled } from "@/lib/model-types";
+import {
+  DEFAULT_MODEL_TYPE,
+  isModelTypeEnabled,
+  modelTypeHasTab,
+} from "@/lib/model-types";
 
 export type ActionResult = { error?: string; ok?: boolean };
 
@@ -59,7 +63,16 @@ export async function createModelAction(
   }
 
   revalidatePath("/app", "layout");
-  // Rovno do wizardu — bez Telegram účtu nemá modelka čo robiť.
+
+  // Prvá otázka po založení je „chceš pomoc s personou?", nie „vlož api_id".
+  // Kto pomoc nechce, klikne na tej istej obrazovke „set her up manually" a
+  // pokračuje na Telegram — poradie sa mu nevnucuje, len ponúka.
+  //
+  // Typ, ktorý kartu Persona nemá, ide rovno na Telegram. Test je na mape
+  // typov, nie na `=== "persona"`: nový typ tak nepotrebuje zásah tu.
+  if (modelTypeHasTab(modelType, "persona")) {
+    redirect(`/app/m/${data.id}/persona/build`);
+  }
   redirect(`/app/m/${data.id}/telegram`);
 }
 
