@@ -1003,6 +1003,7 @@ class UserBot:
                 tempo=speech.tempo_from(hlas_pokyn, float(behavior.voice_tempo or 1.12)),
                 level=float(behavior.voice_ambience_level or 0.05),
                 spoken=povedane,
+                **_voice_ranges(behavior),
             )
             if nahravka:
                 povedany_text = chunks[0]
@@ -1502,9 +1503,13 @@ class UserBot:
 
         try:
             povedane = await speech.to_spoken(self._llm, text)
+            # Rozsahy idú z uloženého chovania, nie z práce: ukážka má znieť
+            # presne ako hlasovka, ktorá odíde fanúšikovi — vrátane ticha na
+            # okrajoch a vylosovanej hlasitosti. Preto tu NIE JE nič pevné.
             data = await livevoice.speak(
                 text, kluc, hlas_id, izba, sila,
                 tempo=tempo, level=hlasitost, spoken=povedane,
+                **_voice_ranges(behavior),
             )
             if not data:
                 await self._db.finish_voice_job(
@@ -2010,6 +2015,20 @@ def _strip_urls(text: str) -> str:
 
 def message_id_of(event) -> int:
     return int(getattr(getattr(event, "message", None), "id", 0) or 0)
+
+
+def _voice_ranges(behavior) -> Dict[str, tuple]:
+    """Rozsahy hlasovky z nastavení klienta (migrácia 029) pre `livevoice.speak`.
+
+    Je to jedna funkcia pre obe cesty — ostrú odpoveď aj ukážku v štúdiu —
+    schválne. Kým sa nastavenia skladali na dvoch miestach, ukážka znela inak
+    než to, čo naozaj odišlo, a ladenie sluchom tým stratilo zmysel.
+    """
+    return {
+        "volume_range": (behavior.voice_volume_min, behavior.voice_volume_max),
+        "lead_range": (behavior.voice_lead_min, behavior.voice_lead_max),
+        "tail_range": (behavior.voice_tail_min, behavior.voice_tail_max),
+    }
 
 
 def _who(user: Dict[str, Any]) -> str:

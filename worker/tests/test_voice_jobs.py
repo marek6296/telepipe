@@ -1035,3 +1035,65 @@ class TestPohybPozadia:
         import livevoice as L
 
         assert L.ROOM_DRIFT_PERIOD_MIN > L.DRIFT_PERIOD_MAX
+
+
+class TestRozsahyOdKlienta:
+    """Hlasitosť a ticho na okrajoch si nastavuje klient (migrácia 029).
+
+    Kým to boli konštanty v kóde, „tichšie" alebo „dlhšia pauza" znamenalo
+    deploy workera — a správne číslo je pritom vec ucha, nie merania.
+    """
+
+    def test_hlasitost_ostane_v_nastavenom_rozsahu(self):
+        import random
+        import livevoice as L
+
+        r = random.Random(5)
+        vzorky = [L.note_volume(r, (0.04, 0.09)) for _ in range(300)]
+        assert all(0.04 <= v <= 0.09 for v in vzorky), (min(vzorky), max(vzorky))
+        assert len(set(vzorky)) > 20, "aj v úzkom rozsahu sa musí meniť"
+
+    def test_ticho_ostane_v_nastavenom_rozsahu(self):
+        import random
+        import livevoice as L
+
+        r = random.Random(6)
+        for _ in range(300):
+            lead, tail = L.lead_tail(r, lead=(2.0, 2.5), tail=(0.5, 1.0))
+            assert 2.0 <= lead <= 2.5, lead
+            assert 0.5 <= tail <= 1.0, tail
+
+    def test_bez_rozsahu_platia_zabudovane(self):
+        import random
+        import livevoice as L
+
+        r = random.Random(8)
+        vzorky = [L.note_volume(r) for _ in range(200)]
+        assert all(L.NOTE_MIN <= v <= L.NOTE_MAX for v in vzorky)
+
+    def test_prevrateny_rozsah_sa_otoci(self):
+        """Z databázy môže prísť min > max — losovať mimo obrazovky sa nesmie."""
+        import random
+        import livevoice as L
+
+        r = random.Random(9)
+        vzorky = [L.note_volume(r, (0.20, 0.05)) for _ in range(100)]
+        assert all(0.05 <= v <= 0.20 for v in vzorky), (min(vzorky), max(vzorky))
+
+    def test_rovnake_min_a_max_je_pevna_hodnota(self):
+        """Klient si smie vypnúť náhodu — ale musí to byť jeho rozhodnutie."""
+        import random
+        import livevoice as L
+
+        r = random.Random(10)
+        assert {L.note_volume(r, (0.12, 0.12)) for _ in range(50)} == {0.12}
+
+    def test_ukazka_a_ostra_hlasovka_beru_to_iste(self):
+        """Preview musí znieť ako to, čo naozaj odíde — inak nemá zmysel."""
+        import inspect
+        import userbot
+
+        zdroj = inspect.getsource(userbot)
+        assert zdroj.count("**_voice_ranges(behavior)") == 2, (
+            "obe cesty musia brať rozsahy z toho istého miesta"
+        )

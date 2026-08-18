@@ -28,7 +28,12 @@ const VOICE_COLUMNS =
   "model_id, voices_enabled, eleven_voice_id, voice_ambience, voice_strength, " +
   "voice_chance, voice_tempo, voice_ambience_level, voice_when_asked, " +
   "voice_when_doubted, voice_when_he_voices, voice_when_away, " +
-  "voice_on_goodnight, voice_when_hot";
+  "voice_on_goodnight, voice_when_hot, " +
+  // Rozsahy z 029. Grant na ne dostala rola `authenticated` v tej istej
+  // migrácii — bez neho by celý tento select spadol na „permission denied",
+  // nie len tieto stĺpce.
+  "voice_volume_min, voice_volume_max, voice_lead_min, voice_lead_max, " +
+  "voice_tail_min, voice_tail_max";
 
 export default async function VoicePage({ params }: PageProps<"/app/m/[id]/voice">) {
   const { id } = await params;

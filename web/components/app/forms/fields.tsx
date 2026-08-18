@@ -588,3 +588,106 @@ function clamp(value: number, min?: number, max?: number): number {
   if (typeof max === "number" && value > max) return max;
   return value;
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Rozsah — dve hranice jednej veličiny                                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Dolná a horná hranica ako jedno pole.
+ *
+ * PREČO ROZSAH A NIE HODNOTA. Hlasovky sa nesmú opakovať — každá si z rozsahu
+ * vylosuje vlastné číslo a práve to ich odlišuje od výstupu zo stroja. Keby to
+ * bola jedna hodnota, séria by znela zakaždým rovnako.
+ *
+ * Hranice sa navzájom tlačia: keď dolnú posunieš nad hornú, horná ustúpi. Bez
+ * toho by sa dal nastaviť prevrátený rozsah a losovalo by sa z niečoho iného,
+ * než čo je na obrazovke. Rovnaké dolné aj horné číslo je legitímne — vtedy je
+ * hodnota pevná a náhoda vypnutá, ale je to rozhodnutie klienta.
+ */
+export function RangeField({
+  nameMin,
+  nameMax,
+  label,
+  help,
+  defaultMin,
+  defaultMax,
+  min = 0,
+  max = 1,
+  step = 0.01,
+  format = (value: number) => `${Math.round(value * 100)}%`,
+  className,
+}: {
+  nameMin: string;
+  nameMax: string;
+  label: string;
+  help?: string;
+  defaultMin: number;
+  defaultMax: number;
+  min?: number;
+  max?: number;
+  step?: number;
+  format?: (value: number) => string;
+  className?: string;
+}) {
+  const auto = useOptionalAutoSaveField();
+  const [lo, setLo] = useState(defaultMin);
+  const [hi, setHi] = useState(defaultMax);
+
+  const flush = () => requireForm(auto).flush();
+  const posun = (kto: "lo" | "hi", raw: number) => {
+    const form = requireForm(auto);
+    if (kto === "lo") {
+      setLo(raw);
+      form.set(nameMin, raw);
+      if (raw > hi) {
+        setHi(raw);
+        form.set(nameMax, raw);
+      }
+      return;
+    }
+    setHi(raw);
+    form.set(nameMax, raw);
+    if (raw < lo) {
+      setLo(raw);
+      form.set(nameMin, raw);
+    }
+  };
+
+  return (
+    <Shell
+      label={label}
+      help={help}
+      className={className}
+      action={
+        <span className="tabular-nums text-[12.5px] font-medium text-[var(--app-text)]">
+          {format(lo)} – {format(hi)}
+        </span>
+      }
+    >
+      <div className="space-y-2.5">
+        {(
+          [
+            ["lo", lo, "Quietest"],
+            ["hi", hi, "Loudest"],
+          ] as const
+        ).map(([kto, hodnota]) => (
+          <input
+            key={kto}
+            type="range"
+            aria-label={`${label} — ${kto === "lo" ? "lower" : "upper"} bound`}
+            value={hodnota}
+            min={min}
+            max={max}
+            step={step}
+            onChange={(event) => posun(kto, Number(event.target.value))}
+            onPointerUp={flush}
+            onBlur={flush}
+            className="h-1 w-full cursor-pointer appearance-none rounded-full bg-[#26262a] accent-white"
+            style={{ accentColor: "#fafafa" }}
+          />
+        ))}
+      </div>
+    </Shell>
+  );
+}

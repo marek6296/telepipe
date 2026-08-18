@@ -16,6 +16,7 @@ import { saveBehaviorAction } from "@/app/app/m/[id]/persona/behavior/actions";
 import { reloadVoicesAction } from "@/app/app/m/[id]/voice/actions";
 import { AutoSaveForm, useAutoSaveField } from "@/components/app/forms/auto-save";
 import {
+  RangeField,
   SelectField,
   SliderField,
   SwitchField,
@@ -51,6 +52,13 @@ export type VoiceRow = {
   voice_when_away: boolean;
   voice_on_goodnight: boolean;
   voice_when_hot: boolean;
+  /** Rozsahy, z ktorých si každá hlasovka losuje vlastné číslo (029). */
+  voice_volume_min: number | string;
+  voice_volume_max: number | string;
+  voice_lead_min: number | string;
+  voice_lead_max: number | string;
+  voice_tail_min: number | string;
+  voice_tail_max: number | string;
 };
 
 // Zoznamy hodnôt žijú v `lib/voice.ts` — tá istá karta ich potrebuje dvakrát
@@ -63,6 +71,8 @@ const num = (value: number | string): number =>
   typeof value === "number" ? value : Number.parseFloat(value) || 0;
 
 const percent = (value: number) => `${Math.round(value * 100)}%`;
+
+const seconds = (value: number) => `${value.toFixed(1)}s`;
 
 export function VoiceForm({
   voice,
@@ -338,6 +348,51 @@ function VoiceSettings({ voice }: { voice: VoiceRow }) {
               help="A few percent is plenty — a loud room sounds staged. Each recording varies this a little on its own, and it never drops below the phone's own noise or rises over her voice."
             />
           </div>
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="How human it sounds"
+          description="Real voice notes are never twice the same. Each recording draws its own number from these ranges — set them wide and no two sound alike, set both ends equal and every one comes out identical."
+        />
+        <div className="grid gap-5 p-5 sm:grid-cols-2">
+          <RangeField
+            nameMin="voice_volume_min"
+            nameMax="voice_volume_max"
+            label="How loud she records"
+            defaultMin={num(voice.voice_volume_min)}
+            defaultMax={num(voice.voice_volume_max)}
+            min={0.02}
+            max={0.6}
+            step={0.01}
+            format={percent}
+            help="The quiet end sounds like she held the phone further away or spoke softly so nobody next door hears."
+          />
+          <RangeField
+            nameMin="voice_lead_min"
+            nameMax="voice_lead_max"
+            label="Silence before she starts"
+            defaultMin={num(voice.voice_lead_min)}
+            defaultMax={num(voice.voice_lead_max)}
+            min={0}
+            max={6}
+            step={0.1}
+            format={seconds}
+            help="Nobody starts talking the instant they hit record. The room is already playing in that gap, so this is where the fan hears where she is."
+          />
+          <RangeField
+            nameMin="voice_tail_min"
+            nameMax="voice_tail_max"
+            label="Silence after she finishes"
+            defaultMin={num(voice.voice_tail_min)}
+            defaultMax={num(voice.voice_tail_max)}
+            min={0}
+            max={8}
+            step={0.1}
+            format={seconds}
+            help="She stops talking, holds the button a moment longer, then lets go. The room fades out across this gap."
+          />
         </div>
       </Card>
 

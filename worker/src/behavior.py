@@ -54,6 +54,12 @@ FIELD_LABELS = {
     "voice_chance": "šanca hlasovky",
     "voice_tempo": "tempo reči (×)",
     "voice_ambience_level": "hlasitosť pozadia",
+    "voice_volume_min": "najtichšia hlasovka",
+    "voice_volume_max": "najhlasnejšia hlasovka",
+    "voice_lead_min": "ticho na začiatku od",
+    "voice_lead_max": "ticho na začiatku do",
+    "voice_tail_min": "ticho na konci od",
+    "voice_tail_max": "ticho na konci do",
     "voice_ambience": "miestnosť",
     "voice_strength": "kvalita hlasovky",
     "voice_when_asked": "hlas keď si ju vypýta",
@@ -165,6 +171,19 @@ class Behavior:
     voice_tempo: float = 1.22
     # Ako hlasno je pod hlasom počuť miestnosť.
     voice_ambience_level: float = 0.05
+    # Rozsahy, v ktorých sa jednotlivé hlasovky pohybujú (migrácia 029).
+    #
+    # SÚ TO ROZSAHY, NIE HODNOTY. Každá hlasovka si z nich vylosuje vlastné
+    # číslo — v tom je celý zmysel. Séria, v ktorej je každý kus rovnako hlasný
+    # a začína rovnako dlhým tichom, sa dá po pár nahrávkach rozoznať; práve to
+    # sa celý deň ladilo. Keby si klient nastavil min = max, dostane presne ten
+    # strojový výsledok, ale bude to jeho rozhodnutie.
+    voice_volume_min: float = 0.07
+    voice_volume_max: float = 0.17
+    voice_lead_min: float = 1.0
+    voice_lead_max: float = 3.0
+    voice_tail_min: float = 1.5
+    voice_tail_max: float = 4.0
     # Kedy smie hlasovka odísť aj mimo bežných pravidiel.
     #
     # Bežne platí, že sa hlasovkou nezačína a chodí len občas podľa

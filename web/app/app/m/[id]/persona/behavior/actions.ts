@@ -99,9 +99,22 @@ const FRACTIONS = [
   "voice_ambience_level",
 ] as const;
 
-/** Tempo reči — mimo 0.5–2.0 znie hlasovka ako porucha. */
+/**
+ * Desatinné hodnoty s vlastnými medzami.
+ *
+ * Rozsahy hlasovky (029) sú tu, nie medzi `FRACTIONS`: sekundy nie sú
+ * pravdepodobnosti a hlasitosť má strop nižšie než 1. Medze sú tie isté, aké
+ * stráži `behavior_voice_ranges_check` v databáze — tá je skutočná obrana,
+ * toto je len zrozumiteľnejšia chyba.
+ */
 const DECIMALS: Record<string, [number, number]> = {
   voice_tempo: [0.5, 2],
+  voice_volume_min: [0.01, 0.6],
+  voice_volume_max: [0.01, 0.6],
+  voice_lead_min: [0, 6],
+  voice_lead_max: [0, 6],
+  voice_tail_min: [0, 8],
+  voice_tail_max: [0, 8],
 };
 
 export async function saveBehaviorAction(

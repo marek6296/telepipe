@@ -450,15 +450,37 @@ def volume_expression(
     return f"max(0.02\\,{base}*({vyraz}))"
 
 
-def lead_tail(rng: Optional[random.Random] = None) -> tuple:
+def _rozsah(hodnoty: Optional[tuple], dolny: float, horny: float) -> tuple:
+    """Rozsah od klienta, alebo ten zabudovaný. Prevrátený sa otočí.
+
+    Otáčanie je tu preto, že hodnoty idú z databázy a cez API: `uniform(3, 1)`
+    síce nespadne, ale vracia čísla, ktoré nikto nenastavil. Lepšie ticho
+    opraviť než ticho losovať mimo toho, čo klient videl na obrazovke.
+    """
+    if not hodnoty:
+        return dolny, horny
+    a, b = float(hodnoty[0]), float(hodnoty[1])
+    return (a, b) if a <= b else (b, a)
+
+
+def lead_tail(
+    rng: Optional[random.Random] = None,
+    lead: Optional[tuple] = None,
+    tail: Optional[tuple] = None,
+) -> tuple:
     """(ticho pred, ticho po) v sekundách. Zakaždým iné."""
     r = rng or random
-    return round(r.uniform(LEAD_MIN, LEAD_MAX), 2), round(r.uniform(TAIL_MIN, TAIL_MAX), 2)
+    l_od, l_do = _rozsah(lead, LEAD_MIN, LEAD_MAX)
+    t_od, t_do = _rozsah(tail, TAIL_MIN, TAIL_MAX)
+    return round(r.uniform(l_od, l_do), 2), round(r.uniform(t_od, t_do), 2)
 
 
-def note_volume(rng: Optional[random.Random] = None) -> float:
+def note_volume(
+    rng: Optional[random.Random] = None, rozsah: Optional[tuple] = None
+) -> float:
     """Hlasitosť celej hlasovky. Nikdy dvakrát rovnaká."""
-    return round((rng or random).uniform(NOTE_MIN, NOTE_MAX), 3)
+    od, do = _rozsah(rozsah, NOTE_MIN, NOTE_MAX)
+    return round((rng or random).uniform(od, do), 3)
 
 
 def wobble_tempo(base: float, rng: Optional[random.Random] = None) -> float:
@@ -658,6 +680,9 @@ async def speak(
     tempo: float = DEFAULT_TEMPO,
     level: float = DEFAULT_AMBIENCE_LEVEL,
     spoken: Optional[str] = None,
+    volume_range: Optional[tuple] = None,
+    lead_range: Optional[tuple] = None,
+    tail_range: Optional[tuple] = None,
 ) -> Optional[bytes]:
     """Vyrobí hotovú hlasovku: reč + miestnosť + telefón. None = pošli text.
 
@@ -672,8 +697,8 @@ async def speak(
     # Zakaždým trochu inak: iné ticho na okrajoch, iná hlasitosť, iné tempo.
     # Bez toho vyzerá séria hlasoviek ako výstup zo stroja, aj keď je každá
     # o niečom inom.
-    lead, tail = lead_tail()
-    hlasitost = note_volume()
+    lead, tail = lead_tail(lead=lead_range, tail=tail_range)
+    hlasitost = note_volume(rozsah=volume_range)
     rychlost = wobble_tempo(tempo)
     # Nastavená hlasitosť miestnosti je strop, nie pevná hodnota.
     izba_hlasitost = round(level * ambience_jitter(), 5)
