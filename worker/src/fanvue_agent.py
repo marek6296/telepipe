@@ -717,15 +717,22 @@ class FanvueAgent:
         if not text or not self._safe(text):
             return
 
-        await asyncio.sleep(
-            random.uniform(
-                float(settings.get("reply_min_s") or 0),
-                max(
-                    float(settings.get("reply_min_s") or 0),
-                    float(settings.get("reply_max_s") or 0),
-                ),
-            )
-        )
+        # Ľudský rytmus odpovede (ako Telegram) — nie plochý random na každú
+        # správu. Skutočný človek neodpíše každému rovnako rýchlo: tempo sa
+        # riadi dňom (na fotení pomalšie, na gauči rýchlejšie) a občas telefón
+        # odloží na pár minút. Vďaka tomu to nevyzerá, že „hneď videla a hneď
+        # píše“ automaticky každému.
+        low = float(settings.get("reply_min_s") or 0)
+        high = max(low, float(settings.get("reply_max_s") or 0))
+        delay = random.uniform(low, high)
+        if blok is not None:
+            delay *= den.pace(blok)  # 1.0 bežne, ~2.5+ keď je zaneprázdnená
+        # Občas odloží telefón na dlhšie — nie na každú správu. Keď je práve
+        # zaneprázdnená, šanca je vyššia a pauza dlhšia.
+        pause_chance = 0.25 if den.busy(blok) else 0.12
+        if random.random() < pause_chance:
+            delay += random.uniform(180, 420)  # +3–7 min ticha
+        await asyncio.sleep(min(delay, 900))  # strop 15 min, nech to niekde nevisí
 
         # Hlasovka má prednosť pred fotkou — obe naraz v jednej správe by
         # pôsobili ako balík z automatu.
