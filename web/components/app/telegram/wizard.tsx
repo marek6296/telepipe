@@ -40,7 +40,7 @@ import {
 } from "@/components/app/telegram/guides";
 import { Callout, Card, CardHeader } from "@/components/app/ui";
 import { isRecent } from "@/lib/format";
-import { prettifyCode } from "@/lib/status";
+import { prettifyCode, statusReasonText } from "@/lib/status";
 import type { LoginJob } from "@/lib/telegram";
 import { checkApiHash, checkApiId, checkPhone } from "@/lib/telegram-setup";
 import { cn } from "@/lib/utils";
@@ -1029,7 +1029,11 @@ function StepActivate({
           </Callout>
         )}
 
-        {statusReason && !isLive && <Callout tone="danger">{prettifyCode(statusReason)}</Callout>}
+        {/* `statusReasonText`, nie `prettifyCode`: dôvod má byť pokyn, nie kód.
+            `bad_config:tg_api_id` sa tu prečíta ako veta o chýbajúcom api_id. */}
+        {statusReason && !isLive && (
+          <Callout tone="danger">{statusReasonText(statusReason)}</Callout>
+        )}
 
         {isLive || justActivated ? (
           <Callout tone="success" icon={<CheckCircle2 className="h-3.5 w-3.5" />}>

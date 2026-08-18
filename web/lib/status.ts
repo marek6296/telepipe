@@ -47,10 +47,27 @@ const REASON_TEXT: Record<string, string> = {
     "You ran out of credits, so she was paused. Top up and switch her back on.",
 };
 
+/**
+ * Konkrétne chýbajúce políčko — worker ho odteraz posiela ako
+ * `bad_config:<stĺpec>` (viď `config.BadModelRow`). Bez tohto by z toho
+ * `prettifyCode` spravil „Bad config:tg api id", čo klientovi nepovie nič
+ * o tom, čo má urobiť.
+ */
+const BAD_CONFIG_FIELD: Record<string, string> = {
+  tg_api_id:
+    "Her api_id is missing, so she cannot sign in to Telegram. Fill it in on the Connection tab and reconnect.",
+  tg_api_hash:
+    "Her api_hash is missing, so she cannot sign in to Telegram. Fill it in on the Connection tab and reconnect.",
+};
+
 /** Strojový dôvod → veta pre klienta. Neznámy kód aspoň zľudštíme. */
 export function statusReasonText(reason: string | null | undefined): string | null {
   const key = (reason ?? "").trim();
   if (!key) return null;
+  if (key.startsWith("bad_config:")) {
+    const field = key.slice("bad_config:".length);
+    return BAD_CONFIG_FIELD[field] ?? REASON_TEXT.bad_config;
+  }
   return REASON_TEXT[key] ?? prettifyCode(key);
 }
 
