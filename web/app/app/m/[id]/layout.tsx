@@ -1,3 +1,6 @@
+import { Suspense } from "react";
+
+import { ModelChromeSkeleton } from "@/components/app/loading-skeletons";
 import { ModelHeader } from "@/components/app/model-header";
 import { ModelTabs } from "@/components/app/model-tabs";
 import { isAiPaused, requireModel } from "@/lib/models";
@@ -14,10 +17,33 @@ import { getTelegramConnection } from "@/lib/telegram";
 export default async function ModelLayout({ children, params }: LayoutProps<"/app/m/[id]">) {
   const { id } = await params;
   const model = await requireModel(id);
-  const [connection, aiPaused] = await Promise.all([
-    getTelegramConnection(model),
-    isAiPaused(model.id),
-  ]);
+  const connectionPromise = getTelegramConnection(model);
+  const pausedPromise = isAiPaused(model.id);
+
+  return (
+    <>
+      <Suspense fallback={<ModelChromeSkeleton />}>
+        <ModelChrome
+          model={model}
+          connectionPromise={connectionPromise}
+          pausedPromise={pausedPromise}
+        />
+      </Suspense>
+      {children}
+    </>
+  );
+}
+
+async function ModelChrome({
+  model,
+  connectionPromise,
+  pausedPromise,
+}: {
+  model: Awaited<ReturnType<typeof requireModel>>;
+  connectionPromise: ReturnType<typeof getTelegramConnection>;
+  pausedPromise: ReturnType<typeof isAiPaused>;
+}) {
+  const [connection, aiPaused] = await Promise.all([connectionPromise, pausedPromise]);
 
   return (
     <>
@@ -35,7 +61,6 @@ export default async function ModelLayout({ children, params }: LayoutProps<"/ap
         modelType={model.model_type}
         needsSetup={!connection.connected}
       />
-      {children}
     </>
   );
 }

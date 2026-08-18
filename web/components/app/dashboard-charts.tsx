@@ -1,5 +1,6 @@
 "use client";
 
+import { useReducedMotion } from "framer-motion";
 import {
   Bar,
   BarChart,
@@ -36,6 +37,7 @@ export type SpendPoint = { label: string; value: number };
 /** Denná útrata v coinoch — bar chart s vertikálnym gradientom. */
 export function SpendChart({ data }: { data: SpendPoint[] }) {
   const empty = data.every((point) => point.value === 0);
+  const reduceMotion = useReducedMotion();
 
   return (
     <div className="px-2 pb-4 pt-5">
@@ -75,7 +77,9 @@ export function SpendChart({ data }: { data: SpendPoint[] }) {
             fill="url(#app-bar-mono)"
             radius={[3, 3, 0, 0]}
             maxBarSize={34}
-            isAnimationActive={false}
+            isAnimationActive={!reduceMotion}
+            animationDuration={520}
+            animationEasing="ease-out"
           />
         </BarChart>
       </ResponsiveContainer>
@@ -98,6 +102,8 @@ export function MessagesChart({
   data: SeriesPoint[];
   series: { key: string; label: string }[];
 }) {
+  const reduceMotion = useReducedMotion();
+
   return (
     <div className="px-2 pb-4 pt-5">
       <ResponsiveContainer width="100%" height={196}>
@@ -133,7 +139,9 @@ export function MessagesChart({
               strokeWidth={1.5}
               dot={false}
               activeDot={{ r: 3, strokeWidth: 0 }}
-              isAnimationActive={false}
+              isAnimationActive={!reduceMotion}
+              animationDuration={560}
+              animationEasing="ease-out"
             />
           ))}
         </LineChart>
