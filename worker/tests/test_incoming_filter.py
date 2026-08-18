@@ -284,6 +284,23 @@ class TestZnovudorucenie:
         assert db.messages == []
         assert scheduled == []
 
+    def test_dve_repliky_naraz_odpovie_len_jedna(self):
+        """Pri výmene lease bežia dve repliky až 30 s — zámok musí vyhrať jedna.
+
+        Každá replika má vlastnú pamäť, takže pamäťová brána tu nepomôže.
+        Rozhoduje `claim_message`: jeden podmienený zápis nad tým istým riadkom.
+        """
+        db = FakeDb(user_row(tg_id=555))
+        stara, planovane_stara = self._bot(db)
+        nova, planovane_nova = self._bot(db)
+        event = FakeEvent(FakeSender(555), "ahoj", msg_id=2001)
+
+        asyncio.run(stara._handle(event))
+        asyncio.run(nova._handle(event))
+
+        assert len(db.messages) == 1
+        assert planovane_stara + planovane_nova == [555]
+
     def test_dalsia_sprava_prejde_normalne(self):
         db = FakeDb(user_row(tg_id=555, last_msg_id=1001))
         bot, scheduled = self._bot(db)

@@ -38,6 +38,22 @@ class SupabaseTransport:
         r = await self._client.patch(path, params=params, json=body)
         r.raise_for_status()
 
+    async def _patch_returning(
+        self, path: str, params: Dict[str, str], body: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """PATCH, ktorý vráti zmenené riadky — teda aj to, či niečo zmenil.
+
+        Slúži na podmienený zápis ako zámok: filter obsahuje podmienku, prázdna
+        odpoveď potom znamená „niekto iný to stihol prvý". Bez `representation`
+        by PostgREST vrátil 204 a rozdiel medzi „zapísal som" a „nebolo čo"
+        by sa nedal zistiť.
+        """
+        r = await self._client.patch(
+            path, params=params, json=body, headers={"Prefer": "return=representation"}
+        )
+        r.raise_for_status()
+        return r.json()
+
     async def _delete(self, path: str, params: Dict[str, str]) -> None:
         """Zmazanie riadkov. Filtre sú POVINNÉ — PostgREST bez nich zmaže tabuľku.
 

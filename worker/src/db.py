@@ -382,6 +382,34 @@ class TenantDb:
     async def update_user(self, tg_id: int, patch: Dict[str, Any]) -> None:
         await self._patch(USERS, {"model_id": self._mine, "tg_id": f"eq.{tg_id}"}, patch)
 
+    async def claim_message(self, tg_id: int, message_id: int) -> bool:
+        """Zaberie správu na spracovanie. `False` = už ju má niekto iný.
+
+        PREČO ZÁMOK A NIE KONTROLA. Vodoznak `last_msg_id` sa dal čítať a
+        porovnať, lenže medzi čítaním a zápisom sa zmestí druhý proces —
+        a práve pri výmene lease bežia dve repliky naraz až 30 s (`main._fence`
+        zastaví tú starú až pri jej najbližšom heartbeate). Obe by porovnanie
+        prešli a obe by odpovedali.
+
+        Tu je to JEDEN príkaz: posuň vodoznak, ale len ak je nižší. Podmienku
+        vyhodnocuje Postgres nad zamknutým riadkom, takže ju môže vyhrať práve
+        jeden volajúci — druhý dostane prázdnu odpoveď a mlčí.
+
+        `is.null` je v podmienke kvôli novým konverzáciám: `lt` na NULL nesedí,
+        a bez tejto vetvy by prvá správa od nového človeka nikdy neprešla.
+        """
+        rows = await self._t._patch_returning(
+            USERS,
+            {
+                "model_id": self._mine,
+                "tg_id": f"eq.{tg_id}",
+                "or": f"(last_msg_id.is.null,last_msg_id.lt.{int(message_id)})",
+                "select": "tg_id",
+            },
+            {"last_msg_id": int(message_id)},
+        )
+        return bool(rows)
+
     async def find_user_by_username(self, username: str) -> Optional[Dict[str, Any]]:
         rows = await self._get(
             USERS,

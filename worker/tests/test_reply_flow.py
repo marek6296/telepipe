@@ -86,6 +86,20 @@ class FakeDb:
         self.patches.append(patch)
         self.users[tg_id].update(patch)
 
+    async def claim_message(self, tg_id, message_id):
+        """Ako podmienený PATCH v `TenantDb`: posunie vodoznak, len ak je nižší.
+
+        Jediný príkaz aj tu — testy tak overujú to isté pravidlo, aké nad
+        riadkom vyhodnocuje Postgres.
+        """
+        row = self.users.get(tg_id)
+        if row is None:
+            return False
+        if int(row.get("last_msg_id") or 0) >= int(message_id):
+            return False
+        row["last_msg_id"] = int(message_id)
+        return True
+
     async def get_persona(self):
         return dict(PERSONA)
 

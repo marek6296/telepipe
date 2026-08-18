@@ -74,6 +74,7 @@ CALLS = {
     "get_user": ((42,), {}),
     "ensure_user": ((42, "user", "Eva", "sk"), {}),
     "update_user": ((42, {"msg_count": 3}), {}),
+    "claim_message": ((42, 1001), {}),
     "find_user_by_username": (("@user",), {}),
     "wipe_conversation": ((42,), {}),
     "links_sent_since": ((SINCE,), {}),

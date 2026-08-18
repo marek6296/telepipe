@@ -178,6 +178,16 @@ class UserBot:
             await self._handle(event)
         except Exception:  # noqa: BLE001 - handler nesmie zhodiť klienta
             log.exception("Chyba pri spracovaní správy")
+            # Vodoznak sme mohli posunúť ešte pred pádom (`claim_message`), a to
+            # je cena za to, že sa neodpisuje dvakrát: tú istú správu už znovu
+            # neprijmeme a dobeh po štarte ju tiež preskočí. Aby z ochrany pred
+            # duplicitou nevzniklo mlčanie, odovzdáme ju sweeperu.
+            tg_id = getattr(event, "sender_id", 0) or 0
+            if tg_id:
+                try:
+                    await self._db.update_user(tg_id, {"pending_reply": True})
+                except Exception:  # noqa: BLE001 - viac sa už spraviť nedá
+                    log.exception("%s: nepodarilo sa zaradiť na neskoršiu odpoveď", tg_id)
 
     async def _handle(self, event: events.NewMessage.Event) -> None:
         if not event.is_private:
@@ -268,15 +278,16 @@ class UserBot:
         )
         is_new = int(user.get("msg_count") or 0) == 0
 
-        # Druhý zámok, ktorý prežije reštart procesu: vodoznak v databáze.
-        # Pamäťová brána vyššie po štarte nevie nič — a práve po štarte doručuje
-        # Telegram zopakovaných updateov najviac. Id správ v súkromných chatoch
-        # rastú (jedna postupnosť na celý účet), takže „id <= vodoznak" znamená
-        # „toto sme už mali", nie „stará správa z inej konverzácie".
+        # Druhý zámok — ten, ktorý prežije reštart procesu aj súbeh dvoch replík.
+        # Pamäťová brána vyššie po štarte nevie nič (a práve po štarte doručuje
+        # Telegram zopakovaných updateov najviac) a dva procesy majú pamäť každý
+        # svoju. `claim_message` je jeden podmienený zápis do vodoznaku, takže ho
+        # môže vyhrať práve jeden — druhý mlčí. Id správ v súkromných chatoch
+        # rastú v jednej postupnosti na celý účet, takže nižšie id vždy znamená
+        # „toto sme už mali".
         message_id = seen_key[1]
-        if message_id and message_id <= int(user.get("last_msg_id") or 0):
-            log.info("Preskakujem %s: správa %s je pod vodoznakom %s",
-                     tg_id, message_id, user.get("last_msg_id"))
+        if message_id and not await self._db.claim_message(tg_id, message_id):
+            log.info("Preskakujem %s: správu %s spracoval niekto iný", tg_id, message_id)
             return
 
         await self._db.add_message(tg_id, "user", text)
@@ -287,8 +298,9 @@ class UserBot:
             # Odpovedal — ranné oslovenia sa môžu znova rátať od nuly.
             "outreach_silent": 0,
         }
-        if message_id:
-            patch["last_msg_id"] = message_id
+        # `last_msg_id` tu už nie je — posunul ho `claim_message` vyššie. Zapísať
+        # ho druhýkrát by nič nepokazilo, ale zahmlilo by, kde sa o správe
+        # rozhoduje: vodoznak JE ten zámok, nie poznámka po práci.
         # Meno ukladáme hneď ako sa predstaví — do vlastného stĺpca, nie do
         # summary. Vďaka tomu sa naň už nikdy nespýta, ani o týždeň.
         if not (user.get("partner_name") or "").strip():
