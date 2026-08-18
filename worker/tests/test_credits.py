@@ -12,6 +12,9 @@ class FakeLlm:
     async def reply(self, *a, **kw):
         self.calls += 1
         return "ahoj"
+    async def structured(self, *a, **kw):
+        self.calls += 1
+        return "{}"
 
 class FakeRegistry:
     def __init__(self, balance=10.0, unlimited=False):
@@ -39,6 +42,21 @@ async def test_charges_double_atlas_cost():
     assert atlas == pytest.approx(0.0105)
     assert charged == pytest.approx(0.021)     # ×2
     assert kind == "chat" and i == 1000 and o == 500
+
+async def test_structured_is_not_counted_as_a_reply():
+    """`chat` = odoslaná správa. Sudca ani pamäť ňou nie sú.
+
+    Kým `structured` padalo do `chat`, dashboard sčítaval volania modelu a nie
+    odpovede — klient s jedinou odoslanou správou tam videl desať.
+    """
+    reg = FakeRegistry(); llm = FakeLlm()
+    m = MeteredLlm(llm, reg, model_id="m-1", model_slug="x-ai/grok-4.5")
+    await m.reply("sys", [])
+    await m.structured("sys", "text")
+    assert [row[0] for row in reg.usage_rows] == ["chat", "assist"]
+    # Účtuje sa oboje rovnako — mení sa štítok, nie peniaze.
+    assert reg.usage_rows[0][4] == pytest.approx(reg.usage_rows[1][4])
+
 
 async def test_zero_balance_blocks_and_pauses():
     reg = FakeRegistry(balance=0.0); llm = FakeLlm()

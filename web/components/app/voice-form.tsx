@@ -344,7 +344,7 @@ function VoiceSettings({ voice }: { voice: VoiceRow }) {
       <Card>
         <CardHeader
           title="Moments worth her voice"
-          description="Normally a voice note is a dice roll. In these moments she sends one anyway — each one costs credits, so turn off what you do not want to pay for."
+          description="Normally a voice note is a dice roll. In these moments she sends one anyway — each one costs Pipe Coins, so turn off what you do not want to pay for."
         />
         <div className="grid gap-3 p-5 sm:grid-cols-2">
           <SwitchField

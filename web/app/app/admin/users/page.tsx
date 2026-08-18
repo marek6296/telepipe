@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { UsersTable } from "@/components/app/admin/users-table";
 import { PageHeader, StatTile } from "@/components/app/ui";
 import { listAdminAccounts, requireAdmin } from "@/lib/admin";
+import { coins } from "@/lib/coins";
 import { compactNumber, usd, usdPrecise } from "@/lib/format";
 import { requireUser } from "@/lib/models";
 
@@ -24,14 +25,14 @@ export default async function AdminUsersPage() {
       <PageHeader
         eyebrow="Admin"
         title="Users"
-        description="Every account on the platform — plan, credit and role. Changes take effect immediately."
+        description="Every account on the platform — plan, Pipe Coins and role. Changes take effect immediately."
       />
 
       <div className="mb-6 grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <StatTile label="Accounts" value={compactNumber(accounts.length)} />
         <StatTile label="Admins" value={compactNumber(admins)} hint="admin or superadmin" />
-        <StatTile label="Credits" value={usd(credits)} hint="outstanding balance" />
-        <StatTile label="Spend 30d" value={usdPrecise(spend30)} hint="charged to clients" />
+        <StatTile label="Pipe Coins" value={coins(credits)} hint={`outstanding · ${usd(credits)}`} />
+        <StatTile label="Spend 30d" value={usdPrecise(spend30)} hint="charged to clients, in USD" />
       </div>
 
       <UsersTable

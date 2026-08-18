@@ -12,11 +12,15 @@ import {
   YAxis,
 } from "recharts";
 
-import { usdPrecise } from "@/lib/format";
+import { formatCoins } from "@/lib/coins";
 
 /**
  * Grafy dashboardu — monochróm podľa referencie. Žiadne farebné série: bary
  * majú vertikálny gradient biela→priehľadná, čiary sa líšia jasom a čiarkou.
+ *
+ * `SpendPoint.value` prichádza už v Pipe Coinoch (prepočet robí `dailySpend`
+ * v `app/app/page.tsx`) — recharts si tak vyberá pekné celé čísla na os Y
+ * namiesto štvordesatinných dolárov.
  */
 
 const AXIS = { fill: "#8a8a94", fontSize: 11 };
@@ -26,9 +30,10 @@ const GRID = "#1a1a1a";
 const LINE_STROKE = ["#fafafa", "#c4c4cc", "#9b9ba5", "#7d7d87"];
 const LINE_DASH: (string | undefined)[] = [undefined, "7 3", "4 3", "2 3"];
 
+/** `value` je v Pipe Coinoch. */
 export type SpendPoint = { label: string; value: number };
 
-/** Denná útrata — bar chart s vertikálnym gradientom. */
+/** Denná útrata v coinoch — bar chart s vertikálnym gradientom. */
 export function SpendChart({ data }: { data: SpendPoint[] }) {
   const empty = data.every((point) => point.value === 0);
 
@@ -59,11 +64,11 @@ export function SpendChart({ data }: { data: SpendPoint[] }) {
             tickLine={false}
             axisLine={false}
             width={52}
-            tickFormatter={(value: number) => usdPrecise(value)}
+            tickFormatter={(value: number) => formatCoins(value)}
           />
           <Tooltip
             cursor={{ fill: "rgba(255,255,255,0.04)" }}
-            content={<MonoTooltip format={usdPrecise} />}
+            content={<MonoTooltip format={formatCoins} />}
           />
           <Bar
             dataKey="value"
@@ -76,7 +81,7 @@ export function SpendChart({ data }: { data: SpendPoint[] }) {
       </ResponsiveContainer>
       {empty && (
         <p className="px-3 pt-2 text-[11.5px] text-[var(--app-text-4)]">
-          Nothing charged in this window yet.
+          No Pipe Coins spent in this window yet.
         </p>
       )}
     </div>

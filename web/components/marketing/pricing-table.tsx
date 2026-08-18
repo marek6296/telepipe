@@ -1,126 +1,65 @@
 "use client";
 
-import { useId, useState } from "react";
-import Link from "next/link";
+import { useId, useState, useTransition } from "react";
 import NumberFlow, { type Format } from "@number-flow/react";
 import { motion, useReducedMotion } from "framer-motion";
-import { Check } from "lucide-react";
+import { Check, Loader2, Mail } from "lucide-react";
 
+import { startTopUp, type TopUpResult } from "@/app/(marketing)/pricing/actions";
+import {
+  COINS_PER_REPLY,
+  COIN_NAME_PLURAL,
+  COIN_PACKS,
+  coinsPerDollar,
+  estimatedReplies,
+  type CoinPack,
+} from "@/lib/coins";
 import { cn } from "@/lib/utils";
 
 /* -------------------------------------------------------------------------- */
 /*  Dáta                                                                       */
 /* -------------------------------------------------------------------------- */
 
-type Billing = "monthly" | "yearly";
-
-type Plan = {
-  id: string;
-  name: string;
-  tagline: string;
-  monthly: number;
-  yearly: number;
-  cta: string;
-  popular?: boolean;
-  /** Prvá odrážka býva „Everything in X, plus" — vizuálne sa odlíši. */
-  inherits?: string;
-  features: string[];
-};
-
 /**
- * Balíky a ceny sú Marekove finálne (`docs/superpowers/plans/2026-08-17-marketing-pages.md`).
- * Odrážky opisujú výhradne to, čo produkt naozaj vie — persona/pamäť/rytmus
- * (worker: persona, memory, facts, humanize, den), hlasovky cez ElevenLabs
- * (eleven, voices, livevoice), Telegram userbot, Fanvue agent + vault s cenami,
- * kreditové účtovanie z `usage_events`, história chatov. Nič navyše.
+ * Žiadne predplatné. Klient si kúpi Pipe Coiny a míňa ich, ako modelka pracuje.
+ *
+ * Balíky, kurz aj invariant ziskovosti žijú v `lib/coins.ts` — táto stránka ich
+ * len kreslí. Keby sem niekto dopísal štvrtý balík rovno do JSX, obišiel by
+ * `assertPacksProfitable` (a `npm run test:coins`), takže: pridávať výhradne
+ * tam. `vip` sa tu nespomína ani slovom — je to interný balík pre kamarátov,
+ * nie ponuka.
  */
-const PLANS: Plan[] = [
-  {
-    id: "free",
-    name: "Free",
-    tagline: "One model, the full brain. Pay only for the AI she uses.",
-    monthly: 0,
-    yearly: 0,
-    cta: "Start free",
-    features: [
-      "1 model",
-      "Telegram agent — she replies from her own account",
-      "Persona: backstory, tone, slang and hard boundaries",
-      "Long-term memory of every fan she talks to",
-      "Human-like typing rhythm and daily activity waves",
-      "Conversation history with funnel stages",
-      "Usage-based AI credits — no minimum",
-    ],
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    tagline: "Voice, photos and the Fanvue side of the business.",
-    monthly: 14.99,
-    yearly: 143.9,
-    cta: "Get Started",
-    popular: true,
-    inherits: "Free",
-    features: [
-      "Up to 5 models",
-      "ElevenLabs voice notes with her own voice, tempo and ambience",
-      "Photo library with per-photo captions, situations and limits",
-      "Fanvue agent — replies to Fanvue DMs too",
-      "Vault selling: priced media straight from her Fanvue folders",
-      "Funnel rules — the link drops only when the chat is warm",
-      "Daily usage and spend breakdown per model",
-      "Priority email support",
-    ],
-  },
-  {
-    id: "enterprise",
-    name: "Enterprise",
-    tagline: "A whole roster, set up with us and watched together.",
-    monthly: 49.99,
-    yearly: 479.9,
-    cta: "Get Started",
-    inherits: "Pro",
-    features: [
-      "Unlimited models",
-      "Telegram and Fanvue on every model",
-      "Guided onboarding — we connect and tune the first roster with you",
-      "Persona and behaviour tuning together with our team",
-      "Account-wide usage insight across every model",
-      "Direct line to the people who build Telepipe",
-    ],
-  },
+
+/** Čo balík dostane navyše k samotným coinom — to isté pre všetky. */
+const INCLUDED = [
+  "Every model you want — no seat and no model limit",
+  "Telegram agent replying from her own account",
+  "Persona, long-term memory and human typing rhythm",
+  "ElevenLabs voice notes, photo understanding, Fanvue agent",
+  "Usage metered per model, per day, down to the coin",
 ];
 
-const usd: Format = {
-  style: "currency",
-  currency: "USD",
-  // "$0" namiesto "$0.00" pri Free, ale "$14.99" ostáva presné.
-  trailingZeroDisplay: "stripIfInteger",
-};
+type Unit = "coins" | "replies";
+
+const PLAIN: Format = { maximumFractionDigits: 0 };
 
 /* -------------------------------------------------------------------------- */
-/*  Prepínač mesačne / ročne                                                   */
+/*  Prepínač coiny / odpovede                                                  */
 /* -------------------------------------------------------------------------- */
 
-function BillingSwitch({
-  value,
-  onChange,
-}: {
-  value: Billing;
-  onChange: (next: Billing) => void;
-}) {
+function UnitSwitch({ value, onChange }: { value: Unit; onChange: (next: Unit) => void }) {
   const layoutId = useId();
   const reduced = useReducedMotion();
 
-  const options: { id: Billing; label: string }[] = [
-    { id: "monthly", label: "Monthly" },
-    { id: "yearly", label: "Yearly" },
+  const options: { id: Unit; label: string }[] = [
+    { id: "coins", label: COIN_NAME_PLURAL },
+    { id: "replies", label: "Replies" },
   ];
 
   return (
     <div
       role="radiogroup"
-      aria-label="Billing period"
+      aria-label="Show pack size as"
       className="lp-switch mx-auto inline-flex items-center gap-1 rounded-full p-1"
     >
       {options.map((option) => {
@@ -145,23 +84,19 @@ function BillingSwitch({
                 aria-hidden
                 className="absolute inset-0 rounded-full bg-[#fafafa]"
                 transition={
-                  reduced
-                    ? { duration: 0 }
-                    : { type: "spring", stiffness: 420, damping: 36 }
+                  reduced ? { duration: 0 } : { type: "spring", stiffness: 420, damping: 36 }
                 }
               />
             )}
             <span className="relative">{option.label}</span>
-            {option.id === "yearly" && (
+            {option.id === "replies" && (
               <span
                 className={cn(
                   "relative rounded-full px-1.5 py-0.5 text-[10px] font-semibold tracking-[0.02em] transition-colors",
-                  active
-                    ? "bg-black/10 text-[#0a0a0a]"
-                    : "bg-white/[0.07] text-white/60",
+                  active ? "bg-black/10 text-[#0a0a0a]" : "bg-white/[0.07] text-white/60",
                 )}
               >
-                Save 20%
+                ≈{COINS_PER_REPLY} coins each
               </span>
             )}
           </button>
@@ -172,87 +107,134 @@ function BillingSwitch({
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Tlačidlo „kúpiť" — zatiaľ vedie na nás, nie do prázdna                     */
+/* -------------------------------------------------------------------------- */
+
+function TopUpButton({ pack, featured }: { pack: CoinPack; featured: boolean }) {
+  const [pending, startTransition] = useTransition();
+  const [result, setResult] = useState<TopUpResult | null>(null);
+
+  // Kým platby nebežia, tlačidlo nesmie byť slepé: jedno kliknutie povie, čo
+  // sa deje, a dá funkčnú cestu ďalej (mail). Keď pribudne Plisio, vetva
+  // `redirect` prevezme kontrolu a UI sa nemení.
+  const buy = () => {
+    startTransition(async () => {
+      const next = await startTopUp(pack.id);
+      if (next.status === "redirect") {
+        window.location.href = next.url;
+        return;
+      }
+      setResult(next);
+    });
+  };
+
+  if (result?.status === "unavailable") {
+    return (
+      <div className="mt-7">
+        <a
+          href={`mailto:${result.contactEmail}?subject=${encodeURIComponent(result.subject)}`}
+          className={cn(
+            "lp-btn h-11 w-full gap-2 text-[14px]",
+            featured ? "lp-btn-primary" : "lp-btn-ghost",
+          )}
+        >
+          <Mail className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+          Email us to top up
+        </a>
+        <p className="mt-2.5 text-[12px] leading-relaxed text-white/35">
+          Crypto checkout is being wired up right now. Until it lands we top you up by hand,
+          usually the same day.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={buy}
+      disabled={pending}
+      aria-label={`Buy the ${pack.name} pack — ${pack.coins.toLocaleString("en-US")} ${COIN_NAME_PLURAL} for $${pack.priceUsd}`}
+      className={cn(
+        "lp-btn mt-7 h-11 w-full gap-2 text-[14px]",
+        featured ? "lp-btn-primary" : "lp-btn-ghost",
+        pending && "opacity-70",
+      )}
+    >
+      {pending && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} aria-hidden />}
+      Buy {pack.coins.toLocaleString("en-US")} coins
+    </button>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Cenník                                                                     */
 /* -------------------------------------------------------------------------- */
 
 export function PricingTable() {
-  const [billing, setBilling] = useState<Billing>("monthly");
-  const yearly = billing === "yearly";
+  const [unit, setUnit] = useState<Unit>("coins");
+  const showReplies = unit === "replies";
 
   return (
     <div>
       <div className="flex justify-center">
-        <BillingSwitch value={billing} onChange={setBilling} />
+        <UnitSwitch value={unit} onChange={setUnit} />
       </div>
 
       <div className="mt-12 grid gap-4 lg:grid-cols-3">
-        {PLANS.map((plan) => {
-          const price = yearly ? plan.yearly : plan.monthly;
-          const perMonth = plan.yearly / 12;
+        {COIN_PACKS.map((pack) => {
+          const headline = showReplies ? estimatedReplies(pack.coins) : pack.coins;
+          const perDollar = coinsPerDollar(pack);
 
           return (
             <article
-              key={plan.id}
+              key={pack.id}
               className={cn(
                 "relative flex flex-col overflow-hidden rounded-[20px] p-7",
-                plan.popular ? "lp-plan-featured" : "lp-card",
+                pack.featured ? "lp-plan-featured" : "lp-card",
               )}
             >
-              {plan.popular && (
-                <>
-                  <div className="pointer-events-none absolute inset-0 lp-grid-fine" />
-                  <span className="lp-hairline absolute right-6 top-7 rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">
-                    Most popular
-                  </span>
-                </>
+              {pack.featured && (
+                <div className="pointer-events-none absolute inset-0 lp-grid-fine" />
+              )}
+              {pack.bonusPct > 0 && (
+                <span className="lp-hairline absolute right-6 top-7 rounded-full bg-white/[0.06] px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white/70">
+                  +{pack.bonusPct}% free
+                </span>
               )}
 
               <div className="relative">
-                <h2 className="text-[17px] font-semibold text-white">{plan.name}</h2>
+                <h2 className="text-[17px] font-semibold text-white">{pack.name}</h2>
                 <p className="mt-2 min-h-[42px] max-w-[26ch] text-[13.5px] leading-relaxed text-white/40">
-                  {plan.tagline}
+                  {pack.tagline}
                 </p>
 
                 <div className="mt-7 flex items-end gap-2">
                   <NumberFlow
-                    value={price}
-                    format={usd}
+                    value={headline}
+                    format={PLAIN}
                     // `willChange` drží číslice na vlastnej vrstve počas rolovania
                     willChange
                     className="lp-tight text-[clamp(2.2rem,4vw,2.9rem)] font-semibold leading-none text-white tabular-nums"
                   />
                   <span className="pb-1 text-[13px] text-white/35">
-                    {yearly ? "/year" : "/month"}
+                    {showReplies ? "replies" : COIN_NAME_PLURAL}
                   </span>
                 </div>
 
                 <p className="mt-2.5 h-4 text-[12px] text-white/30">
-                  {plan.monthly === 0
-                    ? "Free forever · usage billed in credits"
-                    : yearly
-                      ? `$${perMonth.toFixed(2)} per month, billed annually`
-                      : "Billed monthly · cancel anytime"}
+                  ${pack.priceUsd} one-off · {perDollar.toLocaleString("en-US")} coins per dollar
                 </p>
 
-                <Link
-                  href="/register"
-                  className={cn(
-                    "lp-btn mt-7 h-11 w-full text-[14px]",
-                    plan.popular ? "lp-btn-primary" : "lp-btn-ghost",
-                  )}
-                >
-                  {plan.cta}
-                </Link>
+                <TopUpButton pack={pack} featured={Boolean(pack.featured)} />
               </div>
 
               <div className="relative mt-8 border-t border-white/[0.07] pt-7">
-                {plan.inherits && (
-                  <p className="mb-4 text-[12.5px] font-medium text-white/55">
-                    Everything in {plan.inherits}, plus
-                  </p>
-                )}
+                <p className="mb-4 text-[12.5px] font-medium text-white/55">
+                  Every pack includes
+                </p>
                 <ul className="space-y-3">
-                  {plan.features.map((feature) => (
+                  {INCLUDED.map((feature) => (
                     <li key={feature} className="flex gap-3">
                       <Check
                         className="mt-[3px] h-3.5 w-3.5 shrink-0 text-white/45"
@@ -272,9 +254,11 @@ export function PricingTable() {
       </div>
 
       <p className="mt-10 text-center text-[12.5px] leading-relaxed text-white/30">
-        Plan price covers the platform. The AI itself is billed separately from
-        your credit balance — every message, transcription and voice second is
-        metered per model, to the cent.
+        There is no subscription and nothing renews. You buy Pipe Coins once, and they come off
+        the balance as she works — every reply, transcription and voice second metered per model.
+        Reply estimates use {COINS_PER_REPLY} coins per reply: a rounded-up, all-in figure measured
+        from a real week of live traffic, memory work included. Long conversations cost a little
+        more, short ones less.
       </p>
     </div>
   );

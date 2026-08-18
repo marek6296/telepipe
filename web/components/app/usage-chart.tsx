@@ -1,10 +1,12 @@
-import { usdPrecise } from "@/lib/format";
+import { COIN_NAME_PLURAL, coinsPrecise } from "@/lib/coins";
 import type { DayBucket } from "@/lib/usage";
 
 /**
  * Denná spotreba ako čisté SVG — žiadna grafová knižnica, žiaden client bundle.
  * Monochróm: bary majú vertikálny gradient biela→priehľadná, ako referencia.
  * Tooltip rieši natívny `<title>`.
+ *
+ * `DayBucket.total` je v USD (tak sa účtuje) — klientovi ho ukazujeme v coinoch.
  */
 export function UsageChart({ days }: { days: DayBucket[] }) {
   const max = Math.max(...days.map((day) => day.total), 0.0001);
@@ -18,7 +20,7 @@ export function UsageChart({ days }: { days: DayBucket[] }) {
         viewBox={`0 0 ${width} 34`}
         preserveAspectRatio="none"
         role="img"
-        aria-label="Daily spend for the selected period"
+        aria-label={`Daily spend in ${COIN_NAME_PLURAL} for the selected period`}
         className="h-40 w-full overflow-visible"
       >
         <defs>
@@ -45,7 +47,7 @@ export function UsageChart({ days }: { days: DayBucket[] }) {
           const x = index * (barWidth + gap);
           return (
             <g key={day.date}>
-              <title>{`${day.label}: ${usdPrecise(day.total)}`}</title>
+              <title>{`${day.label}: ${coinsPrecise(day.total)} ${COIN_NAME_PLURAL}`}</title>
               <rect
                 x={x}
                 y={34 - height}

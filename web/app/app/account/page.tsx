@@ -8,7 +8,7 @@ import {
 } from "@/components/app/account-forms";
 import { Callout, Card, CardHeader, PageHeader } from "@/components/app/ui";
 import { RelativeTime } from "@/components/app/relative-time";
-import { toNumber, usd } from "@/lib/format";
+import { COIN_NAME_PLURAL, coins } from "@/lib/coins";
 import { getAccount, requireUser } from "@/lib/models";
 import { createClient } from "@/lib/supabase/server";
 
@@ -30,7 +30,7 @@ export default async function AccountPage() {
       <PageHeader
         eyebrow="Settings"
         title="Account"
-        description="Your sign-in details, credit balance and the integrations shared by all your models."
+        description="Your sign-in details, Pipe Coin balance and the integrations shared by all your models."
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -52,15 +52,18 @@ export default async function AccountPage() {
 
         <Card>
           <CardHeader
-            title="Credit balance"
-            description="Top-ups are handled by us while we are in early access."
+            title="Pipe Coin balance"
+            description="No subscription — you buy Pipe Coins and spend them as she works. Top-ups are handled by us while we are in early access."
           />
           <div className="p-5">
             <p className="text-[32px] font-semibold leading-none tracking-[-0.03em] tabular-nums text-[var(--app-text)]">
-              {usd(toNumber(account?.credit_balance_usd))}
+              {coins(account?.credit_balance_usd)}
+            </p>
+            <p className="mt-2 text-[12.5px] text-[var(--app-text-3)]">
+              {COIN_NAME_PLURAL} left · they never expire
             </p>
             <a
-              href="mailto:support@telepipe.app?subject=Telepipe%20top-up"
+              href="mailto:support@telepipe.app?subject=Telepipe%20Pipe%20Coin%20top-up"
               className="app-btn app-btn-primary mt-5 h-9 px-4"
             >
               Contact us to top up

@@ -6,11 +6,11 @@ import { CtaBand, PageHeader } from "@/components/marketing/page-shell";
 export const metadata: Metadata = {
   title: "Features",
   description:
-    "What Telepipe actually does: an AI persona with long-term memory, human-like typing rhythm, ElevenLabs voice notes, a Telegram agent, a Fanvue agent with vault selling, and usage-based credits you can see to the cent.",
+    "What Telepipe actually does: an AI persona with long-term memory, human-like typing rhythm, ElevenLabs voice notes, a Telegram agent, a Fanvue agent with vault selling, and Pipe Coins you can see spent to the coin.",
   openGraph: {
     title: "Features · Telepipe",
     description:
-      "Persona with memory, human rhythm, voice notes, Telegram and Fanvue agents, usage-based credits.",
+      "Persona with memory, human rhythm, voice notes, Telegram and Fanvue agents, Pipe Coins with no subscription.",
   },
 };
 
@@ -40,8 +40,8 @@ export default function FeaturesPage() {
 
       <CtaBand
         title="See her handle your inbox for a day."
-        body="Connect one model on the Free plan — persona, memory and the Telegram agent are all included before you pay a cent for the platform."
-        note="No card required · Usage-based credits · Cancel anytime"
+        body="Connect one model and see her work — persona, memory and the Telegram agent are all included. There is no subscription: you buy Pipe Coins and spend them as she replies."
+        note="No card required · No subscription · Pipe Coins never expire"
       />
     </>
   );

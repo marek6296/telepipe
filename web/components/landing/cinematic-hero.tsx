@@ -605,7 +605,7 @@ function CinematicScene() {
             </Link>
           </div>
           <p data-cta-item className="mt-8 text-xs text-white/30">
-            No card required · Usage-based credits · Cancel anytime
+            No card required · No subscription · Pipe Coins never expire
           </p>
         </div>
       </section>

@@ -22,7 +22,7 @@ import {
 } from "lucide-react";
 
 import { signOutAction } from "@/app/(auth)/actions";
-import { usd } from "@/lib/format";
+import { coins } from "@/lib/coins";
 import { asStatus, STATUS_DOT } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
@@ -198,8 +198,8 @@ export function AppShell({
             href="/app/usage"
             className="flex shrink-0 items-center gap-2 rounded-md border border-[var(--app-border)] px-2.5 py-1.5 text-[12px] text-[var(--app-text-2)] transition-colors hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"
           >
-            <span className="tabular-nums">{usd(creditBalance)}</span>
-            <span className="hidden text-[var(--app-text-4)] sm:inline">credit</span>
+            <span className="tabular-nums">{coins(creditBalance)}</span>
+            <span className="hidden text-[var(--app-text-4)] sm:inline">Pipe Coins</span>
           </Link>
         </header>
 

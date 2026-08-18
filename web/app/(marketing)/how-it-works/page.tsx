@@ -64,7 +64,7 @@ export default function HowItWorksPage() {
       <CtaBand
         title="Three steps away from a model that never sleeps."
         body="Start on Free with a single model — Telegram, persona and memory are all in there before you pay anything for the platform."
-        note="No card required · Usage-based credits · Cancel anytime"
+        note="No card required · No subscription · Pipe Coins never expire"
       />
     </>
   );

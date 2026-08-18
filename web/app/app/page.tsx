@@ -11,7 +11,8 @@ import {
 } from "@/components/app/dashboard-charts";
 import { ModelCard } from "@/components/app/model-card";
 import { Card, CardHeader, EmptyState, PageHeader, StatTile } from "@/components/app/ui";
-import { compactNumber, isoDaysAgo, toNumber, usdPrecise } from "@/lib/format";
+import { coinsPrecise, toCoins } from "@/lib/coins";
+import { compactNumber, isoDaysAgo, toNumber } from "@/lib/format";
 import { getModelStats, getPausedMap, listModels, type ModelRow } from "@/lib/models";
 import { getConnectedMap } from "@/lib/telegram";
 import { createClient } from "@/lib/supabase/server";
@@ -81,8 +82,8 @@ export default async function DashboardPage() {
           hint={conversionHint(totalConverted, totalChats)}
         />
         <StatTile
-          label="Usage spend"
-          value={usdPrecise(spendThis)}
+          label="Pipe Coins spent"
+          value={coinsPrecise(spendThis)}
           delta={percentDelta(spendThis, spendPrev)}
           hint="last 7 days"
         />
@@ -91,7 +92,7 @@ export default async function DashboardPage() {
       {/* --- Grafy ------------------------------------------------------------ */}
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <Card>
-          <CardHeader title="Usage spend" description="Daily charged, last 7 days" />
+          <CardHeader title="Usage spend" description="Pipe Coins spent daily, last 7 days" />
           <SpendChart data={spendSeries} />
         </Card>
 
@@ -225,6 +226,7 @@ function dayKeys(days: number): { key: string; label: string }[] {
   });
 }
 
+/** Ledger je v USD, graf kreslí Pipe Coiny — prepočet je posledný krok. */
 function dailySpend(rows: UsageRow[], days: number): SpendPoint[] {
   const keys = dayKeys(days);
   const buckets = new Map(keys.map((day) => [day.key, 0]));
@@ -234,7 +236,7 @@ function dailySpend(rows: UsageRow[], days: number): SpendPoint[] {
   }
   return keys.map((day) => ({
     label: day.label,
-    value: Number((buckets.get(day.key) ?? 0).toFixed(4)),
+    value: Number(toCoins(buckets.get(day.key) ?? 0).toFixed(1)),
   }));
 }
 

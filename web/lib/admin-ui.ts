@@ -6,11 +6,18 @@
 
 export const ROLES = ["user", "admin", "superadmin"] as const;
 
-/** `vip` je zámerne posledný: nikde sa neinzeruje, prideliť ho smie iba
- *  superadmin a `record_usage` mu účtuje nákupnú cenu (multiplier 1×).
- *  Verejný cenník (`/pricing`) vymenúva balíky natvrdo, takže sa tam
+/** Dva balíky, nič viac (migrácia 024). Predplatné neexistuje — klient si kupuje
+ *  Pipe Coiny a míňa ich, ako modelka pracuje. Plán už neriadi funkcie, riadi
+ *  jedinú vec: cenu.
+ *
+ *  free — bežný účet, účtovaný `pricing.multiplier` (2.0)
+ *  vip  — kamaráti, účtovaní nákupnou cenou Atlasu (1.0), nezarábame na nich
+ *
+ *  `vip` je zámerne posledný: nikde sa neinzeruje, prideliť ho smie iba
+ *  superadmin a `record_usage` mu prepočíta sumu sám (021). Verejný cenník
+ *  (`/pricing`) vymenúva balíky coinov natvrdo z `lib/coins.ts`, takže sa tam
  *  odtiaľto nemá ako dostať. */
-export const PLANS = ["free", "starter", "pro", "custom", "vip"] as const;
+export const PLANS = ["free", "vip"] as const;
 
 /** Balíky, ktoré smie prideliť aj obyčajný admin. VIP chýba schválne —
  *  DB to strážila prvá (`admin_set_plan` → 42501), toto je len UI. */
@@ -46,18 +53,16 @@ export const ROLE_STYLE: Record<AccountRole, string> = {
   superadmin: "border-[#52525b] bg-[#161616] text-[#fafafa]",
 };
 
+/** „Standard", nie „Free" — účet nie je zadarmo, len sa naň dokupujú coiny. */
 export const PLAN_LABEL: Record<Plan, string> = {
-  free: "Free",
-  starter: "Starter",
-  pro: "Pro",
-  custom: "Custom",
+  free: "Standard",
   vip: "VIP",
 };
 
 /** Vysvetlenie pri VIP — aby bolo v admine hneď jasné, čo ten balík robí
  *  s účtovaním, a neplietol sa s `unlimited` (ten neodpočítava vôbec). */
 export const PLAN_HINT: Partial<Record<Plan, string>> = {
-  vip: "Billed at cost — no margin. Credits still run down.",
+  vip: "Billed at cost — no margin. Pipe Coins still run down.",
 };
 
 /* --------------------------------------------------------------------------

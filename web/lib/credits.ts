@@ -53,7 +53,7 @@ export function hasCredit(state: CreditState): boolean {
 }
 
 export const OUT_OF_CREDITS_MSG =
-  "You are out of credits. Top up your balance and the AI helper will work again.";
+  "You are out of Pipe Coins. Top up your balance and the AI helper will work again.";
 
 /**
  * Zápis spotreby do ledgeru. Nikdy nehádže — účtovanie nesmie zhodiť odpoveď,

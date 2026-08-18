@@ -188,8 +188,8 @@ const FEATURES = [
   },
   {
     icon: Gauge,
-    title: "You see every cent she spends",
-    body: "Each AI call — reply, summary, image read, transcription, voice second — is metered as it happens and charged against your credit balance. Daily spend per model, breakdown by kind, and an automatic pause before the balance ever goes negative.",
+    title: "You see every coin she spends",
+    body: "Each AI call — reply, summary, image read, transcription, voice second — is metered as it happens and taken off your Pipe Coin balance. Daily spend per model, breakdown by kind, and an automatic pause before the balance ever goes negative.",
     meta: "Usage events · daily spend · auto-pause",
   },
 ];

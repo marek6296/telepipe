@@ -4,7 +4,8 @@ import { Images, MessageSquare, Send, Settings2 } from "lucide-react";
 import { ModelPowerButton } from "@/components/app/model-power-button";
 import { RepliesPausedChip } from "@/components/app/replies-paused-chip";
 import { Callout, StatusBadge } from "@/components/app/ui";
-import { compactNumber, usdPrecise } from "@/lib/format";
+import { coinsPrecise } from "@/lib/coins";
+import { compactNumber } from "@/lib/format";
 import { modelTypeInfo } from "@/lib/model-types";
 import type { ModelRow, ModelStats } from "@/lib/models";
 import { asStatus, statusHint, statusReasonText } from "@/lib/status";
@@ -66,7 +67,7 @@ export function ModelCard({
       <dl className="mt-5 grid grid-cols-2 gap-5 min-[420px]:grid-cols-3 min-[420px]:gap-6">
         <Metric label="Chats" value={compactNumber(stats.chats)} />
         <Metric label="Converted" value={compactNumber(stats.converted)} />
-        <Metric label="Spent today" value={usdPrecise(stats.spentToday)} />
+        <Metric label="Coins today" value={coinsPrecise(stats.spentToday)} />
       </dl>
 
       <div className="-mx-1.5 mt-5 flex flex-wrap items-center gap-0.5 border-t border-[var(--app-border)] pt-3">

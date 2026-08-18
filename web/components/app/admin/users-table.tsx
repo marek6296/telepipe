@@ -21,6 +21,7 @@ import {
   type AccountRole,
   type Plan,
 } from "@/lib/admin-ui";
+import { COINS_PER_USD, coins, coinsLabel } from "@/lib/coins";
 import { compactNumber, usd, usdPrecise } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -125,10 +126,12 @@ export function UsersTable({
         return;
       }
       patch(row.id, { balance: result.balance });
+      // Suma sa zadáva v dolároch (tak beží `admin_add_credit` aj ledger úprav),
+      // zostatok hlásime v coinoch — v tých ho klient uvidí.
       toast.success(
         `${amount > 0 ? "Added" : "Removed"} ${usdPrecise(Math.abs(amount))} — ${
           row.email
-        } now has ${usd(result.balance ?? 0)}.`,
+        } now has ${coinsLabel(result.balance ?? 0)}.`,
       );
     });
   };
@@ -154,8 +157,9 @@ export function UsersTable({
               <tr className="border-b border-[var(--app-border)] text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
                 <th className="px-5 py-2.5 font-medium">Account</th>
                 <th className="px-5 py-2.5 font-medium">Models</th>
+                {/* Spend je NAŠA tržba (USD), Coins je to, čo drží klient. */}
                 <th className="px-5 py-2.5 font-medium">Spend 30d</th>
-                <th className="px-5 py-2.5 font-medium">Credit</th>
+                <th className="px-5 py-2.5 font-medium">Pipe Coins</th>
                 <th className="px-5 py-2.5 font-medium">Plan</th>
                 {viewerRole === "superadmin" && (
                   <th className="px-5 py-2.5 font-medium">Role</th>
@@ -196,8 +200,11 @@ export function UsersTable({
                     <td className="px-5 py-3 tabular-nums text-[var(--app-text-2)]">
                       {usdPrecise(row.spend30d)}
                     </td>
-                    <td className="px-5 py-3 tabular-nums font-medium text-[var(--app-text)]">
-                      {usd(row.creditBalance)}
+                    <td
+                      title={usd(row.creditBalance)}
+                      className="px-5 py-3 tabular-nums font-medium text-[var(--app-text)]"
+                    >
+                      {coins(row.creditBalance)}
                     </td>
                     <td className="px-5 py-3">
                       <AdminSelect
@@ -274,7 +281,9 @@ export function UsersTable({
         title="Add credit"
         description={
           creditFor
-            ? `${creditFor.email} — balance ${usd(creditFor.creditBalance)}. Negative amounts subtract.`
+            ? `${creditFor.email} — balance ${coinsLabel(creditFor.creditBalance)}. ` +
+              `Amounts are in dollars ($1 = ${COINS_PER_USD.toLocaleString("en-US")} Pipe Coins). ` +
+              "Negative amounts subtract."
             : ""
         }
       >
@@ -391,6 +400,12 @@ function CreditForm({
           placeholder="50"
           className="app-input"
         />
+        {/* Dolár je jednotka RPC aj ledgeru; coiny sú to, čo klient uvidí. */}
+        <p className="mt-2 text-[11.5px] text-[var(--app-text-4)]">
+          {valid
+            ? `${parsed > 0 ? "Adds" : "Removes"} ${coinsLabel(Math.abs(parsed))}.`
+            : `$1 = ${COINS_PER_USD.toLocaleString("en-US")} Pipe Coins.`}
+        </p>
       </div>
       <div>
         <label

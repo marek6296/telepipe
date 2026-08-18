@@ -30,7 +30,7 @@ export default async function AdminUsagePage() {
       <PageHeader
         eyebrow="Admin"
         title="Usage & margin"
-        description="What clients were charged against what Atlas cost us, day by day."
+        description="What clients were charged against what Atlas cost us, day by day. Deliberately in dollars — this is our money view, not the client's Pipe Coin balance."
       />
 
       <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">

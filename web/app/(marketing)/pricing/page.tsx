@@ -2,34 +2,59 @@ import type { Metadata } from "next";
 
 import { CtaBand, PageHeader } from "@/components/marketing/page-shell";
 import { PricingTable } from "@/components/marketing/pricing-table";
+import { COINS_PER_REPLY, COINS_PER_USD } from "@/lib/coins";
 
 export const metadata: Metadata = {
   title: "Pricing",
   description:
-    "Telepipe plans: Free, Pro at $14.99/mo and Enterprise at $49.99/mo — 20% off yearly. The platform is a flat fee, the AI itself is billed from usage-based credits.",
+    "No subscription. Buy Pipe Coins — $50 for 50,000, $100 for 110,000, $250 for 300,000 — and spend them as your models work. Every reply, transcription and voice second metered to the coin.",
   openGraph: {
     title: "Pricing · Telepipe",
     description:
-      "Free, Pro and Enterprise plans for AI chat agents on Telegram and Fanvue. Save 20% yearly.",
+      "No plans, no renewals. Buy Pipe Coins and spend them as she works. Bigger packs, better rate.",
   },
 };
 
+/**
+ * FAQ hovorí o coinoch, nie o balíkoch predplatného — a čísla v ňom sú odmerané,
+ * nie vymyslené: `COINS_PER_REPLY` je celý týždenný náklad živej modelky delený
+ * počtom SKUTOČNE odoslaných odpovedí, zaokrúhlený nahor (viď `lib/coins.ts`).
+ * Nikdy to nepočítaj z riadkov `kind='chat'` — tam sedí aj interná práca.
+ */
 const FAQ = [
   {
-    q: "What exactly do credits pay for?",
-    a: "Every AI call your model makes — replies, chat summaries, image understanding, voice transcription and generated voice notes. Each one is metered and shown per model, per day, to the cent.",
+    q: "What is a Pipe Coin?",
+    a: `It is the unit your balance is counted in. ${COINS_PER_USD.toLocaleString(
+      "en-US",
+    )} Pipe Coins is one dollar of balance, so a $50 pack lands as 50,000 coins. Everything your models do is priced in coins, so you always see the cost in the same unit you bought.`,
+  },
+  {
+    q: "So what does one reply actually cost?",
+    a: `About ${COINS_PER_REPLY} Pipe Coins, all in. That is measured from a real week of live traffic: every coin the account spent — the reply itself, the memory work behind it, transcribing the voice notes he sent her — divided by the replies she actually sent. A quick back-and-forth costs less; a long conversation where she is pulling in months of memory about that fan costs more.`,
+  },
+  {
+    q: "Is there a subscription?",
+    a: "No. There are no plans, no seats and nothing renews. You buy Pipe Coins when you want them and spend them as your models work. Run one model or ten — the coins are the only bill.",
+  },
+  {
+    q: "Do Pipe Coins expire?",
+    a: "Never. They sit on your balance until your models spend them. Take a month off and they will still be there when you come back.",
   },
   {
     q: "What happens when the balance hits zero?",
-    a: "The model pauses instead of running up a bill. She stops replying, you get a message from her control bot, and everything resumes the moment you top the balance back up.",
+    a: "Your models pause instead of running up a bill. They stop replying, you get a message from the control bot, and everything resumes the moment you top up — personas, memory and conversation history stay exactly where they were.",
+  },
+  {
+    q: "Why is the bigger pack cheaper per coin?",
+    a: "Because a bigger top-up costs us less to handle. $50 is 1,000 coins per dollar, $100 is 1,100, $250 is 1,200 — same coins, same models, just a better rate the more you buy at once.",
   },
   {
     q: "Do I need my own Telegram infrastructure?",
     a: "No. You sign in with your phone number right on the page, create a control bot, and Telepipe keeps the session encrypted. No server, no code.",
   },
   {
-    q: "Can I switch plans later?",
-    a: "Yes — plans only gate how many models you run and which channels they use. Personas, memory and history stay exactly where they are.",
+    q: "How do I pay?",
+    a: "Crypto checkout is being wired up right now. Until it goes live, pick a pack and email us — we credit your balance by hand, usually the same day.",
   },
 ];
 
@@ -46,9 +71,9 @@ export default function PricingPage() {
         <div className="relative mx-auto max-w-6xl">
           <PageHeader
             eyebrow="Pricing"
-            title="One flat platform fee."
-            dim="The AI is billed by the message."
-            lead="No seats, no per-chat pricing, no minimum. Pick how many models you run — the tokens, transcriptions and voice seconds they actually use come out of your credit balance."
+            title="No subscription."
+            dim="You buy Pipe Coins and spend them as she works."
+            lead="No plans, no seats, no renewals, no minimum. Top up your balance once — every reply, transcription and voice second comes off it as it happens, metered per model to the coin. The bigger the pack, the better the rate."
           />
 
           <div className="mt-16">
@@ -71,9 +96,9 @@ export default function PricingPage() {
       </section>
 
       <CtaBand
-        title="Start on Free. Move up when she pays for herself."
-        body="Connect one model in a few minutes and watch what she does with your DMs before you spend anything on the platform."
-        note="No card required · Usage-based credits · Cancel anytime"
+        title="Start free. Buy coins when she has earned them."
+        body="Connect one model in a few minutes and watch what she does with your DMs. You only ever pay for the work she actually does."
+        note="No card required · No subscription · Pipe Coins never expire"
       />
     </>
   );

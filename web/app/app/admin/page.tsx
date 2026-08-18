@@ -11,6 +11,7 @@ import {
   requireAdmin,
 } from "@/lib/admin";
 import { shortId } from "@/lib/admin-ui";
+import { coins } from "@/lib/coins";
 import { compactNumber, usd, usdPrecise } from "@/lib/format";
 
 export const metadata: Metadata = {
@@ -67,10 +68,12 @@ export default async function AdminOverviewPage() {
           value={compactNumber(liveBots)}
           hint={`${liveReplicas} of ${replicas.length} replicas live`}
         />
+        {/* Jediná coinová dlaždica v admine — je to zostatok KLIENTOV, teda
+            presne to číslo, ktoré vidia oni. Peniaze nižšie ostávajú v USD. */}
         <StatTile
-          label="Credits"
-          value={usd(creditsTotal)}
-          hint="outstanding balance"
+          label="Pipe Coins"
+          value={coins(creditsTotal)}
+          hint={`outstanding · ${usd(creditsTotal)}`}
         />
       </div>
 

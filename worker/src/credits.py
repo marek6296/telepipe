@@ -19,7 +19,13 @@ import logging
 
 log = logging.getLogger(__name__)
 
-KIND_BY_METHOD = {"reply": "chat", "structured": "chat", "summarize": "summary",
+# `chat` je vyhradený pre správu, ktorú modelka naozaj napísala a odoslala —
+# dashboard z počtu týchto riadkov robí dlaždicu „Replies sent". `structured`
+# preto NIE JE chat: to sú pomocné volania na pozadí jednej odpovede (sudca,
+# pamäťové tvrdenia, fakty, recall, hovorená forma hlasovky), na Simone ich
+# vychádza ~0.4 na odpoveď. Kým sa delili o ten istý štítok, klient videl
+# násobok toho, čo modelka reálne odoslala.
+KIND_BY_METHOD = {"reply": "chat", "structured": "assist", "summarize": "summary",
                   "describe_image": "vision", "transcribe_voice": "audio"}
 
 OUT_OF_CREDITS_MSG = (

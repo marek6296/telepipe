@@ -247,7 +247,7 @@ export function VoiceStudio({
           <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
             She rewrites this into spoken form before recording — fillers, a
             stumble, the way people actually talk. That rewrite is the only part
-            of a preview that costs credits.
+            of a preview that costs Pipe Coins.
           </p>
         </div>
 
