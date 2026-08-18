@@ -12,7 +12,9 @@ export const config = {
   // `api/fanvue/webhook` je stroj-na-stroj volanie od Fanvue: žiadna session,
   // a Fanvue čaká odpoveď v sekundách, takže kolo navyše k Supabase Auth je
   // zbytočná réžia. Autentikuje sa podpisom tela, nie cookie.
+  // `api/payments/webhook` (Plisio IPN) a `api/payments/reconcile` (Vercel
+  // cron) sú to isté: stroj-na-stroj, bez cookie, autentikácia vo vnútri.
   matcher: [
-    "/((?!_next/static|_next/image|api/fanvue/webhook|favicon.ico|icon.png|logo-white.png|logo-black.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?)$).*)",
+    "/((?!_next/static|_next/image|api/fanvue/webhook|api/payments/webhook|api/payments/reconcile|favicon.ico|icon.png|logo-white.png|logo-black.png|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?)$).*)",
   ],
 };

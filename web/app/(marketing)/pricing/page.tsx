@@ -51,7 +51,7 @@ const FAQ = [
   },
   {
     q: "How do I pay?",
-    a: "Crypto checkout is being wired up right now. Until it goes live, pick a pack and email us — we credit your balance by hand, usually the same day.",
+    a: "With crypto — Bitcoin, Ethereum, Solana, Litecoin, Tron, BNB or Bitcoin Cash. Pick a pack, send one transaction to the address we show you, and the coins land on your balance automatically once the network confirms it, usually within minutes.",
   },
 ];
 

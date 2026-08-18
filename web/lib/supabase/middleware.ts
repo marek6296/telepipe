@@ -67,12 +67,15 @@ export async function updateSession(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  // Neprihlásený na chránenej ceste → /login s návratovou adresou
+  // Neprihlásený na chránenej ceste → /login s návratovou adresou.
+  // Query string ide s ňou — checkout z cenníka nesie `?pack=…` a bez neho by
+  // klient po prihlásení pristál v checkoute bez predvybraného balíka.
   if (!user && !isPublicPath(pathname)) {
     const url = request.nextUrl.clone();
+    const next = pathname + request.nextUrl.search;
     url.pathname = "/login";
     url.search = "";
-    url.searchParams.set("next", pathname);
+    url.searchParams.set("next", next);
     return NextResponse.redirect(url);
   }
 

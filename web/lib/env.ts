@@ -56,6 +56,24 @@ export function fanvueConfigured(): boolean {
   return Boolean(process.env.FANVUE_CLIENT_ID && process.env.FANVUE_CLIENT_SECRET);
 }
 
+/**
+ * Plisio secret key — SERVER ONLY. Prázdne = krypto platby vypnuté:
+ * `plisioEnabled()` je false, checkout vráti „unavailable" a nič sa nezaloží.
+ */
+export function plisioSecretKey(): string {
+  return process.env.PLISIO_SECRET_KEY ?? "";
+}
+
+/**
+ * Ochrana cron endpointov (`/api/payments/reconcile`). Vercel cron posiela
+ * `Authorization: Bearer $CRON_SECRET` automaticky, keď je env nastavená.
+ * Prázdne = endpoint pustí kohokoľvek (dev) — reconcile je aj tak neškodný,
+ * len číta pravdu z Plisia.
+ */
+export function cronSecret(): string {
+  return process.env.CRON_SECRET ?? "";
+}
+
 /** VRNUM API token — SERVER ONLY. Pouziva sa vyhradne na Telegram OTP route. */
 export function vrnumApiToken(): string {
   return required(process.env.VRNUM_API_TOKEN, "VRNUM_API_TOKEN");

@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { AudioLines } from "lucide-react";
 
 import {
@@ -53,7 +54,7 @@ export default async function AccountPage() {
         <Card>
           <CardHeader
             title="Pipe Coin balance"
-            description="No subscription — you buy Pipe Coins and spend them as she works. Top-ups are handled by us while we are in early access."
+            description="No subscription — you buy Pipe Coins and spend them as she works. Top up with crypto on the Billing page."
           />
           <div className="p-5">
             <p className="text-[32px] font-semibold leading-none tracking-[-0.03em] tabular-nums text-[var(--app-text)]">
@@ -62,12 +63,9 @@ export default async function AccountPage() {
             <p className="mt-2 text-[12.5px] text-[var(--app-text-3)]">
               {COIN_NAME_PLURAL} left · they never expire
             </p>
-            <a
-              href="mailto:support@telepipe.app?subject=Telepipe%20Pipe%20Coin%20top-up"
-              className="app-btn app-btn-primary mt-5 h-9 px-4"
-            >
-              Contact us to top up
-            </a>
+            <Link href="/app/billing" className="app-btn app-btn-primary mt-5 h-9 px-4">
+              Buy Pipe Coins
+            </Link>
           </div>
         </Card>
 

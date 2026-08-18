@@ -10,6 +10,7 @@ import {
   BarChart3,
   Bot,
   ChevronsUpDown,
+  Coins,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -47,6 +48,7 @@ const OVERVIEW: NavItem[] = [
 ];
 
 const WORKSPACE: NavItem[] = [
+  { href: "/app/billing", label: "Billing", icon: Coins, exact: false },
   { href: "/app/account", label: "Account", icon: Settings, exact: false },
 ];
 
@@ -76,6 +78,7 @@ function pageTitle(pathname: string, models: ShellModel[]): string {
   if (pathname.startsWith("/app/models")) return "Models";
   if (pathname.startsWith("/app/usage")) return "Usage";
   if (pathname.startsWith("/app/virtual-sim")) return "Virtual SIM";
+  if (pathname.startsWith("/app/billing")) return "Billing";
   if (pathname.startsWith("/app/account")) return "Account";
 
   if (pathname.startsWith("/app/admin")) {
@@ -226,8 +229,9 @@ export function AppShell({
             <p className="app-group-label hidden sm:block">Workspace</p>
           </div>
 
+          {/* Klik na zostatok = kúpiť coiny — presne to človek s nízkym zostatkom hľadá. */}
           <Link
-            href="/app/usage"
+            href="/app/billing"
             className="flex shrink-0 items-center gap-2 rounded-md border border-[var(--app-border)] px-2.5 py-1.5 text-[12px] text-[var(--app-text-2)] transition-colors hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"
           >
             <span className="tabular-nums">{coins(creditBalance)}</span>
