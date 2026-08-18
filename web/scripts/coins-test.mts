@@ -18,11 +18,14 @@ import {
   COINS_PER_REPLY,
   COINS_PER_USD,
   COIN_PACKS,
+  COIN_PRICE_STEP,
   CUSTOM_MAX_USD,
   CUSTOM_MIN_USD,
   assertPacksProfitable,
+  coinPriceFromUsdCost,
   customBonusPct,
   customCoinsForUsd,
+  roundCoinPrice,
   coins,
   coinsLabel,
   coinsPerDollar,
@@ -204,6 +207,42 @@ function throws(fn: () => void, message: string): void {
       coinsBought < maxProfitableCoins(usd),
       `custom $${usd} stays profitable (${coinsBought} coins < ceiling ${maxProfitableCoins(usd)})`,
     );
+  }
+}
+
+/* --------------------------------- cenníkové zaokrúhlenie na 50 coinov */
+{
+  eq(COIN_PRICE_STEP, 50, "prices step in 50-coin increments");
+
+  eq(roundCoinPrice(150), 150, "an exact multiple of 50 stays untouched");
+  eq(roundCoinPrice(1_150), 1_150, "1 150 is already a valid price");
+  eq(roundCoinPrice(1_137), 1_150, "1 137 rounds UP to 1 150");
+  eq(roundCoinPrice(1_151), 1_200, "one coin over a step still rounds up a whole step");
+  eq(roundCoinPrice(1_680), 1_700, "1 680 rounds up to 1 700");
+  eq(roundCoinPrice(1), 50, "any positive price is at least one step");
+  eq(roundCoinPrice(0), 50, "zero is lifted to one step — nothing is free");
+  eq(roundCoinPrice(-5), 50, "a negative cost cannot produce a negative price");
+  eq(roundCoinPrice(Number.NaN), 50, "NaN cannot leak into a price");
+
+  // Zaokrúhlenie NIKDY nesmie ísť nadol — cena vzniká z nákupky × marže,
+  // takže krok dole by maržu ukrojil.
+  for (const raw of [1, 49, 50, 51, 137, 999, 1_137, 1_680, 24_999]) {
+    const rounded = roundCoinPrice(raw);
+    check(rounded >= raw, `roundCoinPrice(${raw}) = ${rounded} never rounds below the cost`);
+    check(rounded % COIN_PRICE_STEP === 0, `roundCoinPrice(${raw}) lands on a 50-coin step`);
+  }
+
+  // USD náklad → coiny aj USD naspäť; obe jednotky musia sedieť na seba,
+  // lebo klient vidí coiny, ale zostatok sa strháva v dolároch.
+  const quote = coinPriceFromUsdCost(1.137);
+  eq(quote.coins, 1_150, "$1.137 of cost prices at 1 150 coins");
+  eq(quote.usd, 1.15, "the same price in USD is 1.15");
+  eq(coinPriceFromUsdCost(0.75).coins, 750, "$0.75 prices at exactly 750 coins");
+  eq(coinPriceFromUsdCost(1.7).coins, 1_700, "$1.70 prices at 1 700 coins");
+  for (const cost of [0.01, 0.37, 0.75, 1.137, 1.7, 12.34]) {
+    const priced = coinPriceFromUsdCost(cost);
+    check(priced.usd >= cost, `pricing $${cost} never sells below cost ($${priced.usd})`);
+    eq(priced.usd, coinsToUsd(priced.coins), `coin and USD price agree for $${cost}`);
   }
 }
 

@@ -1,5 +1,6 @@
 /** Server-only VRNUM integracia pre jednorazove Telegram OTP cisla. */
 
+import { coinPriceFromUsdCost } from "@/lib/coins";
 import { vrnumApiToken, vrnumOtpPriceMultiplier } from "@/lib/env";
 import { toNumber } from "@/lib/format";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -96,15 +97,20 @@ export class VrnumError extends Error {
 }
 
 /**
- * Nákupka + minimálne 50 %, potom najbližšia VYŠŠIA retail cena končiaca .49
- * alebo .99. Zaokrúhlenie nikdy nesmie znížiť požadovanú maržu.
+ * Nákupka + minimálne 50 %, potom najbližšia VYŠŠIA cena v násobku 50 coinov
+ * (150, 1 150, 1 700 — nikdy 1 137). Zaokrúhlenie ide vždy nahor, takže
+ * nemôže znížiť požadovanú maržu.
+ *
+ * Vracia USD, lebo to je jednotka zostatku aj stĺpca `charged_credits`;
+ * klientovi sa všade zobrazujú coiny (`coins()` v `lib/coins.ts`).
  */
 export function telegramOtpPrice(providerPrice: number): number {
-  const targetCents = Math.ceil(providerPrice * vrnumOtpPriceMultiplier() * 100 - 1e-9);
-  const dollars = Math.floor(targetCents / 100);
-  const cents = targetCents % 100;
-  if (cents <= 49) return (dollars * 100 + 49) / 100;
-  return (dollars * 100 + 99) / 100;
+  return coinPriceFromUsdCost(providerPrice * vrnumOtpPriceMultiplier()).usd;
+}
+
+/** Tá istá cena v coinoch — pre UI a kontrolu, že vyšiel násobok 50. */
+export function telegramOtpPriceCoins(providerPrice: number): number {
+  return coinPriceFromUsdCost(providerPrice * vrnumOtpPriceMultiplier()).coins;
 }
 
 export async function listTelegramCountries(): Promise<TelegramOtpCountry[]> {

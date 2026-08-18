@@ -73,7 +73,7 @@ export async function purchaseTelegramOtpAction(input: {
     );
     if (error) {
       if (error.message.toLowerCase().includes("insufficient credits")) {
-        return { ok: false, error: "You do not have enough Telepipe credits for this number." };
+        return { ok: false, error: "You do not have enough Pipe Coins for this number." };
       }
       throw new Error(`Credit reservation failed: ${error.message}`);
     }
@@ -162,13 +162,13 @@ export async function cancelTelegramOtpAction(orderId: string): Promise<OtpActio
     return success(
       await requireDbOrder(account, row.id),
       refundedBalance,
-      "Number cancelled and credits returned.",
+      "Number cancelled and Pipe Coins returned.",
     );
   } catch (error) {
     console.error("Telegram OTP cancel failed", safeError(error));
     return {
       ok: false,
-      error: "Cancellation was not confirmed, so no credits were changed. Please try again.",
+      error: "Cancellation was not confirmed, so no coins were changed. Please try again.",
       retryable: true,
     };
   }
@@ -222,7 +222,7 @@ async function provisionReservedOrder(row: TelegramOtpDbOrder): Promise<OtpActio
       await refund(row, "failed", error.code);
       return {
         ok: false,
-        error: "The network rejected this purchase. Your credits were returned.",
+        error: "The network rejected this purchase. Your Pipe Coins were returned.",
         order: publicOrder(await requireDbOrder(row.account_id!, row.id)),
         retryable: false,
       };

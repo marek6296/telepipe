@@ -26,7 +26,8 @@ import {
   type OtpActionResult,
 } from "@/app/app/virtual-sim/actions";
 import { Callout, Card, CardHeader, PageHeader } from "@/components/app/ui";
-import { dateTime, usd } from "@/lib/format";
+import { COIN_NAME_PLURAL, coins } from "@/lib/coins";
+import { dateTime } from "@/lib/format";
 import type { TelegramOtpCountry, TelegramOtpOrder, TelegramOtpStatus } from "@/lib/vrnum";
 import { cn } from "@/lib/utils";
 
@@ -148,8 +149,11 @@ export function TelegramOtpPanel({
         description="A one-time Telegram number, delivered inside Telepipe. Choose a country, receive the SMS code, and finish registration before the activation window closes."
         actions={
           <div className="rounded-md border border-[var(--app-border)] px-3.5 py-2 text-right">
-            <p className="text-[10px] uppercase tracking-[0.12em] text-[var(--app-text-4)]">Available credit</p>
-            <p className="mt-1 text-[14px] font-medium tabular-nums text-[var(--app-text)]">{usd(balance)}</p>
+            <p className="text-[10px] uppercase tracking-[0.12em] text-[var(--app-text-4)]">Your balance</p>
+            <p className="mt-1 text-[14px] font-medium tabular-nums text-[var(--app-text)]">
+              {coins(balance)}{" "}
+              <span className="text-[11px] font-normal text-[var(--app-text-4)]">{COIN_NAME_PLURAL}</span>
+            </p>
           </div>
         }
       />
@@ -225,9 +229,9 @@ export function TelegramOtpPanel({
                         </span>
                         <span className="text-right">
                           <span className="block text-[13px] font-medium tabular-nums text-[var(--app-text)]">
-                            {usd(country.priceCredits)}
+                            {coins(country.priceCredits)}
                           </span>
-                          <span className="block text-[10px] text-[var(--app-text-4)]">credits</span>
+                          <span className="block text-[10px] text-[var(--app-text-4)]">coins</span>
                         </span>
                         {!soldOut && (
                           active
@@ -267,14 +271,14 @@ export function TelegramOtpPanel({
               </div>
               <p className="text-right">
                 <span className="block text-[17px] font-semibold tabular-nums text-[var(--app-text)]">
-                  {selected ? usd(selected.priceCredits) : "—"}
+                  {selected ? coins(selected.priceCredits) : "—"}
                 </span>
-                <span className="text-[10px] text-[var(--app-text-4)]">Telepipe credits</span>
+                <span className="text-[10px] text-[var(--app-text-4)]">{COIN_NAME_PLURAL}</span>
               </p>
             </div>
 
             <ol className="my-5 space-y-3">
-              <Step number="1" text="We reserve the displayed Telepipe credits." />
+              <Step number="1" text="We reserve the displayed Pipe Coins." />
               <Step number="2" text="Your Telegram phone number appears here." />
               <Step number="3" text="The incoming OTP code is shown automatically." />
             </ol>
@@ -294,12 +298,12 @@ export function TelegramOtpPanel({
             </button>
             {selected && balance < selected.priceCredits && (
               <p className="mt-2.5 text-center text-[11.5px] text-[#fca5a5]">
-                Add {usd(selected.priceCredits - balance)} more credit to continue.
+                You need {coins(selected.priceCredits - balance)} more {COIN_NAME_PLURAL} to continue.
               </p>
             )}
             <div className="mt-4 flex items-start gap-2 text-[11px] leading-relaxed text-[var(--app-text-4)]">
               <ShieldCheck className="mt-px h-3.5 w-3.5 shrink-0" />
-              <p>Prices are locked server-side. A confirmed cancellation returns the full displayed credit charge exactly once.</p>
+              <p>Prices are locked server-side. A confirmed cancellation returns the full displayed coin charge exactly once.</p>
             </div>
           </div>
         </Card>
@@ -365,7 +369,7 @@ function ActiveOrder({
           <div className="min-w-0">
             <StatusLine status={order.status} />
             <p className="mt-1 text-[11.5px] text-[var(--app-text-4)]">
-              Telegram · {order.countryName} · {usd(order.chargedCredits)} credits
+              Telegram · {order.countryName} · {coins(order.chargedCredits)} coins
             </p>
           </div>
         </div>
@@ -453,7 +457,7 @@ function OrderHistory({ orders }: { orders: TelegramOtpOrder[] }) {
               <th className="px-5 py-3 font-medium">Destination</th>
               <th className="px-5 py-3 font-medium">Number</th>
               <th className="px-5 py-3 font-medium">Status</th>
-              <th className="px-5 py-3 text-right font-medium">Credits</th>
+              <th className="px-5 py-3 text-right font-medium">Coins</th>
               <th className="px-5 py-3 text-right font-medium">Created</th>
             </tr>
           </thead>
@@ -464,7 +468,9 @@ function OrderHistory({ orders }: { orders: TelegramOtpOrder[] }) {
                 <td className="px-5 py-3.5 tabular-nums text-[var(--app-text-3)]">{order.phoneNumber ?? "—"}</td>
                 <td className="px-5 py-3.5"><StatusLine status={order.status} /></td>
                 <td className="px-5 py-3.5 text-right tabular-nums text-[var(--app-text-2)]">
-                  {order.refundedCredits > 0 ? `${usd(order.refundedCredits)} refunded` : usd(order.chargedCredits)}
+                  {order.refundedCredits > 0
+                    ? `${coins(order.refundedCredits)} refunded`
+                    : coins(order.chargedCredits)}
                 </td>
                 <td className="px-5 py-3.5 text-right text-[var(--app-text-4)]">{dateTime(order.createdAt)}</td>
               </tr>
@@ -502,9 +508,13 @@ function ConfirmPurchase({
           </button>
         </div>
         <div className="my-5 divide-y divide-[var(--app-border)] rounded-lg border border-[var(--app-border)] bg-[#090909] px-4">
-          <SummaryRow label="Telegram OTP number" value={usd(country.priceCredits)} />
-          <SummaryRow label="Current balance" value={usd(balance)} />
-          <SummaryRow label="Balance after purchase" value={usd(balance - country.priceCredits)} strong />
+          <SummaryRow label="Telegram OTP number" value={`${coins(country.priceCredits)} coins`} />
+          <SummaryRow label="Current balance" value={`${coins(balance)} coins`} />
+          <SummaryRow
+            label="Balance after purchase"
+            value={`${coins(balance - country.priceCredits)} coins`}
+            strong
+          />
         </div>
         <Callout icon={<Clock3 className="h-4 w-4" />}>
           Start Telegram registration immediately. The activation is intended for one SMS and expires after roughly 20 minutes.

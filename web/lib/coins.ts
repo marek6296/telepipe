@@ -216,6 +216,38 @@ export function customCoinsForUsd(usd: number): number {
   return Math.round(usd * COINS_PER_USD * (1 + customBonusPct(usd) / 100));
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Cenníkové zaokrúhlenie (to, čo klient PLATÍ)                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Krok, na ktorý sa zaokrúhľujú predajné ceny v coinoch: 150, 1 150, 1 700 —
+ * nikdy 1 137. Klient nemá počítať halierové zvyšky.
+ */
+export const COIN_PRICE_STEP = 50;
+
+/**
+ * Zaokrúhli cenu NAHOR na násobok 50 coinov.
+ *
+ * Vždy nahor a nikdy nie nadol: cena vzniká z nákupky × marže, takže
+ * zaokrúhlenie smerom dole by maržu ukrojilo. Nula sa dvíha na jeden krok —
+ * nič nepredávame zadarmo.
+ */
+export function roundCoinPrice(coinCount: number): number {
+  if (!Number.isFinite(coinCount) || coinCount <= 0) return COIN_PRICE_STEP;
+  return Math.ceil(coinCount / COIN_PRICE_STEP) * COIN_PRICE_STEP;
+}
+
+/**
+ * Predajná cena pre nakupovanú položku: náklad v USD → coiny, zaokrúhlené
+ * nahor na násobok 50. Vracia OBE jednotky, lebo klientovi ukazujeme coiny,
+ * ale interná jednotka zostatku (`accounts.credit_balance_usd`) je dolár.
+ */
+export function coinPriceFromUsdCost(costUsd: number): { coins: number; usd: number } {
+  const coins = roundCoinPrice(costUsd * COINS_PER_USD);
+  return { coins, usd: coinsToUsd(coins) };
+}
+
 /**
  * Čo nás balík bude stáť, keď klient minie VŠETKY coiny.
  *
