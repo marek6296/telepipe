@@ -247,3 +247,49 @@ class TestZablokovany:
         bot._blocked_at = datetime.now(timezone.utc)
         asyncio.run(bot.reply_to(555))
         assert client.sent
+
+
+class TestZnovudorucenie:
+    """Tá istá správa druhýkrát — nikdy nesmie z nej vzniknúť druhá odpoveď.
+
+    Telegram po reconnecte pošle updaty, ktoré si klient nestihol odkvitovať.
+    18. 8. sa takto vložili štyri Marekove správy naraz mimo poradia a modelka
+    odpovedala na jednu otázku dvakrát, zakaždým iným textom.
+    """
+
+    def _bot(self, db):
+        bot = UserBot(make_config(), db, FakeLlm("odpoved"), FakeClient(), _noop)
+        scheduled = []
+        bot._schedule_reply = lambda tg_id: scheduled.append(tg_id)  # type: ignore[method-assign]
+        return bot, scheduled
+
+    def test_ta_ista_sprava_dvakrat_sa_spracuje_raz(self):
+        db = FakeDb(user_row(tg_id=555))
+        bot, scheduled = self._bot(db)
+        event = FakeEvent(FakeSender(555), "kolko mas rokov?", msg_id=1001)
+
+        asyncio.run(bot._handle(event))
+        asyncio.run(bot._handle(event))
+
+        assert len(db.messages) == 1
+        assert scheduled == [555]
+
+    def test_po_restarte_chrani_vodoznak_v_databaze(self):
+        """Nový proces má pamäť prázdnu — a práve vtedy chodí opakovaní najviac."""
+        db = FakeDb(user_row(tg_id=555, last_msg_id=1001))
+        bot, scheduled = self._bot(db)
+
+        asyncio.run(bot._handle(FakeEvent(FakeSender(555), "uz som sa pytal", msg_id=1001)))
+
+        assert db.messages == []
+        assert scheduled == []
+
+    def test_dalsia_sprava_prejde_normalne(self):
+        db = FakeDb(user_row(tg_id=555, last_msg_id=1001))
+        bot, scheduled = self._bot(db)
+
+        asyncio.run(bot._handle(FakeEvent(FakeSender(555), "nova otazka", msg_id=1002)))
+
+        assert len(db.messages) == 1
+        assert scheduled == [555]
+        assert db.users[555]["last_msg_id"] == 1002

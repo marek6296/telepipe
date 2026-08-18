@@ -80,6 +80,11 @@ MIN_FACTOR = 0.35
 # Nie sú označené ako bot, takže by prešli ako bežný klient.
 SYSTEM_IDS = frozenset({777000, 42777, 4244000, 333000})
 
+# Koľko posledných spracovaných správ si držíme, aby sme spoznali znovudoručenie.
+# 500 je s rezervou viac, než čo Telegram po jednom reconnecte zopakuje, a v pamäti
+# je to zopár kilobajtov.
+_SEEN_LIMIT = 500
+
 
 def _is_system_account(entity: User) -> bool:
     return (
@@ -118,6 +123,12 @@ class UserBot:
         self._photo_reaction: Dict[int, tuple] = {}
         # Dokedy mlčíme, lebo si to vypýtal sám Telegram (FloodWait).
         self._flood_until: Optional[datetime] = None
+        # Id správ, ktoré sme už spracovali. Telegram po reconnecte doručí
+        # neodkvitované updaty ZNOVA — bez tohto sa tá istá otázka uloží
+        # druhýkrát a modelka na ňu odpovie druhýkrát, iným textom.
+        # Ohraničené: drží sa posledných `_SEEN_LIMIT`, staršie vypadávajú.
+        self._seen: Deque[tuple] = deque(maxlen=_SEEN_LIMIT)
+        self._seen_set: set = set()
 
     # ---------- registrácia ----------
 
@@ -193,6 +204,24 @@ class UserBot:
         tg_id = sender.id
         is_owner = tg_id == self._cfg.owner_chat_id
 
+        # ZNOVUDORUČENIE. Telegram po reconnecte pošle updaty, ktoré mu klient
+        # nestihol odkvitovať — tie isté správy druhýkrát. Bez tejto brány sa
+        # otázka uloží dvakrát a modelka na ňu odpovie dvakrát, zakaždým iným
+        # textom; presne to sa stalo 18. 8. o 6:53, keď sa štyri Marekove
+        # správy vložili naraz mimo poradia a vznikla druhá odpoveď.
+        #
+        # Kontrola je TU, ešte pred stiahnutím fotky a prepisom hlasovky —
+        # tie stoja peniaze a zopakovať sa nesmú ani raz.
+        seen_key = (tg_id, getattr(event.message, "id", 0) or 0)
+        if seen_key[1]:
+            if seen_key in self._seen_set:
+                log.info("Preskakujem %s: správa %s už bola spracovaná", tg_id, seen_key[1])
+                return
+            if len(self._seen) == self._seen.maxlen:
+                self._seen_set.discard(self._seen[0])
+            self._seen.append(seen_key)
+            self._seen_set.add(seen_key)
+
         # Vlastníka neobsluhuj ako klienta. Kontrola ide PRED filtrom kontaktov,
         # inak by testovanie z vlastného účtu spadlo na tom, že je v kontaktoch.
         if is_owner and not self._cfg.owner_as_client:
@@ -239,6 +268,17 @@ class UserBot:
         )
         is_new = int(user.get("msg_count") or 0) == 0
 
+        # Druhý zámok, ktorý prežije reštart procesu: vodoznak v databáze.
+        # Pamäťová brána vyššie po štarte nevie nič — a práve po štarte doručuje
+        # Telegram zopakovaných updateov najviac. Id správ v súkromných chatoch
+        # rastú (jedna postupnosť na celý účet), takže „id <= vodoznak" znamená
+        # „toto sme už mali", nie „stará správa z inej konverzácie".
+        message_id = seen_key[1]
+        if message_id and message_id <= int(user.get("last_msg_id") or 0):
+            log.info("Preskakujem %s: správa %s je pod vodoznakom %s",
+                     tg_id, message_id, user.get("last_msg_id"))
+            return
+
         await self._db.add_message(tg_id, "user", text)
         user["msg_count"] = int(user.get("msg_count") or 0) + 1
         patch: Dict[str, Any] = {
@@ -247,8 +287,7 @@ class UserBot:
             # Odpovedal — ranné oslovenia sa môžu znova rátať od nuly.
             "outreach_silent": 0,
         }
-        message_id = getattr(event.message, "id", 0) or 0
-        if message_id > int(user.get("last_msg_id") or 0):
+        if message_id:
             patch["last_msg_id"] = message_id
         # Meno ukladáme hneď ako sa predstaví — do vlastného stĺpca, nie do
         # summary. Vďaka tomu sa naň už nikdy nespýta, ani o týždeň.
