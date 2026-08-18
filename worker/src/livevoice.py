@@ -160,6 +160,14 @@ _WHITE_NOISE_OFFSET_DB = -4.7
 # Kam `loudnorm` normalizuje hlas, kým sa naň pustí `VOICE_GAIN`.
 _NORMALISE_TARGET_DB = -20.0
 
+# Zámerne veľmi krátke stlmenie na samom konci súboru.
+#
+# NIE JE TO EFEKT. Pozadie hrá do konca nahrávky rovnako hlasno — presne tak,
+# ako keď človek dohovorí a ešte chvíľu drží tlačidlo. Toto je len poistka
+# proti lupnutiu, ktoré vznikne, keď sa šum utne v nenulovej hodnote. 60 ms je
+# pod hranicou, kde by to ucho zaregistrovalo ako stíšenie.
+ANTI_CLICK_S = 0.06
+
 
 def _db(value: float) -> float:
     return 20.0 * math.log10(value) if value > 0 else -120.0
@@ -613,16 +621,25 @@ async def _mix(
             + "':eval=frame"
         )
 
-        # Keď dohovorí, miestnosť nemá ostať visieť na plnej hlasitosti až do
-        # konca súboru — v skutočnej hlasovke sa zvuk stratí do ticha skôr, než
-        # nahrávanie skončí. Stmievanie začne presne tam, kde končí reč, a trvá
-        # celý chvost.
-        stmavni = ""
-        if trvanie and tail > 0:
-            stmavni = f",afade=t=out:st={lead + trvanie / max(tempo, 0.1):.2f}:d={tail:.2f}"
+        # POZADIE SA NA KONCI NESTMIEVA.
+        #
+        # Bolo tu stmievanie cez celý chvost, s odôvodnením, že zvuk sa má
+        # stratiť skôr, než nahrávanie skončí. To je ale naopak: keď človek
+        # dohovorí a ešte dve sekundy drží tlačidlo, izba okolo neho hrá ďalej
+        # rovnako. Stíchnuť môže len tak, že sa nahrávanie zastaví. Klient to
+        # počul hneď — ten pomalý úbytok bol jediné, čo na hlasovkách drhlo.
+        #
+        # Ostáva len 60 ms na samom konci, a to nie je efekt: je to poistka
+        # proti lupnutiu, keď sa šum utne v nenulovej hodnote. Kratšie než
+        # čokoľvek, čo ucho stihne zaregistrovať ako stíšenie.
+        koniec = lead + (trvanie or 0.0) / max(tempo, 0.1) + tail
+        dozvuk = (
+            f",afade=t=out:st={max(0.0, koniec - ANTI_CLICK_S):.2f}:d={ANTI_CLICK_S}"
+            if trvanie else ""
+        )
 
         graf = f"[0:a]{_NORMALISE},{mic}{okraje}[hlas];"
-        graf += f"[{sum_index}:a]volume={hiss}{stmavni}[sum];"
+        graf += f"[{sum_index}:a]volume={hiss}[sum];"
         if ambience:
             # Miestnosť je dunenie a vzdialené zvuky, nie sykot. Bez orezu
             # výšok znie generované pozadie ako biely šum pod hlasom.
@@ -637,8 +654,7 @@ async def _mix(
             # kde niečo prejde alebo stíchne. Vlastné je dôležité — keby sa
             # riadila kolísaním hlasu, znelo by to, akoby sa s ňou hýbala celá
             # izba, a to je fyzikálny nezmysel.
-            cele_trvanie = lead + (trvanie or 0.0) / max(tempo, 0.1) + tail
-            izba_udalosti = room_events(cele_trvanie)
+            izba_udalosti = room_events(koniec)
             izba_perioda = random.uniform(ROOM_DRIFT_PERIOD_MIN, ROOM_DRIFT_PERIOD_MAX)
             if izba_udalosti:
                 log.info("Pohyb pozadia: %s", izba_udalosti)
@@ -646,12 +662,12 @@ async def _mix(
                 f"[1:a]{_NORMALISE},afftdn=nr=32:nf=-38,"
                 f"highpass=f={dolna},lowpass=f={horna},"
                 f"volume='{room_expression(hlasitost, izba_udalosti, drift_period=izba_perioda)}'"
-                f":eval=frame{stmavni}[izba];"
+                f":eval=frame[izba];"
             )
             graf += "[hlas][izba][sum]amix=inputs=3:duration=first:dropout_transition=0"
         else:
             graf += "[hlas][sum]amix=inputs=2:duration=first:dropout_transition=0"
-        graf += f",{chain}[out]"
+        graf += f",{chain}{dozvuk}[out]"
 
         try:
             proc = await asyncio.create_subprocess_exec(
