@@ -460,6 +460,28 @@ body {
   animation: element-in 0.85s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
+/* Jemný vstup platobnej sekcie — bez blur, rýchlejší než element-in. */
+@keyframes billing-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.billing-reveal {
+  animation: billing-reveal 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .billing-reveal {
+    animation: none;
+  }
+}
+
 /* Stagger delaye — .animate-delay-100 … .animate-delay-1600 */
 .animate-delay-100 { animation-delay: 0.1s; }
 .animate-delay-200 { animation-delay: 0.2s; }

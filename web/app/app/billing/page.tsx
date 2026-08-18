@@ -11,6 +11,7 @@ import {
   estimatedReplies,
   toCoins,
 } from "@/lib/coins";
+import { fetchCryptoRates } from "@/lib/crypto-meta";
 import { getAccount, requireUser } from "@/lib/models";
 import { PAY_CURRENCIES, plisioEnabled } from "@/lib/plisio";
 import { createClient } from "@/lib/supabase/server";
@@ -90,7 +91,7 @@ export default async function BillingPage() {
   // Obe tabuľky sú RLS-scoped na prihlásený účet. Staré faktúrové riadky
   // ostávajú v histórii kvôli auditu, nové dobitia idú cez permanentné adresy.
   const supabase = await createClient();
-  const [{ data: deposits }, { data: legacyPayments }] = await Promise.all([
+  const [{ data: deposits }, { data: legacyPayments }, rates] = await Promise.all([
     supabase
       .from("crypto_deposit_events")
       .select("payment_id, source_usd, coins, pay_currency, status, credited, created_at")
@@ -101,6 +102,8 @@ export default async function BillingPage() {
       .select("payment_id, usd, coins, pay_currency, status, credited, created_at")
       .order("created_at", { ascending: false })
       .limit(20),
+    // Živé kurzy pre „koľko poslať". Zlyhanie = prázdna mapa, panel to znesie.
+    fetchCryptoRates(),
   ]);
 
   const history: HistoryRow[] = [
@@ -168,6 +171,7 @@ export default async function BillingPage() {
         />
         <BillingPanel
           currencies={currencies}
+          rates={rates}
           available={plisioEnabled()}
           supportEmail={SUPPORT_EMAIL}
         />

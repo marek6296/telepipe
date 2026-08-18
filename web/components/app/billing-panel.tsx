@@ -9,11 +9,9 @@ import {
   Copy,
   CreditCard,
   ExternalLink,
-  InfinityIcon,
   Loader2,
   Mail,
   ScanLine,
-  Send,
   Smartphone,
   TriangleAlert,
   Wallet,
@@ -26,20 +24,17 @@ import {
   customBonusPct,
   customCoinsForUsd,
 } from "@/lib/coins";
+import { cryptoAmountForUsd, cryptoMeta, type CryptoRates } from "@/lib/crypto-meta";
 import { cn } from "@/lib/utils";
 
 /**
- * Nákup Pipe Coinov cez permanentnú Plisio adresu: klient si zvolí sumu
- * (len odhad kreditu) a mincu, dostane SVOJU stálu adresu a pošle koľko chce.
- * Kredit počíta server z net USD hodnoty potvrdenej Plisiom — tento komponent
- * stav LEN zobrazuje, o kredite nikdy nerozhoduje.
+ * Nákup Pipe Coinov cez permanentnú Plisio adresu. Klient zvolí sumu a mincu,
+ * vidí ORIENTAČNE koľko krypta poslať (živý kurz) a dostane svoju stálu adresu
+ * s QR. Kredit počíta server z net USD hodnoty potvrdenej Plisiom — tento
+ * komponent stav len zobrazuje, o kredite nikdy nerozhoduje.
  */
 
-export type CurrencyOption = {
-  cid: string;
-  label: string;
-  network: string;
-};
+export type CurrencyOption = { cid: string; label: string; network: string };
 
 type PermanentAddress = {
   payAddress: string;
@@ -61,7 +56,37 @@ type CreditedDeposit = {
 };
 
 const POLL_MS = 8_000;
+const QUICK_AMOUNTS = [20, 50, 100, 250];
 const CARD_ONRAMP_URL = "https://guardarian.com/buy-crypto-with-card";
+
+/* -------------------------------------------------------------------------- */
+/*  Značka mince — farba je to, čo z monochrómu spraví voľbu na klik           */
+/* -------------------------------------------------------------------------- */
+
+function CoinBadge({ cid, size = 30 }: { cid: string; size?: number }) {
+  const meta = cryptoMeta(cid);
+  const glyph = meta.symbol ?? meta.ticker;
+  const fontSize = meta.symbol ? size * 0.5 : size * (meta.ticker.length >= 3 ? 0.3 : 0.42);
+  return (
+    <span
+      className="inline-flex shrink-0 items-center justify-center rounded-full font-semibold leading-none"
+      style={{
+        width: size,
+        height: size,
+        background: meta.color,
+        color: meta.darkText ? "#0a0a0a" : "#ffffff",
+        fontSize,
+      }}
+      aria-hidden
+    >
+      {glyph}
+    </span>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Kopírovanie                                                                */
+/* -------------------------------------------------------------------------- */
 
 function CopyButton({ value, label }: { value: string; label: string }) {
   const [copied, setCopied] = useState(false);
@@ -87,76 +112,40 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       ) : (
         <Copy className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
       )}
-      {copied ? "Copied" : "Copy"}
+      {copied ? "Skopírované" : "Kopírovať"}
     </button>
   );
 }
 
-/** Číslovaný krokový label — drží obe polovice formulára vizuálne v jednej sade. */
-function StepLabel({ n, children }: { n: number; children: React.ReactNode }) {
-  return (
-    <p className="flex items-center gap-2 text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
-      <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border border-[var(--app-border-strong)] text-[10px] font-semibold leading-none text-[var(--app-text-2)]">
-        {n}
-      </span>
-      {children}
-    </p>
-  );
-}
+/* -------------------------------------------------------------------------- */
+/*  Sprievodca pre nováčika — zbalený cez natívny <details>                    */
+/* -------------------------------------------------------------------------- */
 
-/**
- * Sprievodca pre nováčika. Krypto vie väčšina klientov len z počutia — bez
- * tohto by pri QR kóde nevedeli, čo majú spraviť. `<details>` je natívny,
- * prístupný a nepotrebuje stav; kto krypto pozná, nechá ho zbalený.
- */
 function NewToCrypto({ label }: { label: string }) {
   const wallets = [
-    {
-      icon: Smartphone,
-      name: "Revolut",
-      note: "Najjednoduchšie, ak ho už máš",
-      how: "Karta → Krypto → kúp trochu (napr. USDT) → Poslať → vlož adresu nižšie.",
-    },
-    {
-      icon: Wallet,
-      name: "MetaMask",
-      note: "Zadarmo, appka do mobilu za 5 minút",
-      how: "Nainštaluj → v appke kúp krypto kartou → Send → vlož adresu nižšie.",
-    },
-    {
-      icon: CreditCard,
-      name: "Burza (Binance, Coinbase)",
-      note: "Ak už niekde krypto máš",
-      how: "Kúp krypto → Withdraw / Send → vlož adresu a vyber správnu sieť.",
-    },
+    { icon: Smartphone, name: "Revolut", note: "Najľahšie, ak ho už máš", how: "Karta → Krypto → kúp trochu → Poslať → vlož adresu nižšie." },
+    { icon: Wallet, name: "MetaMask", note: "Zadarmo, appka za 5 minút", how: "Nainštaluj → kúp krypto kartou → Send → vlož adresu nižšie." },
+    { icon: CreditCard, name: "Burza (Binance…)", note: "Ak už niekde krypto máš", how: "Kúp → Withdraw / Send → vlož adresu a vyber sieť." },
   ];
 
   return (
-    <details className="group rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-hover)]/40 open:bg-transparent">
+    <details className="group rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-hover)]/40 open:bg-transparent">
       <summary className="app-tap flex cursor-pointer list-none items-center justify-between gap-3 p-4 [&::-webkit-details-marker]:hidden">
         <span className="flex items-center gap-2.5">
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-[var(--app-border-strong)]">
-            <Wallet className="h-3.5 w-3.5 text-[var(--app-text-2)]" strokeWidth={1.75} aria-hidden />
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[var(--app-border-strong)]">
+            <Wallet className="h-4 w-4 text-[var(--app-text-2)]" strokeWidth={1.75} aria-hidden />
           </span>
           <span>
             <span className="block text-[13px] font-medium text-[var(--app-text)]">
               Prvýkrát platíš kryptom? Zvládneš to za pár minút
             </span>
-            <span className="block text-[11.5px] text-[var(--app-text-4)]">
-              Ako si spraviť peňaženku a poslať platbu — krok za krokom
-            </span>
+            <span className="block text-[11.5px] text-[var(--app-text-4)]">Ako na to — krok za krokom</span>
           </span>
         </span>
-        <ChevronDown
-          className="h-4 w-4 shrink-0 text-[var(--app-text-3)] transition-transform group-open:rotate-180"
-          strokeWidth={1.75}
-          aria-hidden
-        />
+        <ChevronDown className="h-4 w-4 shrink-0 text-[var(--app-text-3)] transition-transform group-open:rotate-180" strokeWidth={1.75} aria-hidden />
       </summary>
 
       <div className="space-y-4 px-4 pb-4">
-        {/* Najjednoduchšia cesta — kartou cez Guardarian, bez vlastnej
-            peňaženky aj bez účtu. Krypto ide rovno na našu adresu. */}
         <div className="rounded-lg border border-[var(--app-text-4)] bg-[var(--app-surface-hover)] p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="flex items-center gap-2 text-[13px] font-semibold text-[var(--app-text)]">
@@ -166,26 +155,21 @@ function NewToCrypto({ label }: { label: string }) {
                 bez peňaženky aj bez účtu
               </span>
             </p>
-            <a
-              href={CARD_ONRAMP_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="app-btn app-btn-secondary h-8 shrink-0 px-3 text-[12px]"
-            >
+            <a href={CARD_ONRAMP_URL} target="_blank" rel="noopener noreferrer" className="app-btn app-btn-secondary h-8 shrink-0 px-3 text-[12px]">
               Otvoriť Guardarian
               <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
             </a>
           </div>
           <p className="mt-1.5 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-            Guardarian nepotrebuje registráciu — len rýchle overenie totožnosti (zákonná
-            povinnosť u každého). Krypto pošle rovno na tvoju adresu u nás.
+            Bez registrácie — len rýchle overenie totožnosti (zákonná povinnosť u každého).
+            Krypto pošle rovno na tvoju adresu u nás.
           </p>
           <ol className="mt-3 space-y-2">
             {[
-              `Nižšie vyber menu (${label}) a klikni „Show my address“ — dostaneš svoju stálu adresu.`,
+              `Nižšie vyber ${label} a klikni „Zobraziť adresu“ — dostaneš svoju stálu adresu.`,
               "Otvor Guardarian a tú adresu vlož ako príjemcu (recipient wallet address).",
-              "Vyber tú istú menu, zadaj sumu a zaplať kartou cez bankovú appku. Over totožnosť.",
-              "Krypto dorazí za pár minút rovno k nám a coiny sa pripíšu samy.",
+              "Vyber tú istú menu, zadaj sumu a zaplať kartou. Over totožnosť.",
+              "Krypto dorazí za pár minút a coiny sa pripíšu samy.",
             ].map((text, index) => (
               <li key={index} className="flex items-start gap-2.5">
                 <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[var(--app-border-strong)] text-[10px] font-semibold text-[var(--app-text-2)]">
@@ -197,11 +181,8 @@ function NewToCrypto({ label }: { label: string }) {
           </ol>
         </div>
 
-        {/* Alternatíva — kto už krypto niekde má, pošle ho z vlastnej peňaženky. */}
         <div>
-          <p className="mb-2.5 text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
-            Alebo ak už krypto niekde máš
-          </p>
+          <p className="mb-2.5 text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">Alebo ak už krypto niekde máš</p>
           <div className="grid gap-2.5 sm:grid-cols-3">
             {wallets.map((wallet) => (
               <div key={wallet.name} className="rounded-lg border border-[var(--app-border)] p-3">
@@ -214,46 +195,30 @@ function NewToCrypto({ label }: { label: string }) {
               </div>
             ))}
           </div>
-          <ol className="mt-3 space-y-2">
-            {[
-              { Icon: ScanLine, text: "V peňaženke daj Send / Poslať a naskenuj QR kód — alebo skopíruj adresu tlačidlom Copy." },
-              { Icon: Wallet, text: `Vyber ${label} a správnu sieť (píše sa hneď pri adrese). Sieť musí sedieť, inak sa platba stratí.` },
-              { Icon: Send, text: "Zadaj sumu a odošli. Coiny sa pripíšu samy, zvyčajne do pár minút — stránku môžeš zavrieť." },
-            ].map(({ Icon, text }, index) => (
-              <li key={index} className="flex items-start gap-2.5">
-                <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[var(--app-border-strong)] text-[10px] font-semibold text-[var(--app-text-2)]">
-                  {index + 1}
-                </span>
-                <span className="flex items-center gap-2 text-[12.5px] leading-relaxed text-[var(--app-text-2)]">
-                  <Icon className="hidden h-3.5 w-3.5 shrink-0 text-[var(--app-text-4)] sm:inline" strokeWidth={1.75} aria-hidden />
-                  {text}
-                </span>
-              </li>
-            ))}
-          </ol>
         </div>
-
-        <p className="rounded-md border border-[var(--app-border)] px-3 py-2 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-          Bez obáv: adresa je len tvoja a nikdy nevyprší. Keď sa pomýliš v sume, nič sa nedeje —
-          coiny sa počítajú presne z toho, čo naozaj dorazí.
-        </p>
       </div>
     </details>
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Panel                                                                      */
+/* -------------------------------------------------------------------------- */
+
 export function BillingPanel({
   currencies,
+  rates,
   available,
   supportEmail,
 }: {
   currencies: CurrencyOption[];
+  rates: CryptoRates;
   available: boolean;
   supportEmail: string;
 }) {
   const router = useRouter();
   const [amount, setAmount] = useState("50");
-  const [currency, setCurrency] = useState(currencies[0]?.cid ?? "BTC");
+  const [currency, setCurrency] = useState(currencies[0]?.cid ?? "USDT_TRX");
   const [address, setAddress] = useState<PermanentAddress | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -265,10 +230,12 @@ export function BillingPanel({
     () => currencies.find((item) => item.cid === currency),
     [currencies, currency],
   );
+  const meta = cryptoMeta(currency);
   const usd = Math.round((Number.parseFloat(amount) || 0) * 100) / 100;
   const amountValid = usd >= CUSTOM_MIN_USD && usd <= CUSTOM_MAX_USD;
   const expectedCoins = amountValid ? customCoinsForUsd(usd) : 0;
   const bonusPct = amountValid ? customBonusPct(usd) : 0;
+  const sendAmount = amountValid ? cryptoAmountForUsd(currency, usd, rates[currency]) : null;
 
   const selectCurrency = useCallback((next: string) => {
     setCurrency(next);
@@ -292,12 +259,12 @@ export function BillingPanel({
       });
       const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
       if (!response.ok) {
-        setError(String(data.error ?? "Could not load your permanent deposit address."));
+        setError(String(data.error ?? "Adresu sa nepodarilo načítať."));
         return;
       }
       setAddress(data as unknown as PermanentAddress);
     } catch {
-      setError("Could not load the address. Check your connection and try again.");
+      setError("Adresu sa nepodarilo načítať. Skontroluj pripojenie a skús znova.");
     } finally {
       setLoading(false);
     }
@@ -308,18 +275,10 @@ export function BillingPanel({
     let stopped = false;
     const tick = async () => {
       try {
-        const query = new URLSearchParams({
-          after: watchAfter.current,
-          currency: address.payCurrency,
-        });
-        const response = await fetch(`/api/payments/topup?${query.toString()}`, {
-          cache: "no-store",
-        });
+        const query = new URLSearchParams({ after: watchAfter.current, currency: address.payCurrency });
+        const response = await fetch(`/api/payments/topup?${query.toString()}`, { cache: "no-store" });
         if (!response.ok) return;
-        const data = (await response.json()) as {
-          credited?: boolean;
-          deposit?: CreditedDeposit | null;
-        };
+        const data = (await response.json()) as { credited?: boolean; deposit?: CreditedDeposit | null };
         if (!stopped && data.credited && data.deposit) setCredited(data.deposit);
       } catch {
         // A later tick or the five-minute reconciler will catch up.
@@ -349,39 +308,34 @@ export function BillingPanel({
     return (
       <div className="p-5">
         <Callout tone="neutral" icon={<Mail className="h-4 w-4" strokeWidth={1.75} />}>
-          Crypto deposits are temporarily unavailable. Email us at{" "}
-          <a className="underline" href={`mailto:${supportEmail}`}>
-            {supportEmail}
-          </a>{" "}
-          and we will help you.
+          Krypto vklady sú dočasne nedostupné. Napíš nám na{" "}
+          <a className="underline" href={`mailto:${supportEmail}`}>{supportEmail}</a> a pomôžeme ti.
         </Callout>
       </div>
     );
   }
 
   return (
-    <div className="p-5">
-      {/* Sprievodca pre nováčika — hore, aby ho videl skôr než začne. */}
-      <div className="mb-4">
-        <NewToCrypto label={selectedCurrency?.label ?? currency} />
-      </div>
+    <div className="space-y-5 p-5">
+      <NewToCrypto label={selectedCurrency?.label ?? currency} />
 
-      {/* Krok 1 + 2 — dve rovnako široké polovice, rovnaká výška radu. */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="flex flex-col rounded-lg border border-[var(--app-border)] p-4">
-          <div className="flex items-center justify-between gap-4">
-            <StepLabel n={1}>Amount you plan to send</StepLabel>
-            {bonusPct > 0 && (
-              <span className="rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[10.5px] font-semibold text-[var(--app-text-2)]">
-                +{bonusPct}% coins
-              </span>
-            )}
-          </div>
-          <div className="mt-3 flex items-center gap-2">
-            <span className="text-[20px] text-[var(--app-text-3)]">$</span>
+      {/* --- Suma ------------------------------------------------------------- */}
+      <div>
+        <div className="mb-2.5 flex items-center justify-between">
+          <span className="text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
+            Koľko chceš dobiť
+          </span>
+          {bonusPct > 0 && (
+            <span className="rounded-full border border-[var(--app-border-strong)] px-2 py-0.5 text-[10.5px] font-semibold text-[var(--app-text-2)]">
+              +{bonusPct}% coinov navyše
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex h-12 flex-1 items-center rounded-lg border border-[var(--app-border)] px-3.5 transition-colors focus-within:border-[var(--app-border-strong)]">
+            <span className="text-[19px] text-[var(--app-text-3)]">$</span>
             <input
-              id="deposit-usd"
-              aria-label="Amount in USD"
+              aria-label="Suma v USD"
               type="number"
               inputMode="decimal"
               min={CUSTOM_MIN_USD}
@@ -389,125 +343,129 @@ export function BillingPanel({
               step="0.01"
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
-              className="h-11 min-w-0 flex-1 rounded-md border border-[var(--app-border)] bg-transparent px-3 text-[18px] font-semibold tabular-nums text-[var(--app-text)] outline-none transition-colors focus:border-[var(--app-border-strong)]"
+              className="h-full min-w-0 flex-1 bg-transparent px-2 text-[19px] font-semibold tabular-nums text-[var(--app-text)] outline-none"
             />
           </div>
-          <p className="mt-3 text-[13px] text-[var(--app-text-2)]" aria-live="polite">
-            {amountValid ? (
-              <>
-                Estimated credit:{" "}
-                <strong className="tabular-nums text-[var(--app-text)]">
-                  {expectedCoins.toLocaleString("en-US")} Pipe Coins
-                </strong>
-              </>
-            ) : (
-              `Enter $${CUSTOM_MIN_USD}–$${CUSTOM_MAX_USD.toLocaleString("en-US")}`
-            )}
-          </p>
-          <p className="mt-auto pt-2 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-            +10% from $100 and +20% from $250. The final credit uses the net USD value that
-            actually reaches the address after provider and network fees.
-          </p>
-        </div>
-
-        <div className="flex flex-col rounded-lg border border-[var(--app-border)] p-4">
-          <StepLabel n={2}>Deposit currency</StepLabel>
-          <div
-            className="mt-3 grid grid-cols-4 gap-2"
-            role="radiogroup"
-            aria-label="Cryptocurrency"
-          >
-            {currencies.map((item) => {
-              const active = item.cid === currency;
-              return (
-                <button
-                  key={item.cid}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  onClick={() => selectCurrency(item.cid)}
-                  className={cn(
-                    "app-tap w-full rounded-md border px-2 py-2 text-center text-[12.5px] transition-colors",
-                    active
-                      ? "border-[var(--app-text-4)] bg-[var(--app-surface-hover)] text-[var(--app-text)]"
-                      : "border-[var(--app-border)] text-[var(--app-text-2)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]",
-                  )}
-                >
-                  {item.label}
-                </button>
-              );
-            })}
+          <div className="flex items-center gap-1.5">
+            {QUICK_AMOUNTS.map((value) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setAmount(String(value))}
+                className={cn(
+                  "app-tap h-12 rounded-lg border px-3.5 text-[13px] font-medium tabular-nums transition-colors",
+                  usd === value
+                    ? "border-[var(--app-text-4)] bg-[var(--app-surface-hover)] text-[var(--app-text)]"
+                    : "border-[var(--app-border)] text-[var(--app-text-2)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]",
+                )}
+              >
+                ${value}
+              </button>
+            ))}
           </div>
-          {selectedCurrency && (
-            <p className="mt-auto pt-3 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-              Network: <strong className="text-[var(--app-text-3)]">{selectedCurrency.network}</strong>.
-              Send only {selectedCurrency.label} on this exact network.
-            </p>
-          )}
+        </div>
+        {!amountValid && (
+          <p className="mt-2 text-[12px] text-[var(--app-text-4)]">
+            Zadaj sumu ${CUSTOM_MIN_USD}–${CUSTOM_MAX_USD.toLocaleString("en-US")}.
+          </p>
+        )}
+      </div>
+
+      {/* --- Mena ------------------------------------------------------------- */}
+      <div>
+        <span className="mb-2.5 block text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
+          Čím zaplatíš
+        </span>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Kryptomena">
+          {currencies.map((item) => {
+            const active = item.cid === currency;
+            const badge = cryptoMeta(item.cid);
+            return (
+              <button
+                key={item.cid}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => selectCurrency(item.cid)}
+                style={active ? { borderColor: badge.color } : undefined}
+                className={cn(
+                  "app-tap flex items-center gap-2.5 rounded-lg border p-2.5 text-left transition-all",
+                  active
+                    ? "bg-[var(--app-surface-hover)]"
+                    : "border-[var(--app-border)] hover:border-[var(--app-border-strong)]",
+                )}
+              >
+                <CoinBadge cid={item.cid} />
+                <span className="min-w-0">
+                  <span className="block truncate text-[13px] font-medium text-[var(--app-text)]">
+                    {item.label}
+                  </span>
+                  <span className="block truncate text-[10.5px] text-[var(--app-text-4)]">
+                    {item.network}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {error && (
-        <div className="mt-4">
-          <Callout tone="danger" icon={<TriangleAlert className="h-4 w-4" strokeWidth={1.75} />}>
-            {error}
-          </Callout>
-        </div>
+        <Callout tone="danger" icon={<TriangleAlert className="h-4 w-4" strokeWidth={1.75} />}>
+          {error}
+        </Callout>
       )}
 
+      {/* --- CTA / platba ----------------------------------------------------- */}
       {!address ? (
-        <div className="mt-5 flex flex-col items-start gap-2.5">
-          <button
-            type="button"
-            onClick={loadAddress}
-            disabled={loading || !amountValid}
-            className={cn(
-              "app-btn app-btn-primary h-11 w-full px-5 sm:w-auto",
-              (loading || !amountValid) && "opacity-70",
-            )}
-          >
-            {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} aria-hidden />}
-            Show my permanent {selectedCurrency?.label ?? currency} address
-          </button>
-          <p className="text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-            It is created once for your account and never expires. You can reuse it for every
-            future top-up.
-          </p>
-        </div>
+        <button
+          type="button"
+          onClick={loadAddress}
+          disabled={loading || !amountValid}
+          className={cn("app-btn app-btn-primary h-12 w-full px-5 text-[14px]", (loading || !amountValid) && "opacity-60")}
+        >
+          {loading ? (
+            <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} aria-hidden />
+          ) : (
+            <CoinBadge cid={currency} size={22} />
+          )}
+          Zaplatiť {selectedCurrency?.label ?? currency}
+          {sendAmount && <span className="opacity-70">· pošleš ≈ {sendAmount}</span>}
+        </button>
       ) : (
-        <div className="mt-5 border-t border-[var(--app-border)] pt-5">
-          {/* Krok 3 — hlavička sekcie s adresou. */}
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2.5">
-              <StepLabel n={3}>
-                Send to your permanent {selectedCurrency?.label ?? address.payCurrency} address
-              </StepLabel>
-              <span className="inline-flex items-center gap-1 rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[10.5px] text-[var(--app-text-3)]">
-                <InfinityIcon className="h-3 w-3" strokeWidth={1.75} aria-hidden />
-                No expiry
+        <div className="billing-reveal rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-hover)]/30">
+          {/* Hlavička s mincou a možnosťou zmeny */}
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--app-border)] px-4 py-3">
+            <span className="flex items-center gap-2.5">
+              <CoinBadge cid={address.payCurrency} size={26} />
+              <span>
+                <span className="block text-[13px] font-semibold text-[var(--app-text)]">
+                  Pošli {selectedCurrency?.label ?? address.payCurrency}
+                </span>
+                <span className="block text-[10.5px] text-[var(--app-text-4)]">
+                  Sieť {selectedCurrency?.network ?? address.payCurrency} · adresa nikdy nevyprší
+                </span>
               </span>
-            </div>
+            </span>
             <button
               type="button"
               onClick={() => setAddress(null)}
               className="app-tap text-[12px] text-[var(--app-text-3)] underline underline-offset-4 hover:text-[var(--app-text)]"
             >
-              Choose another currency
+              Zmeniť
             </button>
           </div>
 
-          {/* QR vľavo v pevnom stĺpci, údaje vpravo — pod tým už len bloky na
-              plnú šírku, aby sa pri žiadnej šírke nič nelámalo pod QR. */}
-          <div className="mt-4 grid gap-5 md:grid-cols-[216px_minmax(0,1fr)]">
-            <div className="mx-auto w-[216px]">
-              {/* Data URI is generated on our server; the address is not sent to a public QR API. */}
+          <div className="grid gap-5 p-4 md:grid-cols-[200px_minmax(0,1fr)]">
+            {/* QR */}
+            <div className="mx-auto w-[200px]">
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={address.qrCode}
-                alt={`QR code for the permanent ${address.payCurrency} deposit address`}
-                width={216}
-                height={216}
-                className="w-full rounded-lg border border-[var(--app-border)] bg-white p-2"
+                alt={`QR pre ${address.payCurrency} adresu`}
+                width={200}
+                height={200}
+                className="w-full rounded-xl border border-[var(--app-border)] bg-white p-2"
               />
               <p className="mt-2 flex items-center justify-center gap-1.5 text-center text-[11px] text-[var(--app-text-4)]">
                 <ScanLine className="h-3 w-3" strokeWidth={1.75} aria-hidden />
@@ -515,94 +473,68 @@ export function BillingPanel({
               </p>
             </div>
 
-            <div className="flex min-w-0 flex-col gap-4">
-              <div className="rounded-lg border border-[var(--app-border)] p-4">
-                <p className="text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
-                  Address · {selectedCurrency?.network ?? address.payCurrency}
+            {/* Suma na poslanie = hrdina + adresa */}
+            <div className="flex min-w-0 flex-col gap-3">
+              <div
+                className="rounded-lg border p-4"
+                style={{ borderColor: `${meta.color}55`, background: `${meta.color}0f` }}
+              >
+                <p className="text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
+                  Pošli približne
                 </p>
-                <div className="mt-2.5 flex flex-wrap items-start gap-2.5">
-                  <p className="min-w-0 flex-1 break-all font-mono text-[13px] leading-relaxed text-[var(--app-text)]">
-                    {address.payAddress}
-                  </p>
-                  <CopyButton value={address.payAddress} label="Copy the permanent deposit address" />
-                </div>
+                <p className="mt-1 flex items-baseline gap-2">
+                  <span className="text-[26px] font-bold leading-none tabular-nums text-[var(--app-text)]">
+                    {sendAmount ?? "—"}
+                  </span>
+                  <span className="text-[15px] font-semibold" style={{ color: meta.color }}>
+                    {meta.ticker}
+                  </span>
+                </p>
+                <p className="mt-1.5 text-[11.5px] text-[var(--app-text-3)]">
+                  za ${usd} · dostaneš{" "}
+                  <strong className="text-[var(--app-text)]">{expectedCoins.toLocaleString("en-US")}</strong> coinov
+                  {bonusPct > 0 ? ` (+${bonusPct}%)` : ""}
+                </p>
               </div>
 
-              <div className="grid flex-1 gap-4 sm:grid-cols-2">
-                <div className="flex flex-col justify-center rounded-lg border border-[var(--app-border)] px-4 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
-                    Planned amount
+              <div className="rounded-lg border border-[var(--app-border)] p-3">
+                <p className="text-[10.5px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">Adresa</p>
+                <div className="mt-1.5 flex items-start gap-2">
+                  <p className="min-w-0 flex-1 break-all font-mono text-[12.5px] leading-relaxed text-[var(--app-text)]">
+                    {address.payAddress}
                   </p>
-                  <p className="mt-1.5 text-[20px] font-semibold leading-none tabular-nums text-[var(--app-text)]">
-                    {amountValid ? `$${usd}` : "—"}
-                  </p>
-                </div>
-                <div className="flex flex-col justify-center rounded-lg border border-[var(--app-border)] px-4 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
-                    Estimated credit{bonusPct > 0 ? ` · +${bonusPct}%` : ""}
-                  </p>
-                  <p className="mt-1.5 text-[20px] font-semibold leading-none tabular-nums text-[var(--app-text)]">
-                    {amountValid ? expectedCoins.toLocaleString("en-US") : "—"}
-                    <span className="ml-1.5 text-[12px] font-normal text-[var(--app-text-3)]">
-                      coins
-                    </span>
-                  </p>
+                  <CopyButton value={address.payAddress} label="Kopírovať adresu" />
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="mt-4">
+          {/* Stav + drobný návod */}
+          <div className="space-y-3 border-t border-[var(--app-border)] px-4 py-3.5">
             {credited ? (
               <Callout tone="success" icon={<CircleCheck className="h-4 w-4" strokeWidth={1.75} />}>
-                <strong>Deposit confirmed.</strong>{" "}
-                {Number(credited.coins).toLocaleString("en-US")} Pipe Coins were added from a net
-                value of ${Number(credited.source_usd).toFixed(2)}
-                {Number(credited.bonus_pct) > 0
-                  ? `, including the +${Number(credited.bonus_pct)}% bonus.`
-                  : "."}{" "}
-                <button type="button" onClick={watchForAnother} className="underline">
-                  Watch for another deposit
-                </button>
+                <strong>Platba prijatá.</strong> Pripísali sme{" "}
+                {Number(credited.coins).toLocaleString("en-US")} Pipe Coinov z ${Number(credited.source_usd).toFixed(2)}
+                {Number(credited.bonus_pct) > 0 ? ` (+${Number(credited.bonus_pct)}%).` : "."}{" "}
+                <button type="button" onClick={watchForAnother} className="underline">Sledovať ďalšiu platbu</button>
               </Callout>
             ) : (
-              <Callout tone="neutral" icon={<Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />}>
-                Watching for a confirmed deposit. You may close this page — webhook and the
-                automatic reconciler credit it even when you are offline.
-              </Callout>
+              <p className="flex items-center gap-2 text-[12.5px] text-[var(--app-text-3)]">
+                <Loader2 className="h-4 w-4 shrink-0 animate-spin" strokeWidth={1.75} aria-hidden />
+                Čakám na platbu. Coiny sa pripíšu samy — stránku môžeš zavrieť.
+              </p>
             )}
-          </div>
-
-          <div className="mt-4 rounded-lg border border-[var(--app-border)] p-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="flex items-center gap-2 text-[13px] font-medium text-[var(--app-text)]">
-                  <CreditCard className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-                  Nemáš žiadne krypto? Kúp ho kartou
-                </p>
-                <p className="mt-1 max-w-xl text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-                  Otvor Guardarian, vyber {address.payCurrency}, zadaj asi ${amountValid ? usd : 50} a
-                  vlož adresu vyššie ako príjemcu. Dostupnosť karty, limity, poplatky a overenie
-                  totožnosti závisia od providera a tvojej krajiny.
-                </p>
-              </div>
-              <a
-                href={CARD_ONRAMP_URL}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="app-btn app-btn-secondary h-9 shrink-0 px-3"
-              >
-                Buy with card
-                <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-[var(--app-text-4)]">
+              <span className="flex items-center gap-1.5">
+                <TriangleAlert className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+                Pošli len {meta.ticker} na sieti {selectedCurrency?.network}.
+              </span>
+              <a href={CARD_ONRAMP_URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 underline hover:text-[var(--app-text-2)]">
+                Nemáš krypto? Kúp kartou
+                <ExternalLink className="h-3 w-3" strokeWidth={1.75} aria-hidden />
               </a>
             </div>
           </div>
-
-          <p className="mt-4 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-            Never send another asset or use another network. A card on-ramp may deliver slightly
-            less crypto than its fiat amount because of fees; Pipe Coins are always calculated
-            from the net USD value confirmed by Plisio, so the balance stays exact.
-          </p>
         </div>
       )}
     </div>
