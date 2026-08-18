@@ -1,10 +1,16 @@
 import type { Metadata } from "next";
-import { Coins, ShieldCheck } from "lucide-react";
+import { BadgeCheck, Coins, MessageSquareText, Percent, QrCode, Send } from "lucide-react";
 
 import { BillingPanel, type CurrencyOption } from "@/components/app/billing-panel";
 import { RelativeTime } from "@/components/app/relative-time";
-import { Card, CardHeader, PageHeader, TableWrap, Th } from "@/components/app/ui";
-import { COIN_NAME_PLURAL, coins } from "@/lib/coins";
+import { Card, CardHeader, PageHeader, StatTile, TableWrap, Th } from "@/components/app/ui";
+import {
+  COINS_PER_REPLY,
+  COIN_NAME_PLURAL,
+  coins,
+  estimatedReplies,
+  toCoins,
+} from "@/lib/coins";
 import { getAccount, requireUser } from "@/lib/models";
 import { PAY_CURRENCIES, plisioEnabled } from "@/lib/plisio";
 import { createClient } from "@/lib/supabase/server";
@@ -49,12 +55,40 @@ function statusLabel(row: HistoryRow): { text: string; tone: "ok" | "wait" | "ba
   }
 }
 
+/** Jeden krok v páse „How it works" — symetrická tretina karty. */
+function Step({
+  icon,
+  n,
+  title,
+  children,
+}: {
+  icon: React.ReactNode;
+  n: number;
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="p-5">
+      <div className="flex items-center gap-2.5">
+        <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--app-border)] text-[var(--app-text-3)]">
+          {icon}
+        </span>
+        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--app-text-4)]">
+          Step {n}
+        </p>
+      </div>
+      <h3 className="mt-3 text-[13.5px] font-medium text-[var(--app-text)]">{title}</h3>
+      <p className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--app-text-3)]">{children}</p>
+    </div>
+  );
+}
+
 export default async function BillingPage() {
   await requireUser();
   const account = await getAccount();
 
-  // Both tables are RLS-scoped to the signed-in account. Legacy invoice rows
-  // remain visible for audit even though all new top-ups use permanent pay-ins.
+  // Obe tabuľky sú RLS-scoped na prihlásený účet. Staré faktúrové riadky
+  // ostávajú v histórii kvôli auditu, nové dobitia idú cez permanentné adresy.
   const supabase = await createClient();
   const [{ data: deposits }, { data: legacyPayments }] = await Promise.all([
     supabase
@@ -95,72 +129,73 @@ export default async function BillingPage() {
     .slice(0, 20);
 
   const currencies: CurrencyOption[] = PAY_CURRENCIES.map((c) => ({ ...c }));
+  const balanceCoins = toCoins(account?.credit_balance_usd);
 
   return (
     <>
       <PageHeader
         eyebrow="Workspace"
         title="Billing"
-        description="Top up Pipe Coins with a permanent crypto address. Send whenever you want — no invoices, expiry, subscription, or package lock-in."
+        description="Top up Pipe Coins with crypto. One permanent address per coin — send whenever you want, the balance updates itself."
       />
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
-        <Card>
-          <CardHeader
-            title="Buy Pipe Coins"
-            description="Choose an amount and currency, then reuse the same personal address for every future top-up."
-            icon={<Coins className="h-4 w-4" strokeWidth={1.75} />}
-          />
-          <BillingPanel
-            currencies={currencies}
-            available={plisioEnabled()}
-            supportEmail={SUPPORT_EMAIL}
-          />
-        </Card>
-
-        <div className="space-y-4">
-          <Card>
-            <CardHeader title="Balance" />
-            <div className="p-5">
-              <p className="text-[28px] font-semibold leading-none tracking-[-0.03em] tabular-nums text-[var(--app-text)]">
-                {coins(account?.credit_balance_usd)}
-              </p>
-              <p className="mt-2 text-[12px] text-[var(--app-text-3)]">
-                {COIN_NAME_PLURAL} · they never expire
-              </p>
-            </div>
-          </Card>
-
-          <Card>
-            <CardHeader
-              title="How it works"
-              icon={<ShieldCheck className="h-4 w-4" strokeWidth={1.75} />}
-            />
-            <ol className="space-y-3 p-5 text-[12.5px] leading-relaxed text-[var(--app-text-3)]">
-              <li>
-                <strong className="text-[var(--app-text-2)]">1.</strong> Choose how much you want
-                to add and select the cryptocurrency and network.
-              </li>
-              <li>
-                <strong className="text-[var(--app-text-2)]">2.</strong> Send any amount to your
-                permanent address. It stays the same and never expires.
-              </li>
-              <li>
-                <strong className="text-[var(--app-text-2)]">3.</strong> Wait for network
-                confirmations. The net USD value determines your coins and the larger-deposit
-                bonus. You may close the page; crediting continues automatically.
-              </li>
-              <li className="border-t border-[var(--app-border)] pt-3 text-[var(--app-text-4)]">
-                Sent a payment and don&apos;t see the coins after a few hours? Email{" "}
-                <a className="underline" href={`mailto:${SUPPORT_EMAIL}`}>
-                  {SUPPORT_EMAIL}
-                </a>{" "}
-                — every payment is verifiable on the blockchain, nothing gets lost.
-              </li>
-            </ol>
-          </Card>
-        </div>
+      <div className="grid gap-4 sm:grid-cols-3">
+        <StatTile
+          label="Balance"
+          value={coins(account?.credit_balance_usd)}
+          hint={`${COIN_NAME_PLURAL} · they never expire`}
+          icon={<Coins className="h-3.5 w-3.5" strokeWidth={1.75} />}
+        />
+        <StatTile
+          label="Replies left (estimate)"
+          value={estimatedReplies(balanceCoins).toLocaleString("en-US")}
+          hint={`≈ ${COINS_PER_REPLY} coins per reply, all-in`}
+          icon={<MessageSquareText className="h-3.5 w-3.5" strokeWidth={1.75} />}
+        />
+        <StatTile
+          label="Volume bonus"
+          value="+10% · +20%"
+          hint="from $100 · from $250 per deposit"
+          icon={<Percent className="h-3.5 w-3.5" strokeWidth={1.75} />}
+        />
       </div>
+
+      <Card className="mt-4">
+        <CardHeader
+          title="Buy Pipe Coins"
+          description="Choose an amount and currency, then reuse the same personal address for every future top-up."
+          icon={<Coins className="h-4 w-4" strokeWidth={1.75} />}
+        />
+        <BillingPanel
+          currencies={currencies}
+          available={plisioEnabled()}
+          supportEmail={SUPPORT_EMAIL}
+        />
+      </Card>
+
+      <Card className="mt-4">
+        <div className="grid divide-y divide-[var(--app-border)] md:grid-cols-3 md:divide-x md:divide-y-0">
+          <Step icon={<QrCode className="h-3.5 w-3.5" strokeWidth={1.75} />} n={1} title="Choose amount and coin">
+            Pick how much you want to add and which cryptocurrency you&apos;ll pay with. The
+            estimate updates live, bonus included.
+          </Step>
+          <Step icon={<Send className="h-3.5 w-3.5" strokeWidth={1.75} />} n={2} title="Send to your permanent address">
+            Every account gets its own address per coin. It never expires and never changes —
+            save it and reuse it for every future top-up.
+          </Step>
+          <Step icon={<BadgeCheck className="h-3.5 w-3.5" strokeWidth={1.75} />} n={3} title="Coins land automatically">
+            After network confirmations the net USD value converts to Pipe Coins, bonus applied.
+            You can close the page — crediting continues on its own.
+          </Step>
+        </div>
+        <div className="border-t border-[var(--app-border)] px-5 py-3.5 text-center text-[12px] leading-relaxed text-[var(--app-text-4)]">
+          Sent a payment and don&apos;t see the coins after a few hours? Email{" "}
+          <a className="underline" href={`mailto:${SUPPORT_EMAIL}`}>
+            {SUPPORT_EMAIL}
+          </a>{" "}
+          — every payment is verifiable on the blockchain, nothing gets lost.
+        </div>
+      </Card>
 
       {history.length > 0 && (
         <Card className="mt-4">

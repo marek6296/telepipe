@@ -23,6 +23,13 @@ import {
 } from "@/lib/coins";
 import { cn } from "@/lib/utils";
 
+/**
+ * Nákup Pipe Coinov cez permanentnú Plisio adresu: klient si zvolí sumu
+ * (len odhad kreditu) a mincu, dostane SVOJU stálu adresu a pošle koľko chce.
+ * Kredit počíta server z net USD hodnoty potvrdenej Plisiom — tento komponent
+ * stav LEN zobrazuje, o kredite nikdy nerozhoduje.
+ */
+
 export type CurrencyOption = {
   cid: string;
   label: string;
@@ -77,6 +84,18 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       )}
       {copied ? "Copied" : "Copy"}
     </button>
+  );
+}
+
+/** Číslovaný krokový label — drží obe polovice formulára vizuálne v jednej sade. */
+function StepLabel({ n, children }: { n: number; children: React.ReactNode }) {
+  return (
+    <p className="flex items-center gap-2 text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
+      <span className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border border-[var(--app-border-strong)] text-[10px] font-semibold leading-none text-[var(--app-text-2)]">
+        {n}
+      </span>
+      {children}
+    </p>
   );
 }
 
@@ -199,15 +218,11 @@ export function BillingPanel({
 
   return (
     <div className="p-5">
-      <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(260px,0.8fr)]">
-        <div className="rounded-lg border border-[var(--app-border)] p-4">
+      {/* Krok 1 + 2 — dve rovnako široké polovice, rovnaká výška radu. */}
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="flex flex-col rounded-lg border border-[var(--app-border)] p-4">
           <div className="flex items-center justify-between gap-4">
-            <label
-              htmlFor="deposit-usd"
-              className="text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]"
-            >
-              Amount you plan to send
-            </label>
+            <StepLabel n={1}>Amount you plan to send</StepLabel>
             {bonusPct > 0 && (
               <span className="rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[10.5px] font-semibold text-[var(--app-text-2)]">
                 +{bonusPct}% coins
@@ -218,6 +233,7 @@ export function BillingPanel({
             <span className="text-[20px] text-[var(--app-text-3)]">$</span>
             <input
               id="deposit-usd"
+              aria-label="Amount in USD"
               type="number"
               inputMode="decimal"
               min={CUSTOM_MIN_USD}
@@ -232,7 +248,7 @@ export function BillingPanel({
             {amountValid ? (
               <>
                 Estimated credit:{" "}
-                <strong className="text-[var(--app-text)]">
+                <strong className="tabular-nums text-[var(--app-text)]">
                   {expectedCoins.toLocaleString("en-US")} Pipe Coins
                 </strong>
               </>
@@ -240,17 +256,19 @@ export function BillingPanel({
               `Enter $${CUSTOM_MIN_USD}–$${CUSTOM_MAX_USD.toLocaleString("en-US")}`
             )}
           </p>
-          <p className="mt-1.5 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+          <p className="mt-auto pt-2 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
             +10% from $100 and +20% from $250. The final credit uses the net USD value that
             actually reaches the address after provider and network fees.
           </p>
         </div>
 
-        <div className="rounded-lg border border-[var(--app-border)] p-4">
-          <p className="text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
-            Deposit currency
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2" role="radiogroup" aria-label="Cryptocurrency">
+        <div className="flex flex-col rounded-lg border border-[var(--app-border)] p-4">
+          <StepLabel n={2}>Deposit currency</StepLabel>
+          <div
+            className="mt-3 grid grid-cols-4 gap-2"
+            role="radiogroup"
+            aria-label="Cryptocurrency"
+          >
             {currencies.map((item) => {
               const active = item.cid === currency;
               return (
@@ -261,7 +279,7 @@ export function BillingPanel({
                   aria-checked={active}
                   onClick={() => selectCurrency(item.cid)}
                   className={cn(
-                    "app-tap rounded-md border px-3 py-2 text-[12.5px] transition-colors",
+                    "app-tap w-full rounded-md border px-2 py-2 text-center text-[12.5px] transition-colors",
                     active
                       ? "border-[var(--app-text-4)] bg-[var(--app-surface-hover)] text-[var(--app-text)]"
                       : "border-[var(--app-border)] text-[var(--app-text-2)] hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]",
@@ -273,9 +291,9 @@ export function BillingPanel({
             })}
           </div>
           {selectedCurrency && (
-            <p className="mt-3 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-              Network: {selectedCurrency.network}. Send only {selectedCurrency.label} on this
-              exact network.
+            <p className="mt-auto pt-3 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+              Network: <strong className="text-[var(--app-text-3)]">{selectedCurrency.network}</strong>.
+              Send only {selectedCurrency.label} on this exact network.
             </p>
           )}
         </div>
@@ -290,40 +308,36 @@ export function BillingPanel({
       )}
 
       {!address ? (
-        <>
+        <div className="mt-5 flex flex-col items-start gap-2.5">
           <button
             type="button"
             onClick={loadAddress}
             disabled={loading || !amountValid}
             className={cn(
-              "app-btn app-btn-primary mt-5 h-10 px-5",
+              "app-btn app-btn-primary h-11 w-full px-5 sm:w-auto",
               (loading || !amountValid) && "opacity-70",
             )}
           >
             {loading && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} aria-hidden />}
-            Show my permanent {currency} address
+            Show my permanent {selectedCurrency?.label ?? currency} address
           </button>
-          <p className="mt-2.5 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+          <p className="text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
             It is created once for your account and never expires. You can reuse it for every
             future top-up.
           </p>
-        </>
+        </div>
       ) : (
         <div className="mt-5 border-t border-[var(--app-border)] pt-5">
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-[15px] font-semibold text-[var(--app-text)]">
-                  Your permanent {address.payCurrency} address
-                </h3>
-                <span className="inline-flex items-center gap-1 rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[10.5px] text-[var(--app-text-3)]">
-                  <InfinityIcon className="h-3 w-3" strokeWidth={1.75} aria-hidden />
-                  No expiry
-                </span>
-              </div>
-              <p className="mt-1 text-[11.5px] text-[var(--app-text-4)]">
-                Save it once and send any supported amount whenever you want.
-              </p>
+          {/* Krok 3 — hlavička sekcie s adresou. */}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <StepLabel n={3}>
+                Send to your permanent {selectedCurrency?.label ?? address.payCurrency} address
+              </StepLabel>
+              <span className="inline-flex items-center gap-1 rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[10.5px] text-[var(--app-text-3)]">
+                <InfinityIcon className="h-3 w-3" strokeWidth={1.75} aria-hidden />
+                No expiry
+              </span>
             </div>
             <button
               type="button"
@@ -334,82 +348,108 @@ export function BillingPanel({
             </button>
           </div>
 
-          <div className="grid gap-6 md:grid-cols-[200px_minmax(0,1fr)]">
-            <div className="mx-auto w-[200px]">
+          {/* QR vľavo v pevnom stĺpci, údaje vpravo — pod tým už len bloky na
+              plnú šírku, aby sa pri žiadnej šírke nič nelámalo pod QR. */}
+          <div className="mt-4 grid gap-5 md:grid-cols-[216px_minmax(0,1fr)]">
+            <div className="mx-auto w-[216px]">
               {/* Data URI is generated on our server; the address is not sent to a public QR API. */}
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={address.qrCode}
                 alt={`QR code for the permanent ${address.payCurrency} deposit address`}
-                width={200}
-                height={200}
-                className="rounded-lg border border-[var(--app-border)] bg-white p-2"
+                width={216}
+                height={216}
+                className="w-full rounded-lg border border-[var(--app-border)] bg-white p-2"
               />
               <p className="mt-2 text-center text-[11px] text-[var(--app-text-4)]">
                 QR contains the address only
               </p>
             </div>
 
-            <div className="min-w-0">
-              <p className="text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
-                Address · {selectedCurrency?.network ?? address.payCurrency}
-              </p>
-              <div className="mt-2 flex flex-wrap items-start gap-2.5 rounded-lg border border-[var(--app-border)] p-3">
-                <p className="min-w-0 flex-1 break-all font-mono text-[13px] leading-relaxed text-[var(--app-text)]">
-                  {address.payAddress}
+            <div className="flex min-w-0 flex-col gap-4">
+              <div className="rounded-lg border border-[var(--app-border)] p-4">
+                <p className="text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
+                  Address · {selectedCurrency?.network ?? address.payCurrency}
                 </p>
-                <CopyButton value={address.payAddress} label="Copy the permanent deposit address" />
-              </div>
-
-              <div className="mt-4 rounded-lg border border-[var(--app-border)] p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <p className="flex items-center gap-2 text-[13px] font-medium text-[var(--app-text)]">
-                      <CreditCard className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-                      Don&apos;t have crypto?
-                    </p>
-                    <p className="mt-1 max-w-xl text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-                      Open Guardarian, choose {address.payCurrency}, enter about ${usd}, and paste
-                      the permanent address above. Card availability, limits, fees, and identity
-                      checks depend on the provider and your country.
-                    </p>
-                  </div>
-                  <a
-                    href={CARD_ONRAMP_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="app-btn app-btn-secondary h-9 shrink-0 px-3"
-                  >
-                    Buy with card
-                    <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
-                  </a>
+                <div className="mt-2.5 flex flex-wrap items-start gap-2.5">
+                  <p className="min-w-0 flex-1 break-all font-mono text-[13px] leading-relaxed text-[var(--app-text)]">
+                    {address.payAddress}
+                  </p>
+                  <CopyButton value={address.payAddress} label="Copy the permanent deposit address" />
                 </div>
               </div>
 
-              <div className="mt-4">
-                {credited ? (
-                  <Callout tone="success" icon={<CircleCheck className="h-4 w-4" strokeWidth={1.75} />}>
-                    <strong>Deposit confirmed.</strong>{" "}
-                    {Number(credited.coins).toLocaleString("en-US")} Pipe Coins were added from a
-                    net value of ${Number(credited.source_usd).toFixed(2)}
-                    {Number(credited.bonus_pct) > 0
-                      ? `, including the +${Number(credited.bonus_pct)}% bonus.`
-                      : "."}{" "}
-                    <button type="button" onClick={watchForAnother} className="underline">
-                      Watch for another deposit
-                    </button>
-                  </Callout>
-                ) : (
-                  <Callout tone="neutral" icon={<Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />}>
-                    Watching for a confirmed deposit. You may close this page — webhook and the
-                    automatic reconciler credit it even when you are offline.
-                  </Callout>
-                )}
+              <div className="grid flex-1 gap-4 sm:grid-cols-2">
+                <div className="flex flex-col justify-center rounded-lg border border-[var(--app-border)] px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
+                    Planned amount
+                  </p>
+                  <p className="mt-1.5 text-[20px] font-semibold leading-none tabular-nums text-[var(--app-text)]">
+                    {amountValid ? `$${usd}` : "—"}
+                  </p>
+                </div>
+                <div className="flex flex-col justify-center rounded-lg border border-[var(--app-border)] px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
+                    Estimated credit{bonusPct > 0 ? ` · +${bonusPct}%` : ""}
+                  </p>
+                  <p className="mt-1.5 text-[20px] font-semibold leading-none tabular-nums text-[var(--app-text)]">
+                    {amountValid ? expectedCoins.toLocaleString("en-US") : "—"}
+                    <span className="ml-1.5 text-[12px] font-normal text-[var(--app-text-3)]">
+                      coins
+                    </span>
+                  </p>
+                </div>
               </div>
             </div>
           </div>
 
-          <p className="mt-5 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+          <div className="mt-4">
+            {credited ? (
+              <Callout tone="success" icon={<CircleCheck className="h-4 w-4" strokeWidth={1.75} />}>
+                <strong>Deposit confirmed.</strong>{" "}
+                {Number(credited.coins).toLocaleString("en-US")} Pipe Coins were added from a net
+                value of ${Number(credited.source_usd).toFixed(2)}
+                {Number(credited.bonus_pct) > 0
+                  ? `, including the +${Number(credited.bonus_pct)}% bonus.`
+                  : "."}{" "}
+                <button type="button" onClick={watchForAnother} className="underline">
+                  Watch for another deposit
+                </button>
+              </Callout>
+            ) : (
+              <Callout tone="neutral" icon={<Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />}>
+                Watching for a confirmed deposit. You may close this page — webhook and the
+                automatic reconciler credit it even when you are offline.
+              </Callout>
+            )}
+          </div>
+
+          <div className="mt-4 rounded-lg border border-[var(--app-border)] p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 text-[13px] font-medium text-[var(--app-text)]">
+                  <CreditCard className="h-4 w-4" strokeWidth={1.75} aria-hidden />
+                  Don&apos;t have crypto?
+                </p>
+                <p className="mt-1 max-w-xl text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+                  Open Guardarian, choose {address.payCurrency}, enter about ${amountValid ? usd : 50},
+                  and paste the permanent address above. Card availability, limits, fees, and
+                  identity checks depend on the provider and your country.
+                </p>
+              </div>
+              <a
+                href={CARD_ONRAMP_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="app-btn app-btn-secondary h-9 shrink-0 px-3"
+              >
+                Buy with card
+                <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
+              </a>
+            </div>
+          </div>
+
+          <p className="mt-4 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
             Never send another asset or use another network. A card on-ramp may deliver slightly
             less crypto than its fiat amount because of fees; Pipe Coins are always calculated
             from the net USD value confirmed by Plisio, so the balance stays exact.
