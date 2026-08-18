@@ -49,7 +49,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from crypto import decrypt, encrypt
-from db import AccountKeyCache, unseal_eleven_key
+from db import AccountKeyCache, ScheduleCache, unseal_eleven_key
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +86,7 @@ class TenantFanvueDb:
         # Vlastná cache (nie zdieľaná s `TenantDb`): jeden dotaz za päť minút
         # navyše je lacnejší než previazať dve vrstvy, ktoré sa dnes nepoznajú.
         self._account_key = AccountKeyCache(transport, account_id)
+        self._schedule = ScheduleCache(transport, model_id)
 
     @property
     def _mine(self) -> str:
@@ -202,6 +203,14 @@ class TenantFanvueDb:
         return unseal_eleven_key(
             rows[0], self._key, self.model_id, await self._account_key.sealed()
         )
+
+    async def schedule(self) -> Dict[str, Any]:
+        """Nastavený deň (migrácia 022). `{}` = platí šablóna z `den`.
+
+        Ten istý dôvod ako pri zóne vyššie: kde práve je, je vlastnosť tej
+        osoby, nie platformy. Keď je na fotení, nedvíha to ani na Fanvue.
+        """
+        return await self._schedule.row()
 
     async def linked_tg_ids(self) -> set:
         """Telegram id, ktoré už patria nejakému fanúšikovi. Jeden človek

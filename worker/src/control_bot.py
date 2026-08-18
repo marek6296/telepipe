@@ -737,8 +737,17 @@ class ControlBot:
 
         behavior = bhv.Behavior.from_row(await self._db.get_behavior())
         teraz = datetime.now(ZoneInfo(behavior.active_tz))
-        blok = den_mod.block_at(teraz, self._cfg.supabase_schema)
-        riadky = den_mod.summary(teraz.date(), self._cfg.supabase_schema)
+        # Rozvrh si klient nastavuje v dashboarde (migrácia 022); keď ho nemá
+        # alebo sa nedá načítať, platí napísaná šablóna a výpis vyzerá ako
+        # doteraz. Starý `FakeDb` v testoch metódu `get_schedule` nemá — to je
+        # legitímne „bez rozvrhu", nie chyba.
+        rozvrh = None
+        try:
+            rozvrh = den_mod.Rozvrh.from_row(await self._db.get_schedule())
+        except Exception:  # noqa: BLE001 - výpis dňa nesmie padnúť na rozvrhu
+            pass
+        blok = den_mod.block_at(teraz, self._cfg.supabase_schema, rozvrh)
+        riadky = den_mod.summary(teraz.date(), self._cfg.supabase_schema, rozvrh)
         text = (
             f"*Dnešok* — {teraz.strftime('%A %d.%m.')} u nej {teraz.strftime('%H:%M')}\n\n"
             + "\n".join(f"`{r}`" for r in riadky)

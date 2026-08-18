@@ -58,6 +58,7 @@ LOOPS = "/open_loops"
 CLAIMS = "/self_claims"
 JUDGE_LOG = "/judge_log"
 BEHAVIOR = "/behavior"
+SCHEDULE = "/model_schedule"
 VOICE_CLIPS = "/voice_clips"
 VOICE_JOBS = "/voice_jobs"
 ACCOUNTS = "/accounts"
@@ -66,6 +67,13 @@ ACCOUNTS = "/accounts"
 # to pôsobí okamžite (kým si človek otvorí kartu hlasu a klikne, je to vonku),
 # a pri stovke tenantov je to dvadsať dotazov za hodinu, nie na každú správu.
 ACCOUNT_KEY_TTL_S = 300.0
+
+# Ako dlho platí raz načítaný rozvrh dňa (migrácia 022). Rovnaká úvaha ako pri
+# kľúči účtu: číta sa pri KAŽDEJ odpovedi, ale mení sa vtedy, keď si klient
+# otvorí kartu a niečo preklikne. Päť minút znamená, že úprava v dashboarde je
+# vonku skôr, než sa človek stihne prepnúť do Telegramu, a pritom to nie je
+# dotaz navyše ku každej správe.
+SCHEDULE_TTL_S = 300.0
 
 # Vyrobené hlasovky si necháme. Dnes preto, aby si ich majiteľ vedel v dashboarde
 # vypočuť, a raz preto, že z nich bude zásoba, z ktorej sa dá siahnuť po
@@ -188,6 +196,47 @@ class AccountKeyCache:
         return self._sealed
 
 
+class ScheduleCache:
+    """Riadok `model_schedule` jednej modelky — načítaný raz, osviežený po TTL.
+
+    Von ide surový riadok, nie `den.Rozvrh`: prekladá ho až volajúci, rovnako
+    ako `Behavior.from_row` prekladá riadok `behavior`. Vďaka tomu je toto
+    naozaj len cache a `db.py` sa nemusí starať o tvar rozvrhu.
+
+    PRÁZDNY SLOVNÍK ZNAMENÁ NIEČO INÉ NEŽ CHYBA. `{}` je platná odpoveď —
+    „táto modelka rozvrh nemá" — a volajúci na ňu odpovie napísanou šablónou.
+    Výpadok siete preto NESMIE vrátiť `{}`: vtedy platí posledný známy riadok
+    a čas sa neposunie, takže ďalšie volanie to skúsi znova.
+    """
+
+    def __init__(self, transport, model_id: str, ttl_s: float = SCHEDULE_TTL_S) -> None:
+        self._t = transport
+        self.model_id = model_id or ""
+        self._ttl = ttl_s
+        self._row: Dict[str, Any] = {}
+        self._at = 0.0
+
+    async def row(self) -> Dict[str, Any]:
+        if not self.model_id or self._t is None:
+            return {}
+        now = time.monotonic()
+        if self._at and now - self._at < self._ttl:
+            return self._row
+        try:
+            rows = await self._t._get(
+                SCHEDULE, {"model_id": f"eq.{self.model_id}", "select": "*"}
+            )
+        except Exception as exc:  # noqa: BLE001 - výpadok DB nesmie zhodiť odpoveď
+            log.warning(
+                "model %s: rozvrh dňa sa nepodarilo načítať (%s) — platí posledný známy",
+                self.model_id, exc,
+            )
+            return self._row
+        self._row = dict(rows[0]) if rows else {}
+        self._at = now
+        return self._row
+
+
 class TenantDb:
     def __init__(
         self,
@@ -204,6 +253,7 @@ class TenantDb:
         # Prázdne `account_id` = cache mlčí a platí per-model kľúč. Staré
         # volania (testy) tak fungujú presne ako pred 017.
         self._account_key = AccountKeyCache(transport, account_id)
+        self._schedule = ScheduleCache(transport, model_id)
 
     @property
     def _mine(self) -> str:
@@ -259,6 +309,18 @@ class TenantDb:
         await self._patch(
             BEHAVIOR, {"model_id": self._mine}, {field: value, "updated_at": _now_iso()}
         )
+
+    # ---------- rozvrh dňa ----------
+
+    async def get_schedule(self) -> Dict[str, Any]:
+        """Riadok `model_schedule` (migrácia 022). `{}` = modelka rozvrh nemá.
+
+        Prekladá ho `den.Rozvrh.from_row()`; `{}` tam znamená „platí napísaná
+        šablóna", takže modelka bez riadku má presne ten deň, aký mala pred
+        022. Ide z cache — pri každej odpovedi sa tak nepýtame na niečo, čo sa
+        mení raz za týždeň.
+        """
+        return await self._schedule.row()
 
     # ---------- párovanie kontrolného bota ----------
 

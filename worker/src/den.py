@@ -23,16 +23,53 @@ Dve veci, na ktorých to stálo a padalo:
 **Každý deň v týždni musí byť iný.** Keď mal pondelok a streda ten istý tvar
 a líšili sa len o pár minút, po týždni bolo vidieť vzor. Každý deň má preto
 vlastný priebeh, nie variáciu jedného.
+
+ROZVRH JE ODTERAZ DÁTA (migrácia 022)
+-------------------------------------
+Doteraz bol tento deň napísaný v Pythone, takže ho mala každá modelka rovnaký
+a klient si ho nemal kde nastaviť. Tvar sa preto rozdelil na dvoje:
+
+  * `Rozvrh` — čo sa dá nastaviť: okná vstávania, zoznam činností (kde, čo
+    robí, ako rýchlo odpisuje, ako dlho to trvá, čo povie po príchode, ktoré
+    dni platí) a nočný blok;
+  * `plan()` — losovanie, ktoré z toho vyrobí konkrétny deň. Ostalo presne
+    také, aké bolo.
+
+Pôvodný deň nikam nezmizol: `_rano/_recept/_noc` sú stále tu a `SABLONA` je
+z nich zložená pri importe. `plan()` beží VŽDY cez `Rozvrh` — bez konfigurácie
+cez `SABLONA`, s konfiguráciou cez tú z databázy. Jedna cesta, nie dve, takže
+modelka bez nastaveného rozvrhu nemá ako dostať iný deň než doteraz; test
+`test_den.py::TestSablona` to drží na uzde deň po dni.
+
+Poradie v `Rozvrh.cinnosti` je poradie dňa. Činnosť, ktorá na dnešný deň
+nesedí (`dni`), sa preskočí SKÔR, než sa naň minie kocka — inak by sa posunul
+celý zvyšok losovania a deň by vyšiel inak.
 """
 from __future__ import annotations
 
 import random
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
-from typing import List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 # Koniec aktívneho okna v minútach dňa (02:30 nasledujúceho dňa).
 KONIEC_DNA = 26 * 60 + 30
+
+# Miestnosti, ktoré vie hlasovka ozvučiť — kľúče `eleven.AMBIENCES`. Zámerne
+# opísané, nie importované: `den` je čistá logika bez siete a `eleven` ťahá
+# httpx. Že sa tie dva zoznamy nerozídu, stráži test.
+MIESTNOSTI = (
+    "home", "bedroom", "kitchen", "bathroom", "car", "outside", "cafe", "gym", "none",
+)
+
+VSETKY_DNI: Tuple[int, ...] = (0, 1, 2, 3, 4, 5, 6)
+
+# Medze pre hodnoty z databázy. Nastavenie od klienta nesmie modelke vyrobiť
+# blok, ktorý trvá pol sekundy alebo odpovedá za tri dni.
+MIN_TRVANIE = 5
+MAX_TRVANIE = 600
+MIN_ODOZVA = 0.1
+MAX_ODOZVA = 6.0
 
 
 @dataclass(frozen=True)
@@ -50,8 +87,162 @@ class Blok:
         return self.od <= minuta < self.do
 
 
-# Činnosť: (kde, čo robí, násobič odozvy, min trvanie, max trvanie, príchod)
+# Činnosť v pôvodnom (napísanom) tvare:
+# (kde, čo robí, násobič odozvy, min trvanie, max trvanie, príchod)
 _Cinnost = Tuple[str, str, float, int, int, str]
+
+
+def _cele(hodnota: Any, low: int, high: int, inak: int) -> int:
+    try:
+        return max(low, min(high, int(hodnota)))
+    except (TypeError, ValueError):
+        return inak
+
+
+@dataclass(frozen=True)
+class Cinnost:
+    """Jedna položka rozvrhu — to, čo si klient nastavuje.
+
+    `dni` sú dni v týždni, na ktoré sedí (pondelok = 0). Prázdne by znamenalo
+    činnosť, ktorá sa nikdy nestane, preto sa prázdne nikdy neuloží.
+    """
+
+    kde: str
+    co: str
+    odozva: float
+    min_trvanie: int
+    max_trvanie: int
+    prichod: str = ""
+    dni: Tuple[int, ...] = VSETKY_DNI
+
+    @classmethod
+    def from_json(cls, raw: Any) -> Optional["Cinnost"]:
+        """Položka z `model_schedule.activities`. `None` = nepoužiteľná.
+
+        Databáza tvar stráži CHECK-om, ale worker sa naň nespolieha: riadok
+        mohla zapísať staršia verzia webu a jedna pokazená položka nesmie
+        modelke vziať celý deň.
+        """
+        if not isinstance(raw, dict):
+            return None
+        co = str(raw.get("what") or "").strip()
+        if not co:
+            return None
+        kde = str(raw.get("place") or "")
+        if kde not in MIESTNOSTI:
+            kde = "home"
+        try:
+            odozva = max(MIN_ODOZVA, min(MAX_ODOZVA, float(raw.get("pace"))))
+        except (TypeError, ValueError):
+            odozva = 1.0
+        low = _cele(raw.get("min_minutes"), MIN_TRVANIE, MAX_TRVANIE, 30)
+        high = _cele(raw.get("max_minutes"), MIN_TRVANIE, MAX_TRVANIE, 60)
+        if high < low:
+            low, high = high, low
+        dni = tuple(
+            d for d in VSETKY_DNI
+            if d in {_cele(x, 0, 6, -1) for x in (raw.get("days") or ())}
+        )
+        return cls(
+            kde=kde,
+            co=co[:200],
+            odozva=odozva,
+            min_trvanie=low,
+            max_trvanie=high,
+            prichod=str(raw.get("arrival") or "").strip()[:200],
+            dni=dni or VSETKY_DNI,
+        )
+
+    def to_json(self) -> Dict[str, Any]:
+        """Tvar, ktorý sedí do `model_schedule.activities` (a späť)."""
+        return {
+            "place": self.kde,
+            "what": self.co,
+            "pace": self.odozva,
+            "min_minutes": self.min_trvanie,
+            "max_minutes": self.max_trvanie,
+            "arrival": self.prichod,
+            "days": list(self.dni),
+        }
+
+
+@dataclass(frozen=True)
+class Rozvrh:
+    """Celý nastaviteľný deň. Bez neho platí `SABLONA`.
+
+    Okná vstávania sú rozsahy v minútach dňa, nie časy: keby vstávala presne
+    o 11:20, bol by to budík, nie človek.
+    """
+
+    vstavanie_tyzden: Tuple[int, int] = (11 * 60 + 20, 12 * 60 + 45)
+    vstavanie_vikend: Tuple[int, int] = (12 * 60 + 40, 14 * 60 + 20)
+    cinnosti: Tuple[Cinnost, ...] = ()
+    # Posledný blok dňa — dobehne do `KONIEC_DNA`, preto nemá trvanie.
+    noc: Optional[Cinnost] = None
+
+    @classmethod
+    def from_row(cls, row: Optional[Dict[str, Any]]) -> Optional["Rozvrh"]:
+        """Riadok `model_schedule` na rozvrh. `None` = platí `SABLONA`.
+
+        Chýbajúci riadok a rozvrh bez jedinej použiteľnej činnosti sú tá istá
+        odpoveď zámerne: deň bez činností by znamenal modelku, ktorá od
+        prebudenia do druhej v noci leží v posteli a o sebe nemá čo povedať.
+        """
+        if not row:
+            return None
+        cinnosti = tuple(
+            c for c in (Cinnost.from_json(x) for x in (row.get("activities") or ()))
+            if c is not None
+        )
+        if not cinnosti:
+            return None
+        noc = Cinnost.from_json(
+            {
+                "place": row.get("night_place"),
+                "what": row.get("night_what"),
+                "pace": row.get("night_pace"),
+                "arrival": row.get("night_arrival"),
+                # Nočný blok trvanie nemá, dobehne do konca okna.
+                "min_minutes": MIN_TRVANIE,
+                "max_minutes": MIN_TRVANIE,
+            }
+        )
+        return cls(
+            vstavanie_tyzden=_okno(
+                row.get("wake_weekday_start_min"), row.get("wake_weekday_end_min"),
+                SABLONA.vstavanie_tyzden,
+            ),
+            vstavanie_vikend=_okno(
+                row.get("wake_weekend_start_min"), row.get("wake_weekend_end_min"),
+                SABLONA.vstavanie_vikend,
+            ),
+            cinnosti=cinnosti,
+            noc=noc,
+        )
+
+    def to_row(self) -> Dict[str, Any]:
+        """Rozvrh na riadok `model_schedule` — používa ho seedovací skript."""
+        noc = self.noc
+        return {
+            "wake_weekday_start_min": self.vstavanie_tyzden[0],
+            "wake_weekday_end_min": self.vstavanie_tyzden[1],
+            "wake_weekend_start_min": self.vstavanie_vikend[0],
+            "wake_weekend_end_min": self.vstavanie_vikend[1],
+            "night_place": noc.kde if noc else "bedroom",
+            "night_what": noc.co if noc else "",
+            "night_pace": noc.odozva if noc else 1.0,
+            "night_arrival": noc.prichod if noc else "",
+            "activities": [c.to_json() for c in self.cinnosti],
+        }
+
+
+def _okno(low: Any, high: Any, inak: Tuple[int, int]) -> Tuple[int, int]:
+    """Okno vstávania z dvoch stĺpcov. Prehodené hranice sa narovnajú."""
+    if low is None or high is None:
+        return inak
+    a = _cele(low, 0, 24 * 60 - 1, inak[0])
+    b = _cele(high, 0, 24 * 60 - 1, inak[1])
+    return (a, b) if a <= b else (b, a)
 
 
 def _rano(r: random.Random, skoro: bool = True) -> List[_Cinnost]:
@@ -153,33 +344,59 @@ def _recept(dow: int, r: random.Random) -> List[_Cinnost]:
     ]
 
 
-def plan(den: date, seed: str = "") -> Tuple[Blok, ...]:
-    """Rozvrh na jeden deň. Rovnaký dátum a seed dajú vždy rovnaký deň.
+def _sablona() -> Rozvrh:
+    """Napísaný deň (`_rano`/`_recept`/`_noc`) preložený do `Rozvrh`.
+
+    Ranná káva je jedna činnosť na všetky dni, zvyšok je sedem skupín za sebou
+    — pri filtrovaní na jeden deň z toho vyjde presne to poradie, v akom sa
+    deň skladal doteraz.
+    """
+    # `_rano`/`_recept` kocku do ruky neberú (parameter majú kvôli podpisu),
+    # takže na zloženie šablóny stačí ľubovoľný generátor.
+    r = random.Random(0)
+    cinnosti: List[Cinnost] = [Cinnost(*polozka, dni=VSETKY_DNI) for polozka in _rano(r)]
+    for dow in VSETKY_DNI:
+        cinnosti += [Cinnost(*polozka, dni=(dow,)) for polozka in _recept(dow, r)]
+    return Rozvrh(cinnosti=tuple(cinnosti), noc=Cinnost(*_noc(), dni=VSETKY_DNI))
+
+
+SABLONA = _sablona()
+
+
+def plan(
+    den: date, seed: str = "", rozvrh: Optional[Rozvrh] = None
+) -> Tuple[Blok, ...]:
+    """Rozvrh na jeden deň. Rovnaký dátum, seed a rozvrh dajú vždy rovnaký deň.
 
     Trvania sa losujú na minúty, takže žiadna hranica nevyjde okrúhlo —
     fitko od 14:00 do 15:30 je rozvrh z papiera, človek príde 14:03.
+
+    `rozvrh=None` znamená „táto modelka si deň nenastavila" a platí `SABLONA`,
+    teda presne ten deň, ktorý tu bol napísaný predtým.
     """
+    rz = rozvrh or SABLONA
     r = random.Random(f"{seed}:{den.isoformat()}")
     dow = den.weekday()
 
     # Cez víkend vstáva neskôr a nepravidelnejšie.
-    if dow >= 5:
-        kurzor = r.randint(12 * 60 + 40, 14 * 60 + 20)
-    else:
-        kurzor = r.randint(11 * 60 + 20, 12 * 60 + 45)
+    kurzor = r.randint(*(rz.vstavanie_vikend if dow >= 5 else rz.vstavanie_tyzden))
 
     bloky: List[Blok] = []
-    for kde, co, odozva, low, high, prichod in _rano(r) + _recept(dow, r):
-        trvanie = r.randint(low, high)
+    for c in rz.cinnosti:
+        # Preskočiť MUSÍ ísť pred losovaním: keby sa kocka minula aj na deň,
+        # ktorý sa nekoná, posunula by sa celá postupnosť a deň by vyšiel inak.
+        if dow not in c.dni:
+            continue
+        trvanie = r.randint(c.min_trvanie, c.max_trvanie)
         if kurzor + trvanie >= KONIEC_DNA:
             break
-        bloky.append(Blok(kurzor, kurzor + trvanie, kde, co, odozva, prichod))
+        bloky.append(Blok(kurzor, kurzor + trvanie, c.kde, c.co, c.odozva, c.prichod))
         kurzor += trvanie
 
     # Noc v posteli až do konca okna — vtedy je najdostupnejšia.
-    kde, co, odozva, _, _, prichod = _noc()
-    if kurzor < KONIEC_DNA:
-        bloky.append(Blok(kurzor, KONIEC_DNA, kde, co, odozva, prichod))
+    noc = rz.noc
+    if noc and kurzor < KONIEC_DNA:
+        bloky.append(Blok(kurzor, KONIEC_DNA, noc.kde, noc.co, noc.odozva, noc.prichod))
     return tuple(bloky)
 
 
@@ -187,19 +404,24 @@ def _vcera(den: date) -> date:
     return den - timedelta(days=1)
 
 
-def block_at(now_local: datetime, seed: str = "") -> Optional[Blok]:
+def block_at(
+    now_local: datetime, seed: str = "", rozvrh: Optional[Rozvrh] = None
+) -> Optional[Blok]:
     """Kde je práve teraz. None = mimo rozvrhu (spí)."""
     minuta = now_local.hour * 60 + now_local.minute
     # Po polnoci ešte dobieha včerajší večer, preto sa skúša aj +24 h.
     for posun, den in ((0, now_local.date()), (1440, _vcera(now_local.date()))):
-        for blok in plan(den, seed):
+        for blok in plan(den, seed, rozvrh):
             if blok.obsahuje(minuta + posun):
                 return blok
     return None
 
 
 def just_moved(
-    now_local: datetime, seed: str = "", window_min: int = 25
+    now_local: datetime,
+    seed: str = "",
+    window_min: int = 25,
+    rozvrh: Optional[Rozvrh] = None,
 ) -> Optional[Blok]:
     """Práve sa niekam presunula? Vracia blok, do ktorého prišla.
 
@@ -207,7 +429,7 @@ def just_moved(
     spraví. Bez toho by sa miesto zmenilo potichu a pôsobilo by to, akoby
     tam bola celý čas.
     """
-    blok = block_at(now_local, seed)
+    blok = block_at(now_local, seed, rozvrh)
     if not blok or not blok.prichod:
         return None
     minuta = now_local.hour * 60 + now_local.minute
@@ -244,10 +466,15 @@ def busy(blok: Optional[Blok]) -> bool:
     return bool(blok and blok.odozva >= 2.5)
 
 
-def summary(den: date, seed: str = "") -> Sequence[str]:
+def summary(
+    den: date, seed: str = "", rozvrh: Optional[Rozvrh] = None
+) -> Sequence[str]:
     """Ľudský výpis dňa — na kontrolu v botovi a pri ladení."""
     def hhmm(m: int) -> str:
         m %= 1440
         return f"{m // 60:02d}:{m % 60:02d}"
 
-    return [f"{hhmm(b.od)}–{hhmm(b.do)}  {b.co} ({b.kde}, ×{b.odozva})" for b in plan(den, seed)]
+    return [
+        f"{hhmm(b.od)}–{hhmm(b.do)}  {b.co} ({b.kde}, ×{b.odozva})"
+        for b in plan(den, seed, rozvrh)
+    ]

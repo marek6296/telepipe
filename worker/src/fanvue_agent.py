@@ -601,7 +601,18 @@ class FanvueAgent:
             log.info("Mimo času na Fanvue — %s ostáva bez odpovede", fan["uuid"][:8])
             return
 
-        blok = den.block_at(teraz, seed=str(persona.get("name") or "")) if teraz else None
+        # Rozvrh je ten istý ako na Telegrame (jeden človek, jeden deň); seed
+        # ostáva meno, takže Fanvue si losuje vlastnú variantu toho dňa.
+        rozvrh = None
+        try:
+            rozvrh = den.Rozvrh.from_row(await self._db.schedule())
+        except Exception as exc:  # noqa: BLE001 - bez rozvrhu platí šablóna
+            log.warning("Rozvrh dňa sa nenačítal: %s", exc)
+        blok = (
+            den.block_at(teraz, seed=str(persona.get("name") or ""), rozvrh=rozvrh)
+            if teraz
+            else None
+        )
 
         tg = None
         if row.get("tg_id"):

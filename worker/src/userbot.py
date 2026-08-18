@@ -147,6 +147,19 @@ class UserBot:
             log.warning("Nepodarilo sa načítať chovanie, používam defaulty: %s", exc)
             return Behavior()
 
+    async def _rozvrh(self):
+        """Nastavený deň modelky (migrácia 022). `None` = platí šablóna z `den`.
+
+        Fail-safe rovnako ako pri chovaní: keď sa riadok nedá načítať, beží
+        napísaný deň. Modelka, ktorá zrazu nevie, kde je, by bola horšia než
+        modelka s pôvodným rozvrhom.
+        """
+        try:
+            return den.Rozvrh.from_row(await self._db.get_schedule())
+        except Exception as exc:  # noqa: BLE001 - šablóna je bezpečná
+            log.warning("Nepodarilo sa načítať rozvrh dňa, beží šablóna: %s", exc)
+            return None
+
     # ---------- príjem správ ----------
 
     async def _on_message(self, event: events.NewMessage.Event) -> None:
@@ -399,7 +412,8 @@ class UserBot:
         gap = bhv.gap_hours(_parse_ts(user.get("last_reply_at")), datetime.now(timezone.utc))
         # Kde je podľa dnešného rozvrhu. Z toho vyplýva, ako rýchlo odpisuje,
         # odkiaľ znie hlasovka aj čo o sebe smie povedať.
-        dnesny_blok = den.block_at(now_local, self._cfg.supabase_schema)
+        rozvrh = await self._rozvrh()
+        dnesny_blok = den.block_at(now_local, self._cfg.supabase_schema, rozvrh)
         if testing:
             factor, wave = (0.0, "TEST — odpovedá hneď")
         elif behavior.activity_waves:
@@ -719,7 +733,9 @@ class UserBot:
             # kľúč aj hlas nastavené a konverzácia beží po anglicky.
             situation=den.describe(dnesny_blok),
             # Práve sa presunula — človek to povie sám, nečaká na otázku.
-            arrival=den.arrival(den.just_moved(now_local, self._cfg.supabase_schema)),
+            arrival=den.arrival(
+                den.just_moved(now_local, self._cfg.supabase_schema, rozvrh=rozvrh)
+            ),
             # Nepočul hlasovku — zopakuje to textom, nie ďalšou nahrávkou.
             misheard=nerozumel,
             busy=den.busy(dnesny_blok),

@@ -67,6 +67,7 @@ CALLS = {
     "set_persona_field": (("name", "Eva"), {}),
     "get_behavior": ((), {}),
     "set_behavior_field": (("heat", "hot"), {}),
+    "get_schedule": ((), {}),
     "pair_control_bot": (("TP-4F9K2X", 777), {}),
     "is_paused": ((), {}),
     "set_paused": ((True,), {}),
@@ -556,3 +557,91 @@ async def test_upload_voice_path_has_no_model_prefix():
     url = await db.upload_voice("abc/x.ogg", b"zvuk")
     assert seen[-1]["url"].endswith("/storage/v1/object/voices/abc/x.ogg")
     assert url == "https://x.supabase.co/storage/v1/object/public/voices/abc/x.ogg"
+
+
+# ---------------------------------------------------------------------------
+# Rozvrh dňa (migrácia 022)
+#
+# Číta sa pri KAŽDEJ odpovedi, ale mení sa vtedy, keď si klient otvorí kartu.
+# Preto cache — a preto sa výpadok siete nesmie tváriť ako „modelka rozvrh
+# nemá": to by ju uprostred dňa presunulo späť na napísanú šablónu.
+# ---------------------------------------------------------------------------
+
+SCHEDULE_ROW = {
+    "model_id": MODEL,
+    "wake_weekday_start_min": 600,
+    "wake_weekday_end_min": 660,
+    "wake_weekend_start_min": 700,
+    "wake_weekend_end_min": 760,
+    "night_place": "bedroom",
+    "night_what": "leží v posteli",
+    "night_pace": "0.60",
+    "night_arrival": "práve si ľahla",
+    "activities": [
+        {"place": "cafe", "what": "sedí v kaviarni", "pace": 1.1,
+         "min_minutes": 40, "max_minutes": 70, "arrival": "", "days": [0, 1, 2, 3, 4, 5, 6]}
+    ],
+}
+
+
+def _schedule_transport(rows, hits, fail_after=None):
+    """Transport, ktorý na `/model_schedule` vráti `rows` a počíta dotazy."""
+    def handler(req):
+        if "/model_schedule" in str(req.url):
+            hits.append(str(req.url))
+            if fail_after is not None and len(hits) > fail_after:
+                return httpx.Response(500, json={"message": "mimo prevádzky"})
+            return httpx.Response(200, json=rows)
+        return httpx.Response(200, json=[])
+    t = SupabaseTransport("https://x.supabase.co", "sk")
+    t._client = httpx.AsyncClient(transport=httpx.MockTransport(handler),
+                                  base_url="https://x.supabase.co/rest/v1")
+    return t
+
+
+async def test_schedule_is_read_once_per_ttl():
+    hits: list = []
+    db = TenantDb(_schedule_transport([SCHEDULE_ROW], hits), MODEL)
+
+    first = await db.get_schedule()
+    second = await db.get_schedule()
+
+    assert first == second == SCHEDULE_ROW
+    assert len(hits) == 1, "rozvrh sa nemá ťahať pri každej správe"
+    assert f"model_id=eq.{MODEL}" in hits[0]
+
+
+async def test_schedule_missing_row_means_template():
+    hits: list = []
+    db = TenantDb(_schedule_transport([], hits), MODEL)
+    assert await db.get_schedule() == {}
+
+
+async def test_schedule_network_failure_keeps_last_known():
+    """Výpadok DB nesmie modelku uprostred dňa presunúť inam."""
+    from db import ScheduleCache
+
+    hits: list = []
+    cache = ScheduleCache(
+        _schedule_transport([SCHEDULE_ROW], hits, fail_after=1), MODEL, ttl_s=0.0
+    )
+
+    assert await cache.row() == SCHEDULE_ROW
+    assert await cache.row() == SCHEDULE_ROW, "po chybe platí posledný známy rozvrh"
+    assert len(hits) == 2
+
+
+async def test_schedule_row_becomes_a_usable_day():
+    """Riadok z DB musí prejsť cez `den.Rozvrh` až po hotový deň."""
+    import den
+    from datetime import date
+
+    hits: list = []
+    db = TenantDb(_schedule_transport([SCHEDULE_ROW], hits), MODEL)
+
+    rozvrh = den.Rozvrh.from_row(await db.get_schedule())
+
+    bloky = den.plan(date(2026, 8, 17), MODEL, rozvrh)
+    assert bloky[0].kde == "cafe"
+    assert 600 <= bloky[0].od <= 660
+    assert bloky[-1].do == den.KONIEC_DNA
