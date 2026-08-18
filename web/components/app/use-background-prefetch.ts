@@ -17,7 +17,11 @@ type IdleWindow = Window &
  * Jednotlivé requesty sú rozostúpené, aby prednačítanie nikdy nesúťažilo
  * s obsahom, na ktorý používateľ práve čaká.
  */
-export function useBackgroundPrefetch(routes: readonly string[], delay = 450) {
+export function useBackgroundPrefetch(
+  routes: readonly string[],
+  delay = 450,
+  waitForIdle = true,
+) {
   const router = useRouter();
   const routeKey = routes.join("\n");
 
@@ -37,7 +41,9 @@ export function useBackgroundPrefetch(routes: readonly string[], delay = 450) {
       });
     };
 
-    if (browserWindow.requestIdleCallback) {
+    if (!waitForIdle) {
+      timers.push(window.setTimeout(warmRoutes, 0));
+    } else if (browserWindow.requestIdleCallback) {
       idleId = browserWindow.requestIdleCallback(warmRoutes, { timeout: 1800 });
     } else {
       timers.push(window.setTimeout(warmRoutes, 700));
@@ -47,5 +53,5 @@ export function useBackgroundPrefetch(routes: readonly string[], delay = 450) {
       if (idleId !== undefined) browserWindow.cancelIdleCallback?.(idleId);
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [delay, routeKey, router]);
+  }, [delay, routeKey, router, waitForIdle]);
 }
