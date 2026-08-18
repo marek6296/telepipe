@@ -1,7 +1,16 @@
 import type { Metadata } from "next";
-import { BadgeCheck, Coins, MessageSquareText, Percent, QrCode, Send } from "lucide-react";
+import {
+  BadgeCheck,
+  Coins,
+  CreditCard,
+  MessageSquareText,
+  Percent,
+  QrCode,
+  Send,
+} from "lucide-react";
 
 import { BillingPanel, type CurrencyOption } from "@/components/app/billing-panel";
+import { CardTopUp } from "@/components/app/card-topup";
 import { RelativeTime } from "@/components/app/relative-time";
 import { Card, CardHeader, PageHeader, StatTile, TableWrap, Th } from "@/components/app/ui";
 import {
@@ -12,6 +21,7 @@ import {
   toCoins,
 } from "@/lib/coins";
 import { getAccount, requireUser } from "@/lib/models";
+import { onrampEnabled } from "@/lib/onramp";
 import { PAY_CURRENCIES, plisioEnabled } from "@/lib/plisio";
 import { createClient } from "@/lib/supabase/server";
 
@@ -172,6 +182,20 @@ export default async function BillingPage() {
           supportEmail={SUPPORT_EMAIL}
         />
       </Card>
+
+      {/* Druhá cesta: karta cez OnRamp. Objaví sa až s nastavenou výplatnou
+          adresou (ONRAMP_PAYOUT_ADDRESS) — dovtedy sekcia neexistuje, žiadny
+          „coming soon" pahýľ. */}
+      {onrampEnabled() && (
+        <Card className="mt-4">
+          <CardHeader
+            title="No crypto? Pay by card"
+            description="Card, PayPal or Revolut through a licensed on-ramp. Same coins, same bonuses — the checkout opens in a new tab and coins land here automatically."
+            icon={<CreditCard className="h-4 w-4" strokeWidth={1.75} />}
+          />
+          <CardTopUp />
+        </Card>
+      )}
 
       <Card className="mt-4">
         <div className="grid divide-y divide-[var(--app-border)] md:grid-cols-3 md:divide-x md:divide-y-0">
