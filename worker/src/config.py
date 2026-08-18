@@ -25,6 +25,39 @@ _DEFAULT_BASE_URL = "https://api.atlascloud.ai/v1"
 _DEFAULT_MODEL = "xai/grok-4.5"
 
 
+class BadModelRow(ValueError):
+    """Riadok `models`, z ktorého sa nedá poskladať beh — aj s názvom stĺpca.
+
+    Existuje kvôli jednej vete v logu. Keď `TenantConfig.from_row` padne, pool
+    model odstaví a doteraz o tom napísal len „neplatný riadok — odstavujem"
+    plus traceback z `int(None)`. Z toho sa nedalo prečítať, KTORÝ stĺpec
+    chýbal, takže sa to muselo dohľadávať ručne v databáze. `field` ide aj do
+    `status_reason` (`bad_config:tg_api_id`), nech to klient aj admin vidia
+    priamo v dashboarde.
+    """
+
+    def __init__(self, field: str, detail: str) -> None:
+        super().__init__(f"models.{field}: {detail}")
+        self.field = field
+
+
+def _required(row: dict, field: str):
+    value = row.get(field)
+    if value in (None, ""):
+        raise BadModelRow(field, "chýba, bez neho sa tenant nedá postaviť")
+    return value
+
+
+def _required_int(row: dict, field: str) -> int:
+    value = row.get(field)
+    if value in (None, ""):
+        raise BadModelRow(field, "je prázdne — modelka sa nemá ako prihlásiť")
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise BadModelRow(field, f"nie je číslo ({value!r})") from exc
+
+
 def _req(name: str) -> str:
     value = os.getenv(name, "").strip()
     if not value:
@@ -222,6 +255,23 @@ class TenantConfig:
     def from_row(cls, row: dict, g: Config) -> "TenantConfig":
         """Poskladá per-tenant config z riadku `models` + globálnych defaultov.
 
+        PRAVIDLO PRE NULL. V `models` sú nullovateľné práve dva stĺpce,
+        `tg_api_id` a `owner_chat_id`, a znamenajú úplne rozdielne veci:
+
+          * `owner_chat_id` NULL = „kontrolný bot ešte nemá majiteľa". To je
+            BEŽNÝ a povolený stav — modelka odpisuje fanúšikom aj bez neho a
+            práve preto sľubujeme, že bot je nepovinný. Ide von ako 0.
+          * `tg_api_id` NULL = „nie je čím sa prihlásiť". Bez neho Telethon
+            klienta ani nepostaví, takže to je naozaj chyba — ale musí vyletieť
+            ako `BadModelRow` s NÁZVOM stĺpca, nie ako holý `TypeError`.
+
+        Prečo tak dôrazne: 2026-08-18 padol prvému platiacemu klientovi model
+        práve na `int(None)` z `owner_chat_id`. `Pool.tick` to zachytil ako
+        „neplatný riadok", nastavil `error`/`bad_config` a tenant sa nespustil
+        — teda pravidlo „bot je nepovinný" bolo v produkte opakom pravdy a
+        z logu sa nedalo prečítať, ktoré pole za to mohlo. Klient sa cez to
+        dostal len náhodou, keď doplnil token bota.
+
         tg_session_enc/control_bot_token_enc sa dešifrujú `g.encryption_key`.
         Model v draft stave ich ešte nemusí mať — chýbajúca/prázdna hodnota
         znamená prázdny string, nie chybu. Ak dešifrovanie zlyhá (zlý kľúč,
@@ -233,19 +283,27 @@ class TenantConfig:
         control_bot_token = decrypt(token_enc, g.encryption_key) if token_enc else ""
 
         return cls(
-            model_id=row["id"],
-            account_id=row["account_id"],
-            name=row["name"],
-            tg_api_id=int(row["tg_api_id"]),
-            tg_api_hash=row["tg_api_hash"],
+            model_id=_required(row, "id"),
+            account_id=_required(row, "account_id"),
+            # `name` má v DB `not null default ''` — prázdne meno beh nebráni.
+            name=row.get("name") or "",
+            tg_api_id=_required_int(row, "tg_api_id"),
+            tg_api_hash=row.get("tg_api_hash") or "",
             tg_session=tg_session,
             control_bot_token=control_bot_token,
-            owner_chat_id=int(row["owner_chat_id"]),
-            owner_as_client=bool(row.get("owner_as_client", False)),
+            # Nenastavený majiteľ je od migrácie 020 BEŽNÝ stav, nie chyba:
+            # modelka sa páruje kódom až keď beží, takže do prvého spárovania
+            # je stĺpec NULL. `int(None)` by hodilo TypeError, main.py by
+            # riadok vyhodnotil ako `bad_config`, model by sa odstavil — a bot,
+            # ktorý mal kód prijať, by sa vôbec nespustil. Nula znamená
+            # „zatiaľ nikto"; `_is_owner` na ňu nikdy nesadne (Telegram chat id
+            # nula nie je) a `notify()` ju len zaloguje.
+            owner_chat_id=int(row.get("owner_chat_id") or 0),
+            owner_as_client=bool(row.get("owner_as_client") or False),
             voice_only_ids=frozenset(row.get("voice_only_ids") or ()),
             # Seed pre denný rozvrh/aktivitu + prefix storage ciest (viď
             # komentár pri poli vyššie) — NIE názov DB schémy.
-            supabase_schema=row["id"],
+            supabase_schema=_required(row, "id"),
             # Zdedené z globálneho Config — predloha ich nastavuje z env,
             # tu ich model zatiaľ nemôže prepísať (bude riešiť behavior tabuľka).
             llm_key=g.llm_key,

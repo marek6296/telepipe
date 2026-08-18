@@ -260,6 +260,27 @@ class TenantDb:
             BEHAVIOR, {"model_id": self._mine}, {field: value, "updated_at": _now_iso()}
         )
 
+    # ---------- párovanie kontrolného bota ----------
+
+    async def pair_control_bot(self, code: str, chat_id: int) -> bool:
+        """Spotrebuje párovací kód a zapíše `models.owner_chat_id`.
+
+        Vráti `True`, len ak kód pre TÚTO modelku existoval, nebol použitý a
+        nevypršal. Všetko ostatné (neznámy kód, cudzí kód, druhé použitie) je
+        `False` — volajúci na to musí odpovedať rovnako (mlčaním), inak by bot
+        cudziemu chatu prezradil, ktoré kódy existujú.
+
+        Je to jedno RPC (migrácia 020), nie dva PostgREST dotazy: označenie kódu
+        za použitý a zápis majiteľa musia byť jedna transakcia, inak by pri páde
+        medzi nimi ostal kód minutý a majiteľ nenastavený.
+        """
+        return bool(
+            await self._t._rpc(
+                "pair_control_bot",
+                {"p_model": self.model_id, "p_code": code, "p_chat": int(chat_id)},
+            )
+        )
+
     # ---------- globálne nastavenia ----------
 
     async def is_paused(self) -> bool:

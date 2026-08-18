@@ -160,10 +160,18 @@ class Pool:
                     continue
                 try:
                     cfg = self._tenant_factory(row, self._g)
-                except Exception:
-                    log.exception("model %s: neplatný riadok — odstavujem", mid)
+                except Exception as exc:
+                    # `BadModelRow` nesie názov stĺpca — nech sa dá príčina
+                    # prečítať z jedného riadku logu aj zo `status_reason`,
+                    # bez chodenia do databázy. Bez toho sa 2026-08-18 hľadalo
+                    # ručne, prečo klientov model padol na `int(None)`.
+                    field = getattr(exc, "field", "")
+                    reason = f"bad_config:{field}" if field else "bad_config"
+                    log.exception(
+                        "model %s: neplatný riadok (%s) — odstavujem", mid, reason,
+                    )
                     try:
-                        await self._reg.set_status(mid, "error", "bad_config")
+                        await self._reg.set_status(mid, "error", reason)
                     except Exception:  # noqa: BLE001 — nesmie zhodiť tick
                         log.exception("model %s: set_status zlyhal", mid)
                     await self._reg.release(mid)

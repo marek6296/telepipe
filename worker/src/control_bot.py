@@ -1,7 +1,33 @@
-"""Kontrolný bot — klikacie menu na nastavenie chovania a persony."""
+"""Kontrolný bot — klikacie menu na nastavenie chovania a persony.
+
+DIVERGENCIA OD PREDLOHY: párovanie kódom
+----------------------------------------
+V predlohe (jeden proces = jedna modelka) bolo `OWNER_CHAT_ID` v env a bot
+neprijal od nikoho iného nič. Tu si ho klient nastavuje sám z dashboardu a
+doteraz to znamenalo opísať číslo z @userinfobot. Preklep sa nedal odhaliť:
+každý handler nižšie gatuje na `chat_id == cfg.owner_chat_id`, takže pri zlom
+čísle bot MLČÍ aj na `/start` — najhorší možný spôsob, ako sa niečo pokazí.
+
+Preto je tu jedna — a jediná — vec, ktorú bot prijme od neznámeho chatu:
+jednorazový párovací kód vydaný dashboardom (`control_bot_links`, migrácia
+020). Keď sedí, bot si zapíše chat id odosielateľa ako majiteľa a rovno ukáže
+menu. Pravidlá, ktoré to držia bezpečné:
+
+  * kód generuje databáza, nie klient, platí 15 minút a práve raz;
+  * hľadá sa vždy v páre s `model_id`, takže cudzí kód túto modelku nespáruje;
+  * pri NEsprávnom kóde sa mlčí presne tak, ako pri hocijakej inej správe —
+    inak by bot cudziemu potvrdil, že tu nejaké kódy existujú;
+  * skúšanie kódov je obmedzené na `_PAIR_MAX_TRIES` za `_PAIR_WINDOW_S` na
+    chat, aby sa priestor kódov nedal prehľadať hrubou silou.
+
+Bez spárovania modelka normálne odpisuje fanúšikom — majiteľ len nedostáva
+notifikácie a nemá menu.
+"""
 from __future__ import annotations
 
 import logging
+import re
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from telethon import Button, TelegramClient, events
@@ -48,6 +74,15 @@ _TIME_FIELDS = ("active_start_min", "active_end_min", "active_tz")
 _SLANG_CYCLE = ("none", "light", "medium")
 _HEAT_CYCLE = ("mild", "medium", "hot")
 
+# Párovací kód: `TP-` + 6 znakov z abecedy bez 0/O a 1/I (migrácia 020).
+# Predpona aj veľkosť písmen sú voliteľné — klient kód prepisuje ručne a
+# odmietnuť ho kvôli malému písmenu by bola presne tá istá tichá porucha,
+# ktorú párovanie odstraňuje.
+_PAIR_RE = re.compile(r"^(?:TP[-\s]?)?([2-9A-HJ-NP-Z]{6})$", re.IGNORECASE)
+_PAIR_MAX_TRIES = 5
+_PAIR_WINDOW_S = 60.0
+_HINT_MAX_CHATS = 200
+
 # Miestnosť, z ktorej má hlasovka znieť. Je to len východisko — keď z rozhovoru
 # vyplynie, kde práve je, prebije to nastavenie.
 _AMBIENCE_LABEL = {
@@ -87,6 +122,13 @@ class ControlBot:
         self._client = client
         # chat_id → ("persona"|"behavior"|"time", field) — čaká sa na hodnotu
         self._awaiting: Dict[int, Tuple[str, str]] = {}
+        # chat_id → časy posledných pokusov o kód (monotónne). Slúži len na
+        # obmedzenie skúšania; prázdne zoznamy sa pri každom pokuse upratujú,
+        # takže slovník nerastie donekonečna.
+        self._pair_tries: Dict[int, List[float]] = {}
+        # Chaty, ktorým sme už povedali, že bot čaká na párovací kód (viď
+        # `_hint_unpaired`). Raz stačí — opakovať by z bota spravilo ozvenu.
+        self._hinted: set[int] = set()
 
     def register(self) -> None:
         self._client.add_event_handler(
@@ -96,6 +138,14 @@ class ControlBot:
         self._client.add_event_handler(self._on_callback, events.CallbackQuery())
 
     async def notify(self, text: str) -> None:
+        # Nespárovaná modelka nie je porucha, len ešte nemá kam písať. Bez tejto
+        # vetvy by `send_message(0, ...)` pri každej notifikácii hodil výnimku a
+        # do logu tiekla varovná hláška o zle nastavenom botovi — hoci majiteľ
+        # len ešte nestihol poslať párovací kód.
+        if not self._cfg.owner_chat_id:
+            log.debug("model %s: notifikácia zahodená — bot ešte nie je spárovaný",
+                      self._cfg.model_id)
+            return
         try:
             await self._client.send_message(self._cfg.owner_chat_id, text, link_preview=False)
         except Exception as exc:  # noqa: BLE001 - notifikácia nesmie zhodiť tok
@@ -104,12 +154,101 @@ class ControlBot:
             )
 
     def _is_owner(self, chat_id: Optional[int]) -> bool:
-        return chat_id == self._cfg.owner_chat_id
+        # Nula je „zatiaľ nikto" (modelka pred spárovaním, viď config.py) —
+        # nesmie sa trafiť do žiadneho skutočného chatu.
+        owner = self._cfg.owner_chat_id
+        return bool(owner) and chat_id == owner
+
+    # ---------- párovanie (viď hlavičku súboru) ----------
+
+    def _pair_allowed(self, chat_id: int) -> bool:
+        """Necháva `_PAIR_MAX_TRIES` pokusov za `_PAIR_WINDOW_S` na chat."""
+        now = time.monotonic()
+        for known in list(self._pair_tries):
+            fresh = [t for t in self._pair_tries[known] if now - t < _PAIR_WINDOW_S]
+            if fresh:
+                self._pair_tries[known] = fresh
+            else:
+                del self._pair_tries[known]
+        tries = self._pair_tries.setdefault(chat_id, [])
+        if len(tries) >= _PAIR_MAX_TRIES:
+            log.warning("párovanie: chat %s skúša kódy pridrsno — ignorujem", chat_id)
+            return False
+        tries.append(now)
+        return True
+
+    async def _try_pair(self, event: events.NewMessage.Event) -> bool:
+        """Správa z neznámeho chatu: je to platný párovací kód?
+
+        Vracia `True`, len keď párovanie prebehlo. Pri čomkoľvek inom `False`
+        a NIČ sa neodpisuje — neznámy chat sa nesmie dozvedieť ani to, že bot
+        na správy vôbec reaguje.
+        """
+        chat_id = event.chat_id
+        if not chat_id or not getattr(event, "is_private", True):
+            return False
+        match = _PAIR_RE.match((event.raw_text or "").strip())
+        if not match:
+            return False
+        if not self._pair_allowed(chat_id):
+            return False
+        code = f"TP-{match.group(1).upper()}"
+        if not await self._db.pair_control_bot(code, chat_id):
+            return False
+
+        # Config je zdieľaný s userbotom (`owner_as_client`, mazanie testovacieho
+        # chatu), takže nové id musí vidieť aj on — preto sa mení NA MIESTE, aj
+        # keď je dataclass frozen, a nie cez `replace()`, ktorý by vyrobil kópiu
+        # známu len tomuto botovi.
+        object.__setattr__(self._cfg, "owner_chat_id", chat_id)
+        self._pair_tries.pop(chat_id, None)
+        log.info("model %s: kontrolný bot spárovaný s chatom %s", self._cfg.model_id, chat_id)
+
+        await event.reply(
+            "✅ *Spárované*\n\nOd teraz sem chodia upozornenia na nových "
+            "fanúšikov a odtiaľto ju ovládaš. Menu máš vždy pod `/menu`.",
+            link_preview=False,
+        )
+        await self._send_main(event)
+        return True
+
+    async def _hint_unpaired(self, event: events.NewMessage.Event) -> None:
+        """`/start` do ešte nespárovaného bota → povedz, čo sem patrí.
+
+        Toto je JEDINÁ vec, ktorú neznámy chat dostane okrem úspešného
+        spárovania, a je to zámer: klient si bota práve vyrobil, otvoril ho cez
+        odkaz od @BotFathera a stlačil Start — mlčanie v tej chvíli je presne tá
+        tichá porucha, ktorú párovanie odstraňuje. Nič sa tým neprezradí:
+        hláška platí rovnako, či nejaký kód existuje alebo nie, a bot patrí tomu,
+        kto ho vyrobil (jeho meno nikto cudzí nepozná).
+
+        Keď už majiteľ SPÁROVANÝ je, cudzí `/start` nedostane nič — vtedy je to
+        naozaj cudzí človek.
+        """
+        chat_id = event.chat_id
+        if self._cfg.owner_chat_id or not chat_id:
+            return
+        if not getattr(event, "is_private", True):
+            return
+        if (event.raw_text or "").split()[0].split("@")[0].lower() not in ("/start", "/help"):
+            return
+        # Raz na chat za beh procesu. Strop drží slovník malý aj keby bota našiel
+        # spamer — po naplnení sa už len mlčí.
+        if chat_id in self._hinted or len(self._hinted) >= _HINT_MAX_CHATS:
+            return
+        self._hinted.add(chat_id)
+        await event.reply(
+            "Tento bot patrí k tvojmu Telepipe účtu, ale ešte nie je spárovaný.\n\n"
+            "V dashboarde otvor *Telegram → Settings*, klikni *Generate pairing code* "
+            "a kód sem pošli ako správu. Vyzerá takto: `TP-4F9K2X`.",
+            link_preview=False,
+        )
 
     # ---------- príkazy ----------
 
     async def _on_command(self, event: events.NewMessage.Event) -> None:
         if not self._is_owner(event.chat_id):
+            await self._hint_unpaired(event)
             return
         command = (event.raw_text or "").split()[0].split("@")[0].lower()
         try:
@@ -133,7 +272,15 @@ class ControlBot:
 
     async def _on_value(self, event: events.NewMessage.Event) -> None:
         chat_id = event.chat_id
-        if not self._is_owner(chat_id) or chat_id not in self._awaiting:
+        if not self._is_owner(chat_id):
+            # Jediná výnimka z vlastníckej brány — párovací kód. Musí byť pred
+            # ňou, inak by sa nový majiteľ nemal ako ohlásiť.
+            try:
+                await self._try_pair(event)
+            except Exception:  # noqa: BLE001 — pokazené párovanie nezhodí bota
+                log.exception("párovanie zlyhalo")
+            return
+        if chat_id not in self._awaiting:
             return
         kind, field = self._awaiting[chat_id]
         value = (event.raw_text or "").strip()

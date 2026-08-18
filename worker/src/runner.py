@@ -210,15 +210,25 @@ class TenantRunner:
             # FloodWait po viacerých deployoch za sebou), NESMIE to zhodiť
             # odpisovanie — to beží na účte modelky a s botom nemá nič spoločné.
             # Bez tohto crash-loop opakoval prihlásenie a Telegram blokádu predlžoval.
-            bot_ready = True
-            try:
-                await bot_client.start(bot_token=cfg.control_bot_token)
-            except Exception as exc:  # noqa: BLE001 - odpisovanie musí bežať aj tak
-                bot_ready = False
-                log.error(
-                    "model %s: kontrolný bot sa neprihlásil (%s) — beží len odpisovanie",
-                    cfg.model_id, exc,
+            # Žiadny token nie je porucha, len voľba: kontrolný bot je nepovinný
+            # a klient ho smie preskočiť (a dorobiť neskôr v Settings). Preto to
+            # ide do logu ako INFO — `log.error` by z bežného stavu robilo alarm
+            # a pri hľadaní skutočných porúch by zavádzalo.
+            bot_ready = bool(cfg.control_bot_token)
+            if not bot_ready:
+                log.info(
+                    "model %s: bez kontrolného bota (nie je token) — odpisovanie beží ďalej",
+                    cfg.model_id,
                 )
+            else:
+                try:
+                    await bot_client.start(bot_token=cfg.control_bot_token)
+                except Exception as exc:  # noqa: BLE001 - odpisovanie musí bežať aj tak
+                    bot_ready = False
+                    log.error(
+                        "model %s: kontrolný bot sa neprihlásil (%s) — beží len odpisovanie",
+                        cfg.model_id, exc,
+                    )
             await user_client.connect()
             if not await user_client.is_user_authorized():
                 # Predloha tu hádzala RuntimeError s návodom; tu musí ísť von

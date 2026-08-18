@@ -67,6 +67,7 @@ CALLS = {
     "set_persona_field": (("name", "Eva"), {}),
     "get_behavior": ((), {}),
     "set_behavior_field": (("heat", "hot"), {}),
+    "pair_control_bot": (("TP-4F9K2X", 777), {}),
     "is_paused": ((), {}),
     "set_paused": ((True,), {}),
     "get_user": ((42,), {}),
@@ -138,7 +139,10 @@ def _assert_scoped(call, method_name):
         return
 
     if "/rpc/" in url:
-        assert "search_messages" in url, where
+        # RPC nemá URL filter — model_id musí byť v argumentoch. `pair_control_bot`
+        # to má obzvlášť kriticky: bez `p_model` by párovací kód jednej modelky
+        # prestavil majiteľa inej.
+        assert any(fn in url for fn in ("search_messages", "pair_control_bot")), where
         assert body and body.get("p_model") == MODEL, where
         return
 
