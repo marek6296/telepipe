@@ -14,6 +14,12 @@ import {
 } from "lucide-react";
 
 import { Callout } from "@/components/app/ui";
+import {
+  CUSTOM_MAX_USD,
+  CUSTOM_MIN_USD,
+  customBonusPct,
+  customCoinsForUsd,
+} from "@/lib/coins";
 import { cn } from "@/lib/utils";
 
 /**
@@ -127,6 +133,7 @@ export function BillingPanel({
   const [packId, setPackId] = useState(() =>
     packs.some((p) => p.id === initialPackId) ? (initialPackId as string) : packs[0]?.id ?? "",
   );
+  const [customUsd, setCustomUsd] = useState("");
   const [currency, setCurrency] = useState(currencies[0]?.cid ?? "BTC");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -138,15 +145,31 @@ export function BillingPanel({
   const pack = useMemo(() => packs.find((p) => p.id === packId), [packs, packId]);
   const coin = useMemo(() => currencies.find((c) => c.cid === currency), [currencies, currency]);
 
+  // Vlastná suma — kurz a bonus počíta server; toto je len náhľad z lib/coins.
+  const isCustom = packId === "custom";
+  const parsedUsd = Math.round((Number.parseFloat(customUsd) || 0) * 100) / 100;
+  const customValid = parsedUsd >= CUSTOM_MIN_USD && parsedUsd <= CUSTOM_MAX_USD;
+  const selection = isCustom
+    ? customValid
+      ? { usd: parsedUsd, coins: customCoinsForUsd(parsedUsd) }
+      : null
+    : pack
+      ? { usd: pack.priceUsd, coins: pack.coins }
+      : null;
+
   const start = useCallback(async () => {
-    if (!pack || creating) return;
+    if (!selection || creating) return;
     setCreating(true);
     setError(null);
     try {
       const res = await fetch("/api/payments/topup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packId: pack.id, currency }),
+        body: JSON.stringify(
+          isCustom
+            ? { packId: "custom", customUsd: selection.usd, currency }
+            : { packId, currency },
+        ),
       });
       const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
       if (!res.ok) {
@@ -161,7 +184,7 @@ export function BillingPanel({
     } finally {
       setCreating(false);
     }
-  }, [pack, currency, creating]);
+  }, [selection, isCustom, packId, currency, creating]);
 
   // Poller — každých 8 s, kým je checkout otvorený a coiny nie sú pripísané.
   // Server sa pri každom ticku doptá Plisia, takže zmeškaný webhook dobehne.
@@ -367,7 +390,7 @@ export function BillingPanel({
   return (
     <div className="p-5">
       <p className="text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">1 · Pick a pack</p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-3" role="radiogroup" aria-label="Coin pack">
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" role="radiogroup" aria-label="Coin pack">
         {packs.map((item) => {
           const active = item.id === packId;
           return (
@@ -401,7 +424,74 @@ export function BillingPanel({
             </button>
           );
         })}
+
+        <button
+          type="button"
+          role="radio"
+          aria-checked={isCustom}
+          onClick={() => setPackId("custom")}
+          className={cn(
+            "app-tap rounded-lg border px-4 py-3.5 text-left transition-colors",
+            isCustom
+              ? "border-[var(--app-text-4)] bg-[var(--app-surface-hover)]"
+              : "border-[var(--app-border)] hover:border-[var(--app-border-strong)]",
+          )}
+        >
+          <span className="flex items-center justify-between gap-2">
+            <span className="text-[13px] font-medium text-[var(--app-text)]">Custom</span>
+            {isCustom && customValid && customBonusPct(parsedUsd) > 0 && (
+              <span className="rounded-full border border-[var(--app-border)] px-1.5 py-0.5 text-[10px] font-semibold text-[var(--app-text-2)]">
+                +{customBonusPct(parsedUsd)}%
+              </span>
+            )}
+          </span>
+          <span className="mt-2 block text-[17px] font-semibold tabular-nums tracking-[-0.02em] text-[var(--app-text)]">
+            {isCustom && customValid ? customCoinsForUsd(parsedUsd).toLocaleString("en-US") : "You pick"}
+          </span>
+          <span className="mt-0.5 block text-[11.5px] text-[var(--app-text-3)]">
+            {isCustom && customValid ? `Pipe Coins · $${parsedUsd}` : `Any amount from $${CUSTOM_MIN_USD}`}
+          </span>
+        </button>
       </div>
+
+      {isCustom && (
+        <div className="mt-3 rounded-lg border border-[var(--app-border)] px-4 py-3.5">
+          <label
+            htmlFor="custom-usd"
+            className="text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]"
+          >
+            Amount in USD
+          </label>
+          <div className="mt-2 flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[15px] text-[var(--app-text-3)]">$</span>
+              <input
+                id="custom-usd"
+                type="number"
+                inputMode="decimal"
+                min={CUSTOM_MIN_USD}
+                max={CUSTOM_MAX_USD}
+                step="0.01"
+                value={customUsd}
+                onChange={(event) => setCustomUsd(event.target.value)}
+                placeholder="8"
+                className="h-10 w-32 rounded-md border border-[var(--app-border)] bg-transparent px-3 text-[14px] tabular-nums text-[var(--app-text)] outline-none transition-colors focus:border-[var(--app-border-strong)]"
+              />
+            </div>
+            <p className="text-[13px] tabular-nums text-[var(--app-text-2)]" aria-live="polite">
+              {customValid
+                ? `= ${customCoinsForUsd(parsedUsd).toLocaleString("en-US")} Pipe Coins`
+                : customUsd
+                  ? `Enter $${CUSTOM_MIN_USD}–$${CUSTOM_MAX_USD.toLocaleString("en-US")}`
+                  : ""}
+            </p>
+          </div>
+          <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+            Minimum ${CUSTOM_MIN_USD}, cents welcome (e.g. $8.50). Same bonuses as the packs:
+            +10% from $100, +20% from $250.
+          </p>
+        </div>
+      )}
 
       <p className="mt-6 text-[12px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
         2 · Pay with
@@ -445,13 +535,16 @@ export function BillingPanel({
       <button
         type="button"
         onClick={start}
-        disabled={creating || !pack}
-        className={cn("app-btn app-btn-primary mt-6 h-10 px-5", creating && "opacity-70")}
+        disabled={creating || !selection}
+        className={cn(
+          "app-btn app-btn-primary mt-6 h-10 px-5",
+          (creating || !selection) && "opacity-70",
+        )}
       >
         {creating && <Loader2 className="h-4 w-4 animate-spin" strokeWidth={2} aria-hidden />}
-        {pack
-          ? `Continue — ${pack.coins.toLocaleString("en-US")} coins for $${pack.priceUsd}`
-          : "Continue"}
+        {selection
+          ? `Continue — ${selection.coins.toLocaleString("en-US")} coins for $${selection.usd}`
+          : `Enter an amount (min $${CUSTOM_MIN_USD})`}
       </button>
       <p className="mt-2.5 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
         You&apos;ll get the deposit address and exact amount on the next screen. The rate is locked

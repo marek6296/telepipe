@@ -256,6 +256,8 @@ export function PricingTable() {
       <p className="mt-10 text-center text-[12.5px] leading-relaxed text-white/30">
         There is no subscription and nothing renews. You buy Pipe Coins once, and they come off
         the balance as she works — every reply, transcription and voice second metered per model.
+        Prefer a different amount? Once signed in you can top up any custom amount from $5 on the
+        Billing page, with the same volume bonuses.
         Reply estimates use {COINS_PER_REPLY} coins per reply: a rounded-up, all-in figure measured
         from a real week of live traffic, memory work included. Long conversations cost a little
         more, short ones less.

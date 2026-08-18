@@ -179,6 +179,40 @@ export function coinsPerDollar(pack: CoinPack): number {
   return pack.coins / pack.priceUsd;
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Vlastná suma (custom top-up)                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Klient si môže dobiť ľubovoľnú sumu, nielen balík. Bonusové prahy sú TIE
+ * ISTÉ ako pri balíkoch ($100 → +10 %, $250 → +20 %), takže custom $100 dá
+ * presne toľko, čo balík Creator — cenník nemá dve pravdy.
+ *
+ * Invariant ziskovosti platí rovnako: pri multiplieri 2 je strop 2 000
+ * coinov/$, najštedrejší custom kurz je 1 200 coinov/$ — bezpečne pod ním.
+ * Stráži to `npm run test:coins`.
+ */
+export const CUSTOM_MIN_USD = 5;
+export const CUSTOM_MAX_USD = 5000;
+
+/** Zoradené zostupne — prvý prah, ktorý suma dosiahne, vyhráva. */
+const CUSTOM_BONUS_TIERS: { minUsd: number; bonusPct: number }[] = [
+  { minUsd: 250, bonusPct: 20 },
+  { minUsd: 100, bonusPct: 10 },
+];
+
+export function customBonusPct(usd: number): number {
+  for (const tier of CUSTOM_BONUS_TIERS) {
+    if (usd >= tier.minUsd) return tier.bonusPct;
+  }
+  return 0;
+}
+
+/** Koľko coinov dostane klient za vlastnú sumu (vrátane bonusu, celé coiny). */
+export function customCoinsForUsd(usd: number): number {
+  return Math.round(usd * COINS_PER_USD * (1 + customBonusPct(usd) / 100));
+}
+
 /**
  * Čo nás balík bude stáť, keď klient minie VŠETKY coiny.
  *

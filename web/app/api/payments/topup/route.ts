@@ -1,6 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { COINS_PER_USD, COIN_PACKS } from "@/lib/coins";
+import {
+  COINS_PER_USD,
+  COIN_PACKS,
+  CUSTOM_MAX_USD,
+  CUSTOM_MIN_USD,
+  customCoinsForUsd,
+} from "@/lib/coins";
 import { siteUrl } from "@/lib/env";
 import { refreshPayment } from "@/lib/payments";
 import { createInvoice, isPayCurrency, plisioEnabled } from "@/lib/plisio";
@@ -30,8 +36,35 @@ export async function POST(request: NextRequest) {
   }
 
   const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-  const pack = COIN_PACKS.find((item) => item.id === String(body.packId ?? ""));
-  if (!pack) return NextResponse.json({ error: "Unknown pack." }, { status: 400 });
+  const requestedId = String(body.packId ?? "");
+  const pack = COIN_PACKS.find((item) => item.id === requestedId);
+
+  // Balík z cenníka, alebo vlastná suma ("custom") — kurz a bonus počíta
+  // VŽDY server z lib/coins.ts, klient posiela len číslo v USD.
+  let packId: string;
+  let usd: number;
+  let coinsBought: number;
+  let orderLabel: string;
+  if (pack) {
+    packId = pack.id;
+    usd = pack.priceUsd;
+    coinsBought = pack.coins;
+    orderLabel = `${pack.name} pack`;
+  } else if (requestedId === "custom") {
+    // Na centy (napr. $8 alebo $8.50) — nie nasilu celé doláre.
+    usd = Math.round(Number(body.customUsd) * 100) / 100;
+    if (!Number.isFinite(usd) || usd < CUSTOM_MIN_USD || usd > CUSTOM_MAX_USD) {
+      return NextResponse.json(
+        { error: `Amount must be between $${CUSTOM_MIN_USD} and $${CUSTOM_MAX_USD}.` },
+        { status: 400 },
+      );
+    }
+    packId = "custom";
+    coinsBought = customCoinsForUsd(usd);
+    orderLabel = "Custom top-up";
+  } else {
+    return NextResponse.json({ error: "Unknown pack." }, { status: 400 });
+  }
 
   const currency = String(body.currency ?? "").toUpperCase();
   if (!isPayCurrency(currency)) {
@@ -46,10 +79,10 @@ export async function POST(request: NextRequest) {
   const callbackUrl = `${siteUrl()}/api/payments/webhook?json=true`;
 
   const invoice = await createInvoice({
-    priceUsd: pack.priceUsd,
+    priceUsd: usd,
     currency,
     orderNumber,
-    orderName: `Telepipe — ${pack.name} pack (${pack.coins.toLocaleString("en-US")} Pipe Coins)`,
+    orderName: `Telepipe — ${orderLabel} (${coinsBought.toLocaleString("en-US")} Pipe Coins)`,
     email: user.email ?? "",
     callbackUrl,
   });
@@ -67,11 +100,11 @@ export async function POST(request: NextRequest) {
     account_id: user.id,
     account_email: user.email ?? "",
     order_number: orderNumber,
-    pack_id: pack.id,
-    usd: pack.priceUsd,
-    coins: pack.coins,
+    pack_id: packId,
+    usd,
+    coins: coinsBought,
     // Jednotka v DB je USD — coiny sú prezentácia (lib/coins.ts).
-    credit_usd: pack.coins / COINS_PER_USD,
+    credit_usd: coinsBought / COINS_PER_USD,
     pay_currency: p.payCurrency,
     pay_address: p.payAddress,
     pay_amount: p.payAmount,
@@ -99,9 +132,9 @@ export async function POST(request: NextRequest) {
     invoiceUrl: p.invoiceUrl,
     expireAt: p.expireAt,
     status: p.status || "new",
-    packId: pack.id,
-    usd: pack.priceUsd,
-    coins: pack.coins,
+    packId,
+    usd,
+    coins: coinsBought,
   });
 }
 

@@ -18,7 +18,11 @@ import {
   COINS_PER_REPLY,
   COINS_PER_USD,
   COIN_PACKS,
+  CUSTOM_MAX_USD,
+  CUSTOM_MIN_USD,
   assertPacksProfitable,
+  customBonusPct,
+  customCoinsForUsd,
   coins,
   coinsLabel,
   coinsPerDollar,
@@ -165,6 +169,35 @@ function throws(fn: () => void, message: string): void {
   // Nad 2× je priestor väčší — sanity check, že to nie je natvrdo napísané.
   assertPacksProfitable(COIN_PACKS, 3);
   passed++;
+}
+
+/* ------------------------------------------------- custom top-up (vlastná suma) */
+{
+  eq(CUSTOM_MIN_USD, 5, "custom top-up starts at $5");
+  eq(CUSTOM_MAX_USD, 5000, "custom top-up is capped at $5 000");
+
+  // Bonusové prahy = tie isté ako balíky, aby cenník nemal dve pravdy.
+  eq(customBonusPct(5), 0, "no bonus below $100");
+  eq(customBonusPct(99.99), 0, "still no bonus at $99.99");
+  eq(customBonusPct(100), 10, "+10% from $100");
+  eq(customBonusPct(249.99), 10, "+10% below $250");
+  eq(customBonusPct(250), 20, "+20% from $250");
+
+  eq(customCoinsForUsd(5), 5_000, "$5 buys 5 000 coins");
+  eq(customCoinsForUsd(8), 8_000, "$8 buys 8 000 coins");
+  eq(customCoinsForUsd(8.5), 8_500, "cents are honoured");
+  eq(customCoinsForUsd(100), 110_000, "custom $100 equals the Creator pack");
+  eq(customCoinsForUsd(250), 300_000, "custom $250 equals the Agency pack");
+
+  // INVARIANT: žiadna custom suma nesmie prerobiť — kurz musí ostať ostro
+  // pod break-even stropom (multiplier × 1000 coinov/$).
+  for (const usd of [CUSTOM_MIN_USD, 50, 99.99, 100, 249.99, 250, 1000, CUSTOM_MAX_USD]) {
+    const coinsBought = customCoinsForUsd(usd);
+    check(
+      coinsBought < maxProfitableCoins(usd),
+      `custom $${usd} stays profitable (${coinsBought} coins < ceiling ${maxProfitableCoins(usd)})`,
+    );
+  }
 }
 
 console.log(`${passed} passed, ${failed} failed`);
