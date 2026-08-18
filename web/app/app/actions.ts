@@ -159,6 +159,37 @@ export async function setAiPausedAction(
   return { ok: true };
 }
 
+/**
+ * „Reset stats" na dashboarde — čistý štart bez mazania účtovníctva.
+ *
+ * ČO ROBÍ: posunie `accounts.stats_since` na teraz (migrácia 027). Klientove
+ * vlastné prehľady od tej chvíle počítajú od nuly.
+ *
+ * ČO NEROBÍ: nemaže `usage_events`. Tá tabuľka je účtovný ledger — je z nej
+ * marža, zostatok aj dôkaz, za čo klient zaplatil. Keby ju vedelo vymazať
+ * tlačidlo v prehliadači, história peňazí by bola prepisovateľná. Preto UI
+ * hovorí rovno, že sa nič nemaže: čísla sa len začínajú počítať odznova a
+ * stránka Usage ostáva úplným výpisom.
+ *
+ * Vlastníctvo rieši RPC: `reset_my_stats()` nemá parameter účtu a mení riadok
+ * podľa `auth.uid()`, takže na cudzí účet sa cez ňu nedá siahnuť.
+ */
+export async function resetStatsAction(): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("reset_my_stats");
+
+  if (error) {
+    return {
+      error: error.message.includes("account not found")
+        ? "We could not find your account. Sign in again."
+        : "Could not reset your stats. Try again.",
+    };
+  }
+
+  revalidatePath("/app", "layout");
+  return { ok: true };
+}
+
 /** Zmazanie modelky — kaskáda v DB zmaže personu, chaty aj históriu. */
 export async function deleteModelAction(modelId: string): Promise<ActionResult> {
   const supabase = await createClient();

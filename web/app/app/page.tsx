@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Bot } from "lucide-react";
@@ -9,44 +10,60 @@ import {
   type SeriesPoint,
   type SpendPoint,
 } from "@/components/app/dashboard-charts";
+import {
+  ChartsSkeleton,
+  ModelCardsSkeleton,
+  StatsSkeleton,
+} from "@/components/app/loading-skeletons";
 import { ModelCard } from "@/components/app/model-card";
+import { ResetStatsButton } from "@/components/app/reset-stats-button";
 import { Card, CardHeader, EmptyState, PageHeader, StatTile } from "@/components/app/ui";
 import { coinsPrecise, toCoins } from "@/lib/coins";
-import { compactNumber, isoDaysAgo, toNumber } from "@/lib/format";
-import { getModelStats, getPausedMap, listModels, type ModelRow } from "@/lib/models";
+import { compactNumber, toNumber } from "@/lib/format";
+import { getAccount, getModelStats, getPausedMap, listModels, type ModelRow } from "@/lib/models";
 import { getConnectedMap } from "@/lib/telegram";
 import { createClient } from "@/lib/supabase/server";
+import { cn } from "@/lib/utils";
 
 export const metadata: Metadata = {
   title: "Dashboard",
 };
 
-/** Okno grafov aj delty. Referencia: „last 7 days" + „vs last week". */
-const WINDOW = 7;
+/* --------------------------------------------------------------------------
+   Rozsah pohľadu. „Today" kreslí grafy po hodinách, zvyšok po dňoch — deň
+   rozsekaný na jediný stĺpec nie je graf, a mesiac po hodinách je 720 stĺpcov.
+-------------------------------------------------------------------------- */
 
-export default async function DashboardPage() {
-  const models = await listModels();
-  const [stats, connected, paused, events] = await Promise.all([
-    getModelStats(models.map((model) => model.id)),
-    getConnectedMap(models),
-    getPausedMap(models.map((model) => model.id)),
-    recentUsage(WINDOW * 2),
-  ]);
+type Range = { key: string; label: string; days: number; hint: string };
 
-  const totalChats = models.reduce((sum, model) => sum + (stats[model.id]?.chats ?? 0), 0);
-  const totalConverted = models.reduce(
-    (sum, model) => sum + (stats[model.id]?.converted ?? 0),
-    0,
-  );
+const RANGES: Range[] = [
+  { key: "1", label: "Today", days: 1, hint: "since midnight UTC" },
+  { key: "7", label: "7 days", days: 7, hint: "last 7 days" },
+  { key: "30", label: "30 days", days: 30, hint: "last 30 days" },
+];
 
-  // Delty počítame len z toho, čo v `usage_events` naozaj máme.
-  const spendThis = sumCharged(events, 0, WINDOW);
-  const spendPrev = sumCharged(events, WINDOW, WINDOW * 2);
-  const repliesThis = countKind(events, "chat", 0, WINDOW);
-  const repliesPrev = countKind(events, "chat", WINDOW, WINDOW * 2);
+const DEFAULT_RANGE = RANGES[1];
 
-  const spendSeries = dailySpend(events, WINDOW);
-  const { data: messageSeries, series } = dailyMessagesByModel(events, models, WINDOW);
+function pickRange(value: unknown): Range {
+  return RANGES.find((range) => range.key === value) ?? DEFAULT_RANGE;
+}
+
+export default async function DashboardPage({ searchParams }: PageProps<"/app">) {
+  const query = await searchParams;
+  const range = pickRange(typeof query?.range === "string" ? query.range : undefined);
+
+  const [account, models] = await Promise.all([getAccount(), listModels()]);
+  // Hranica z „Reset stats" (027). Klient ňou vynuluje SVOJE prehľady; riadky
+  // v `usage_events` ostávajú a admin ich vidí ďalej.
+  const baseline = account?.stats_since ? new Date(account.stats_since).getTime() : null;
+
+  const modelIds = models.map((model) => model.id);
+  // Drahšie bloky sa začnú načítavať naraz, ale neblokujú prvý obraz. Každý
+  // Suspense blok sa doplní samostatne hneď, keď sú jeho dáta hotové.
+  const statsPromise = getModelStats(modelIds);
+  const connectedPromise = getConnectedMap(models);
+  const pausedPromise = getPausedMap(modelIds);
+  const eventsPromise = recentUsage(range.days * 2, baseline);
 
   return (
     <>
@@ -63,18 +80,34 @@ export default async function DashboardPage() {
         }
       />
 
+      {/* --- Rozsah + reset --------------------------------------------------- */}
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-1.5">
+          {RANGES.map((option) => (
+            <RangeChip
+              key={option.key}
+              href={option.key === DEFAULT_RANGE.key ? "/app" : `/app?range=${option.key}`}
+              active={option.key === range.key}
+            >
+              {option.label}
+            </RangeChip>
+          ))}
+        </div>
+        <ResetStatsButton since={account?.stats_since ?? null} />
+      </div>
+
       {/* --- Dlaždice --------------------------------------------------------- */}
       <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
         <StatTile
           label="Replies sent"
           value={compactNumber(repliesThis)}
           delta={percentDelta(repliesThis, repliesPrev)}
-          hint="last 7 days"
+          hint={`messages she wrote, ${range.hint}`}
         />
         <StatTile
           label="Conversations"
           value={compactNumber(totalChats)}
-          hint="all-time conversations"
+          hint="fans she is talking to"
         />
         <StatTile
           label="Converted"
@@ -85,22 +118,22 @@ export default async function DashboardPage() {
           label="Pipe Coins spent"
           value={coinsPrecise(spendThis)}
           delta={percentDelta(spendThis, spendPrev)}
-          hint="last 7 days"
+          hint={range.hint}
         />
       </div>
 
       {/* --- Grafy ------------------------------------------------------------ */}
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <Card>
-          <CardHeader title="Usage spend" description="Pipe Coins spent daily, last 7 days" />
+          <CardHeader title="Usage spend" description={`Pipe Coins spent, ${range.hint}`} />
           <SpendChart data={spendSeries} />
         </Card>
 
         <Card>
-          <CardHeader title="Messages by model" description="Replies sent, last 7 days" />
+          <CardHeader title="Messages by model" description={`Replies sent, ${range.hint}`} />
           {series.length === 0 ? (
             <p className="px-5 py-[92px] text-center text-[12.5px] text-[var(--app-text-4)]">
-              No replies in the last 7 days.
+              No replies in this period.
             </p>
           ) : (
             <MessagesChart data={messageSeries} series={series} />
@@ -158,12 +191,19 @@ type UsageRow = {
   created_at: string;
 };
 
-async function recentUsage(days: number): Promise<UsageRow[]> {
+/**
+ * `baseline` je hranica z „Reset stats" — filtruje sa v dopyte, nie až v UI,
+ * nech sa vynulované obdobie ani neprenáša po sieti.
+ */
+async function recentUsage(days: number, baseline: number | null): Promise<UsageRow[]> {
   const supabase = await createClient();
+  const windowFrom = windowStart(days);
+  const from = baseline === null ? windowFrom : Math.max(windowFrom, baseline);
+
   const { data } = await supabase
     .from("usage_events")
     .select("model_id, kind, charged_usd, created_at")
-    .gte("created_at", isoDaysAgo(days))
+    .gte("created_at", new Date(from).toISOString())
     .limit(20000);
 
   return (data ?? []) as unknown as UsageRow[];
@@ -210,8 +250,32 @@ function percentDelta(current: number, previous: number): number | null {
   return ((current - previous) / previous) * 100;
 }
 
-/** Posledných `days` dní ako popisky `12 Aug` — spoločná os oboch grafov. */
-function dayKeys(days: number): { key: string; label: string }[] {
+/* --------------------------------------------------------------------------
+   Koše grafov. Kľúč je predpona ISO reťazca, takže sa riadok zaradí bez
+   parsovania dátumu: `2026-08-18` pre deň, `2026-08-18T05` pre hodinu.
+-------------------------------------------------------------------------- */
+
+type Bucket = { key: string; label: string };
+
+function bucketsFor(range: Range): Bucket[] {
+  return range.days === 1 ? hourBuckets() : dayBuckets(range.days);
+}
+
+/** Dnešok po hodinách (UTC), od polnoci po aktuálnu hodinu. */
+function hourBuckets(): Bucket[] {
+  const now = new Date();
+  const midnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  return Array.from({ length: now.getUTCHours() + 1 }, (_, index) => {
+    const date = new Date(midnight + index * 3_600_000);
+    return {
+      key: date.toISOString().slice(0, 13),
+      label: `${String(date.getUTCHours()).padStart(2, "0")}:00`,
+    };
+  });
+}
+
+/** Posledných `days` dní ako popisky `12 Aug`. */
+function dayBuckets(days: number): Bucket[] {
   const start = windowStart(days);
   return Array.from({ length: days }, (_, index) => {
     const date = new Date(start + index * 86_400_000);
@@ -226,37 +290,42 @@ function dayKeys(days: number): { key: string; label: string }[] {
   });
 }
 
+/** Do ktorého koša riadok patrí — dĺžka kľúča rozhodne, či deň či hodina. */
+function bucketKey(iso: string, width: number): string {
+  return iso.slice(0, width);
+}
+
 /** Ledger je v USD, graf kreslí Pipe Coiny — prepočet je posledný krok. */
-function dailySpend(rows: UsageRow[], days: number): SpendPoint[] {
-  const keys = dayKeys(days);
-  const buckets = new Map(keys.map((day) => [day.key, 0]));
+function dailySpend(rows: UsageRow[], buckets: Bucket[]): SpendPoint[] {
+  const width = buckets[0]?.key.length ?? 10;
+  const totals = new Map(buckets.map((bucket) => [bucket.key, 0]));
   for (const row of rows) {
-    const key = row.created_at.slice(0, 10);
-    if (buckets.has(key)) buckets.set(key, (buckets.get(key) ?? 0) + toNumber(row.charged_usd));
+    const key = bucketKey(row.created_at, width);
+    if (totals.has(key)) totals.set(key, (totals.get(key) ?? 0) + toNumber(row.charged_usd));
   }
-  return keys.map((day) => ({
-    label: day.label,
-    value: Number(toCoins(buckets.get(day.key) ?? 0).toFixed(1)),
+  return buckets.map((bucket) => ({
+    label: bucket.label,
+    value: Number(toCoins(totals.get(bucket.key) ?? 0).toFixed(1)),
   }));
 }
 
-/** Počty odpovedí po dňoch pre max. 4 najaktívnejšie modelky. */
+/** Počty odpovedí po košoch pre max. 4 najaktívnejšie modelky. */
 function dailyMessagesByModel(
   rows: UsageRow[],
   models: ModelRow[],
-  days: number,
+  buckets: Bucket[],
 ): { data: SeriesPoint[]; series: { key: string; label: string }[] } {
-  const keys = dayKeys(days);
-  const window = new Set(keys.map((day) => day.key));
+  const width = buckets[0]?.key.length ?? 10;
+  const window = new Set(buckets.map((bucket) => bucket.key));
   const chats = rows.filter(
-    (row) => row.kind === "chat" && window.has(row.created_at.slice(0, 10)),
+    (row) => row.kind === "chat" && window.has(bucketKey(row.created_at, width)),
   );
 
   const totals = new Map<string, number>();
   const counts = new Map<string, number>();
   for (const row of chats) {
     totals.set(row.model_id, (totals.get(row.model_id) ?? 0) + 1);
-    const cell = `${row.created_at.slice(0, 10)}|${row.model_id}`;
+    const cell = `${bucketKey(row.created_at, width)}|${row.model_id}`;
     counts.set(cell, (counts.get(cell) ?? 0) + 1);
   }
 
@@ -270,10 +339,10 @@ function dailyMessagesByModel(
     label: model.name || "Untitled model",
   }));
 
-  const data: SeriesPoint[] = keys.map((day) => {
-    const point: SeriesPoint = { label: day.label };
+  const data: SeriesPoint[] = buckets.map((bucket) => {
+    const point: SeriesPoint = { label: bucket.label };
     for (const model of top) {
-      point[model.id] = counts.get(`${day.key}|${model.id}`) ?? 0;
+      point[model.id] = counts.get(`${bucket.key}|${model.id}`) ?? 0;
     }
     return point;
   });
@@ -284,4 +353,28 @@ function dailyMessagesByModel(
 function conversionHint(converted: number, conversations: number): string {
   if (conversations <= 0) return "no conversations yet";
   return `${((converted / conversations) * 100).toFixed(1)}% of conversations`;
+}
+
+function RangeChip({
+  href,
+  active,
+  children,
+}: {
+  href: string;
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "rounded-full border px-3 py-1.5 text-[12px] transition-colors",
+        active
+          ? "border-[#3f3f46] bg-[#161616] text-[var(--app-text)]"
+          : "border-[var(--app-border)] text-[var(--app-text-3)] hover:text-[var(--app-text)]",
+      )}
+    >
+      {children}
+    </Link>
+  );
 }

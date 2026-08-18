@@ -1,7 +1,8 @@
+import { cache } from "react";
 import { notFound, redirect } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 
-import { createClient } from "@/lib/supabase/server";
+import { createClient, getUser } from "@/lib/supabase/server";
 import { toNumber } from "@/lib/format";
 import {
   modelTypeHasSubTab,
@@ -60,6 +61,12 @@ export type AccountRow = {
   /** Migrácia 009 — rola rozhoduje o admin sekcii, plán je zatiaľ len štítok. */
   role: string;
   plan: string;
+  /**
+   * Migrácia 027 — hranica pre KLIENTOVE prehľady. Klient si ňou dá čísla na
+   * nulu a sleduje modelku odznova; `usage_events` sa pritom nemaže a admin
+   * pohľady ju ignorujú. `null` = počíta sa od začiatku.
+   */
+  stats_since: string | null;
 };
 
 /** Modelka + čísla, ktoré chce klient vidieť na karte. */
@@ -71,24 +78,23 @@ export type ModelStats = {
 
 /** Prihlásený používateľ, inak redirect na login (layout `/app` to už rieši). */
 export async function requireUser(): Promise<User> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getUser();
   if (!user) redirect("/login");
   return user;
 }
 
-export async function getAccount(): Promise<AccountRow | null> {
+// React `cache` žije iba v rámci jedného serverového renderu/requestu. Deduplikuje
+// layout + stránku bez toho, aby miešal dáta medzi používateľmi.
+export const getAccount = cache(async function getAccount(): Promise<AccountRow | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("accounts")
-    .select("id, email, credit_balance_usd, created_at, role, plan")
+    .select("id, email, credit_balance_usd, created_at, role, plan, stats_since")
     .maybeSingle();
   return (data as AccountRow | null) ?? null;
-}
+});
 
-export async function listModels(): Promise<ModelRow[]> {
+export const listModels = cache(async function listModels(): Promise<ModelRow[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("models")
@@ -97,10 +103,10 @@ export async function listModels(): Promise<ModelRow[]> {
 
   if (error) throw new Error(`Could not load your models: ${error.message}`);
   return (data ?? []) as unknown as ModelRow[];
-}
+});
 
 /** Modelka podľa id — RLS zabezpečí, že cudziu nikdy nevráti. */
-export async function getModel(id: string): Promise<ModelRow | null> {
+export const getModel = cache(async function getModel(id: string): Promise<ModelRow | null> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("models")
@@ -108,7 +114,7 @@ export async function getModel(id: string): Promise<ModelRow | null> {
     .eq("id", id)
     .maybeSingle();
   return (data as unknown as ModelRow | null) ?? null;
-}
+});
 
 /** Ako `getModel`, ale cudzie/neexistujúce id je 404 (nie prázdna stránka). */
 export async function requireModel(id: string): Promise<ModelRow> {
@@ -181,7 +187,7 @@ export async function getPausedMap(
 }
 
 /** Ako `getPausedMap`, ale pre jednu modelku. Chýbajúci riadok = nie je pauza. */
-export async function isAiPaused(modelId: string): Promise<boolean> {
+export const isAiPaused = cache(async function isAiPaused(modelId: string): Promise<boolean> {
   const supabase = await createClient();
   const { data } = await supabase
     .from("settings")
@@ -189,7 +195,7 @@ export async function isAiPaused(modelId: string): Promise<boolean> {
     .eq("model_id", modelId)
     .maybeSingle();
   return Boolean(data?.ai_paused);
-}
+});
 
 /** Polnoc UTC — spotreba „za dnes" musí byť rovnaká pre server aj klienta. */
 function startOfUtcDay(): string {
