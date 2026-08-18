@@ -83,23 +83,25 @@
 .lp-logo-sheen {
   position: absolute;
   inset: 0;
-  -webkit-mask: url("/logo-white.png") center / contain no-repeat;
-  mask: url("/logo-white.png") center / contain no-repeat;
   pointer-events: none;
 }
 
+.lp-logo-sheen {
+  -webkit-mask: url("/logo-white.png") center / contain no-repeat;
+  mask: url("/logo-white.png") center / contain no-repeat;
+}
+
 .lp-logo-chrome {
-  background: linear-gradient(
-    180deg,
-    #b7b7bd 0%,
-    #56565d 22%,
-    #202025 44%,
-    #d0d0d4 54%,
-    #3c3c43 69%,
-    #777780 100%
-  );
-  filter: drop-shadow(0 0 7px rgba(255, 255, 255, 0.13));
-  opacity: 0.94;
+  /* To isté pôvodné 3D logo, iba bez farby. Žiadny nový gradient cez masku:
+     zachováme prirodzené svetlá, tiene aj kovovú hĺbku originálneho PNG. */
+  background: url("/logo-white.png") center / contain no-repeat;
+  filter:
+    grayscale(1)
+    saturate(0)
+    brightness(0.68)
+    contrast(1.12)
+    drop-shadow(0 0 5px rgba(255, 255, 255, 0.08));
+  opacity: 0.96;
 }
 
 .lp-logo-gold {
