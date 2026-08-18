@@ -282,7 +282,9 @@ export async function saveControlBotAction(input: {
     if (error) return { error: error.message };
   }
 
-  revalidatePath(`/app/m/${model.id}/telegram`);
+  // `layout` = celý podstrom `/telegram/*`: token sa ukladá v Settings, ale
+  // stav „bot je nastavený" číta aj Connection (posledný krok sprievodcu).
+  revalidatePath(`/app/m/${model.id}/telegram`, "layout");
   return { ok: true, detail: check.username ? `@${check.username}` : undefined };
 }
 

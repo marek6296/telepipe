@@ -1,7 +1,7 @@
 "use client";
 
 
-import { saveBehaviorAction } from "@/app/app/m/[id]/behavior/actions";
+import { saveBehaviorAction } from "@/app/app/m/[id]/persona/behavior/actions";
 import { AutoSaveForm } from "@/components/app/forms/auto-save";
 import {
   NumberField,
@@ -51,9 +51,6 @@ export type BehaviorRow = {
   photo_cooldown_min: number;
   morning_enabled: boolean;
   morning_max_per_day: number;
-  max_outreach_per_hour: number;
-  max_active_chats: number;
-  chat_slot_min: number;
 };
 
 /** Časové zóny, ktoré agentúry reálne používajú. Aktuálnu vždy doplníme. */
@@ -334,7 +331,7 @@ export function BehaviorForm({ behavior }: { behavior: BehaviorRow }) {
       <Card>
         <CardHeader
           title="Limits and memory"
-          description="Guardrails that keep her account safe and her memory sharp."
+          description="How much she sends and how sharp her memory stays. The caps that keep her account off Telegram's radar sit in Telegram → Settings."
         />
         <div className="grid gap-5 p-5 sm:grid-cols-3">
           <NumberField
@@ -371,41 +368,6 @@ export function BehaviorForm({ behavior }: { behavior: BehaviorRow }) {
             suffix="msgs"
             help="How often she rewrites her rolling summary of a chat. Lower means sharper memory and slightly higher cost."
           />
-        </div>
-
-        {/* Tri stropy, ktoré rozhodujú o tom, či účet pôsobí ako človek alebo
-            ako rozposielač. Worker ich čítal od začiatku (`userbot._smie_oslovit`,
-            `_aktivne_rozhovory`), nastaviť sa dali len kontrolným botom. */}
-        <div className="border-t border-[var(--app-border)] px-5 pb-5 pt-5">
-          <p className="app-group-label mb-3">Looking like one person</p>
-          <div className="grid gap-5 sm:grid-cols-3">
-            <NumberField
-              name="max_active_chats"
-              label="Conversations at once"
-              defaultValue={behavior.max_active_chats}
-              min={0}
-              max={100}
-              help="Nobody holds twenty chats at the same time. Whoever does not fit waits and gets answered as soon as a slot frees up — no message is lost. 0 turns the limit off."
-            />
-            <NumberField
-              name="chat_slot_min"
-              label="A slot frees up after"
-              defaultValue={behavior.chat_slot_min}
-              min={1}
-              max={1440}
-              suffix="min"
-              help="Counted from the last message in that chat, hers or his — waiting for his answer is still a live conversation."
-            />
-            <NumberField
-              name="max_outreach_per_hour"
-              label="People she writes to first"
-              defaultValue={behavior.max_outreach_per_hour}
-              min={0}
-              max={200}
-              suffix="/h"
-              help="Replies do not count — answering someone who wrote first bothers nobody. An account that starts conversations on its own is the suspicious one, so the cap sits here. 0 turns it off."
-            />
-          </div>
         </div>
       </Card>
 

@@ -3,7 +3,12 @@ import type { User } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/server";
 import { toNumber } from "@/lib/format";
-import { modelTypeHasTab, type ModelTabSlug } from "@/lib/model-types";
+import {
+  modelTypeHasSubTab,
+  modelTypeHasTab,
+  type ModelSubTabSlug,
+  type ModelTabSlug,
+} from "@/lib/model-types";
 
 /**
  * Serverové čítanie klientských dát. VŽDY user-scoped klientom — RLS z migrácie
@@ -116,6 +121,20 @@ export async function requireModelTab(
 ): Promise<ModelRow> {
   const model = await requireModel(id);
   if (!modelTypeHasTab(model.model_type, slug)) notFound();
+  return model;
+}
+
+/**
+ * To isté o poschodie nižšie — podkarta (`/telegram/photos`, `/fanvue/chats`).
+ * Kontroluje aj rodiča: karta, ktorú typ nemá, nesmie mať otvorenú podstránku.
+ */
+export async function requireModelSubTab(
+  id: string,
+  tab: ModelTabSlug,
+  sub: ModelSubTabSlug,
+): Promise<ModelRow> {
+  const model = await requireModel(id);
+  if (!modelTypeHasSubTab(model.model_type, tab, sub)) notFound();
   return model;
 }
 

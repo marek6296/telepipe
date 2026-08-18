@@ -14,7 +14,7 @@ import {
   type DmUserRow,
 } from "@/lib/chats";
 import { compactNumber } from "@/lib/format";
-import { requireModel } from "@/lib/models";
+import { requireModelSubTab } from "@/lib/models";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
 
@@ -27,10 +27,10 @@ const PAGE_SIZE = 50;
 export default async function ChatDetailPage({
   params,
   searchParams,
-}: PageProps<"/app/m/[id]/chats/[chatId]">) {
+}: PageProps<"/app/m/[id]/telegram/chats/[chatId]">) {
   const { id, chatId } = await params;
   const query = await searchParams;
-  const model = await requireModel(id);
+  const model = await requireModelSubTab(id, "telegram", "chats");
 
   const tgId = Number(chatId);
   if (!Number.isSafeInteger(tgId)) notFound();
@@ -73,7 +73,7 @@ export default async function ChatDetailPage({
   return (
     <div className="space-y-5">
       <Link
-        href={`/app/m/${model.id}/chats`}
+        href={`/app/m/${model.id}/telegram/chats`}
         className="inline-flex items-center gap-1 text-[12.5px] text-[var(--app-text-4)] transition-colors hover:text-[var(--app-text)]"
       >
         <ChevronLeft className="h-3.5 w-3.5" />
@@ -163,7 +163,7 @@ export default async function ChatDetailPage({
           {hasMore && (
             <div className="flex justify-center pb-2">
               <Link
-                href={`/app/m/${model.id}/chats/${chat.tg_id}?take=${take + PAGE_SIZE}`}
+                href={`/app/m/${model.id}/telegram/chats/${chat.tg_id}?take=${take + PAGE_SIZE}`}
                 className="app-btn app-btn-ghost h-9 px-4"
               >
                 Load older messages

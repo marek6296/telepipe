@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { PhotoLibrary } from "@/components/app/photos/photo-library";
-import { requireModelTab } from "@/lib/models";
+import { requireModelSubTab } from "@/lib/models";
 import { PHOTO_COLUMNS, type PhotoRow } from "@/lib/photos";
 import { createClient } from "@/lib/supabase/server";
 
@@ -9,9 +9,15 @@ export const metadata: Metadata = {
   title: "Photos",
 };
 
-export default async function PhotosPage({ params }: PageProps<"/app/m/[id]/photos">) {
+/**
+ * Fotky sedia pod Telegramom, lebo tam a nikde inde odchádzajú — Fanvue má
+ * vlastný vault (`/fanvue/photos`) a fotku z neho posiela ich API.
+ */
+export default async function PhotosPage({
+  params,
+}: PageProps<"/app/m/[id]/telegram/photos">) {
   const { id } = await params;
-  const model = await requireModelTab(id, "photos");
+  const model = await requireModelSubTab(id, "telegram", "photos");
 
   const supabase = await createClient();
   const { data } = await supabase

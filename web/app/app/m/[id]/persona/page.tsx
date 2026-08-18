@@ -4,7 +4,7 @@ import { Sparkles } from "lucide-react";
 
 import { PersonaForm, type PersonaRow } from "@/components/app/persona-form";
 import { Callout } from "@/components/app/ui";
-import { requireModel } from "@/lib/models";
+import { requireModelSubTab } from "@/lib/models";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
@@ -15,9 +15,13 @@ const PERSONA_COLUMNS =
   "model_id, name, age, city, language, languages, backstory, tone, msg_style, " +
   "boundaries, funnel_rules, cta_link, extra_rules, examples";
 
+/**
+ * Identita — KTO je. Ako sa správa, sedí o podkartu ďalej (`/persona/behavior`):
+ * je to tá istá osoba z dvoch strán, preto jedna karta a dve záložky.
+ */
 export default async function PersonaPage({ params }: PageProps<"/app/m/[id]/persona">) {
   const { id } = await params;
-  const model = await requireModel(id);
+  const model = await requireModelSubTab(id, "persona", "index");
 
   const supabase = await createClient();
   const { data } = await supabase

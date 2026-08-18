@@ -7,7 +7,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertCircle,
   ArrowRight,
-  Bot,
   CheckCircle2,
   KeyRound,
   Loader2,
@@ -20,18 +19,14 @@ import {
 
 import {
   cancelLoginJobAction,
-  saveControlBotAction,
   startTelegramLoginAction,
   submitLoginCodeAction,
   submitLoginPasswordAction,
   pollLoginJobAction,
 } from "@/app/app/m/[id]/telegram/actions";
 import { setModelStatusAction } from "@/app/app/actions";
-import {
-  ApiKeysGuide,
-  BotFatherGuide,
-  OwnerChatGuide,
-} from "@/components/app/telegram/guides";
+import { Field } from "@/components/app/telegram/field";
+import { ApiKeysGuide } from "@/components/app/telegram/guides";
 import { Callout, Card, CardHeader } from "@/components/app/ui";
 import { isRecent } from "@/lib/format";
 import { prettifyCode } from "@/lib/status";
@@ -47,12 +42,17 @@ const LIVE_PHASES: LoginJob["phase"][] = [
   "verify_password",
 ];
 
+/**
+ * Sprievodca pripája ÚČET modelky — nič viac. Kontrolný bot tu bol piatym
+ * krokom, ale je to nastavenie majiteľa (a mení sa aj rok po spustení), takže
+ * má vlastnú obrazovku: Telegram → Settings. Odpisovanie na ňom nestojí —
+ * `runner.py` ho pri zlyhaní preskočí a odpisuje ďalej.
+ */
 const STEPS = [
   { n: 1, label: "API keys", icon: KeyRound },
   { n: 2, label: "Phone", icon: Phone },
   { n: 3, label: "Code", icon: Smartphone },
-  { n: 4, label: "Control bot", icon: Bot },
-  { n: 5, label: "Activate", icon: Zap },
+  { n: 4, label: "Activate", icon: Zap },
 ];
 
 export type WizardProps = {
@@ -62,7 +62,6 @@ export type WizardProps = {
   statusReason: string;
   apiId: string;
   apiHash: string;
-  ownerChatId: string;
   connected: boolean;
   connectedPhone: string | null;
   controlBotReady: boolean;
@@ -74,10 +73,6 @@ export function TelegramWizard(props: WizardProps) {
 
   const [job, setJob] = useState<LoginJob | null>(props.initialJob);
   const [connected, setConnected] = useState(props.connected);
-  const [botReady, setBotReady] = useState(props.controlBotReady);
-  // „Change control bot" nesmie zabudnúť, že token už uložený je — inak by sme
-  // klientovi tvrdili, že žiadny nemá.
-  const [editBot, setEditBot] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [localStep, setLocalStep] = useState(props.apiId && props.apiHash ? 2 : 1);
   const [now, setNow] = useState(() => Date.now());
@@ -131,9 +126,8 @@ export function TelegramWizard(props: WizardProps) {
   const activeStep = useMemo(() => {
     if (reconnecting) return onJobScreen ? 3 : localStep;
     if (!connected) return onJobScreen ? 3 : localStep;
-    if (!botReady || editBot) return 4;
-    return 5;
-  }, [reconnecting, connected, onJobScreen, localStep, botReady, editBot]);
+    return 4;
+  }, [reconnecting, connected, onJobScreen, localStep]);
 
   const startLogin = () => {
     setError(null);
@@ -177,7 +171,7 @@ export function TelegramWizard(props: WizardProps) {
         onCancelReconnect={() => setReconnecting(false)}
       />
 
-      <Stepper active={activeStep} connected={connected} botReady={botReady} />
+      <Stepper active={activeStep} connected={connected} />
 
       <AnimatePresence mode="wait">
         <motion.div
@@ -257,25 +251,12 @@ export function TelegramWizard(props: WizardProps) {
           )}
 
           {activeStep === 4 && (
-            <StepControlBot
-              modelId={props.modelId}
-              ownerChatId={props.ownerChatId}
-              alreadySaved={botReady}
-              onSaved={() => {
-                setBotReady(true);
-                setEditBot(false);
-                router.refresh();
-              }}
-            />
-          )}
-
-          {activeStep === 5 && (
             <StepActivate
               modelId={props.modelId}
               modelName={props.modelName}
               status={props.status}
               statusReason={props.statusReason}
-              onEditBot={() => setEditBot(true)}
+              controlBotReady={props.controlBotReady}
             />
           )}
         </motion.div>
@@ -363,20 +344,11 @@ function ConnectionStrip({
 /*  Stepper                                                                     */
 /* -------------------------------------------------------------------------- */
 
-function Stepper({
-  active,
-  connected,
-  botReady,
-}: {
-  active: number;
-  connected: boolean;
-  botReady: boolean;
-}) {
+function Stepper({ active, connected }: { active: number; connected: boolean }) {
   return (
     <ol className="flex items-center gap-1 overflow-x-auto pb-1">
       {STEPS.map((step, index) => {
-        const done =
-          (step.n <= 3 && connected) || (step.n === 4 && botReady) || step.n < active;
+        const done = (step.n <= 3 && connected) || step.n < active;
         const current = step.n === active;
         const Icon = step.icon;
         return (
@@ -692,112 +664,7 @@ function StepCode({
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Krok 4 — kontrolný bot                                                     */
-/* -------------------------------------------------------------------------- */
-
-function StepControlBot({
-  modelId,
-  ownerChatId,
-  alreadySaved,
-  onSaved,
-}: {
-  modelId: string;
-  ownerChatId: string;
-  alreadySaved: boolean;
-  onSaved: () => void;
-}) {
-  const [token, setToken] = useState("");
-  const [chatId, setChatId] = useState(ownerChatId);
-  const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
-
-  const save = () => {
-    setError(null);
-    startTransition(async () => {
-      const result = await saveControlBotAction({ modelId, token, ownerChatId: chatId });
-      if (result.error) {
-        setError(result.error);
-        return;
-      }
-      onSaved();
-    });
-  };
-
-  return (
-    <Card>
-      <CardHeader
-        title="Your control bot"
-        description="A small Telegram bot that pings you about new fans and lets you take over a chat."
-      />
-      <div className="grid gap-6 p-5 lg:grid-cols-[1fr_1fr]">
-        <div className="space-y-5">
-          <div>
-            <p className="app-group-label mb-2.5">
-              Create the bot
-            </p>
-            <BotFatherGuide />
-          </div>
-          <div>
-            <p className="app-group-label mb-2.5">
-              Find your chat ID
-            </p>
-            <OwnerChatGuide />
-          </div>
-        </div>
-
-        <div className="space-y-4">
-          {alreadySaved && (
-            <Callout tone="success" icon={<CheckCircle2 className="h-3.5 w-3.5" />}>
-              A token is already saved. Leave this empty to keep it — you only need to
-              paste one if you replaced the bot.
-            </Callout>
-          )}
-          <Field
-            label="Bot token"
-            value={token}
-            onChange={setToken}
-            placeholder={alreadySaved ? "Leave empty to keep the saved token" : "123456789:AAE…"}
-            mono
-            type="password"
-          />
-          <Field
-            label="Your chat ID"
-            value={chatId}
-            onChange={(value) => setChatId(value.replace(/[^\d-]/g, ""))}
-            placeholder="566608217"
-            inputMode="numeric"
-          />
-
-          {error && (
-            <Callout tone="danger" icon={<AlertCircle className="h-3.5 w-3.5" />}>
-              {error}
-            </Callout>
-          )}
-
-          <button
-            type="button"
-            onClick={save}
-            // Keď je token už uložený, stačí chat id — inak sa jedno číslo
-            // nedalo opraviť bez opätovného vylepenia tokenu, ktorý sa
-            // do políčka nikdy nepredvyplní.
-            disabled={pending || (!token && !alreadySaved) || !chatId}
-            className="app-btn app-btn-primary h-10 w-full"
-          >
-            {pending && <Loader2 className="h-4 w-4 animate-spin" />}
-            Save and continue
-          </button>
-          <p className="text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-            The token is encrypted before it touches our database, and it never leaves the
-            server again.
-          </p>
-        </div>
-      </div>
-    </Card>
-  );
-}
-
-/* -------------------------------------------------------------------------- */
-/*  Krok 5 — aktivácia                                                          */
+/*  Krok 4 — aktivácia                                                          */
 /* -------------------------------------------------------------------------- */
 
 function StepActivate({
@@ -805,13 +672,13 @@ function StepActivate({
   modelName,
   status,
   statusReason,
-  onEditBot,
+  controlBotReady,
 }: {
   modelId: string;
   modelName: string;
   status: string;
   statusReason: string;
-  onEditBot: () => void;
+  controlBotReady: boolean;
 }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
@@ -846,9 +713,25 @@ function StepActivate({
       <div className="space-y-4 p-5">
         <ul className="space-y-2 text-[13px] text-[var(--app-text-2)]">
           <Ready>Telegram account connected</Ready>
-          <Ready>Control bot ready — notifications land in your chat</Ready>
           <Ready>Persona and behaviour can be tuned any time, no restart needed</Ready>
         </ul>
+
+        {/* Bez kontrolného bota odpisuje ďalej (`runner.py` ho preskočí), ale
+            majiteľ o novom fanúšikovi nevie a nemá ako prevziať chat. Nie je to
+            teda prekážka aktivácie — je to vec, ktorú treba povedať nahlas. */}
+        {!controlBotReady && (
+          <Callout tone="gold">
+            No control bot yet, so nothing will ping you about new fans and you cannot take
+            over a chat from your phone. She still replies.{" "}
+            <Link
+              href={`/app/m/${modelId}/telegram/settings`}
+              className="underline underline-offset-2"
+            >
+              Set it up in Settings
+            </Link>
+            .
+          </Callout>
+        )}
 
         {error && (
           <Callout tone="danger" icon={<AlertCircle className="h-3.5 w-3.5" />}>
@@ -883,13 +766,12 @@ function StepActivate({
           >
             Set up her persona →
           </Link>
-          <button
-            type="button"
-            onClick={onEditBot}
+          <Link
+            href={`/app/m/${modelId}/telegram/settings`}
             className="text-[var(--app-text-3)] transition-colors hover:text-[var(--app-text)]"
           >
-            Change control bot
-          </button>
+            {controlBotReady ? "Change control bot" : "Add a control bot"}
+          </Link>
         </div>
       </div>
     </Card>
@@ -908,42 +790,6 @@ function Ready({ children }: { children: React.ReactNode }) {
 /* -------------------------------------------------------------------------- */
 /*  Drobnosti                                                                   */
 /* -------------------------------------------------------------------------- */
-
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  type = "text",
-  inputMode,
-  mono = false,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  type?: string;
-  inputMode?: "numeric" | "tel";
-  mono?: boolean;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-2 block text-[12.5px] font-medium tracking-tight text-[var(--app-text-2)]">
-        {label}
-      </span>
-      <input
-        type={type}
-        value={value}
-        inputMode={inputMode}
-        placeholder={placeholder}
-        onChange={(event) => onChange(event.target.value)}
-        autoComplete="off"
-        spellCheck={false}
-        className={cn("app-input", mono && "font-mono text-[13px] tracking-tight")}
-      />
-    </label>
-  );
-}
 
 /** `154200` → `1 h 47 min`, `95` → `1 min 35 s`. */
 function formatSeconds(seconds: number): string {

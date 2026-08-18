@@ -10,21 +10,23 @@
  * komponent, ktorý ich kreslí — tento modul je dáta.
  *
  * PRAVIDLO: nový typ = jeden riadok v `MODEL_TYPES` + jeden riadok v
- * `MODEL_TYPE_TABS`. Ak sa niekde v UI objaví `if (type === "persona")`, je to
- * chyba tohto súboru, nie toho miesta.
+ * `MODEL_TYPE_TABS` (a v `MODEL_TYPE_SUBTABS`, ak má aj podkarty). Ak sa niekde
+ * v UI objaví `if (type === "persona")`, je to chyba tohto súboru, nie toho
+ * miesta.
  */
 
 export type ModelType = "persona" | "business" | "private";
 
 /** Karty (taby) detailu modelky. Slug = segment v URL `/app/m/[id]/<slug>`. */
-export type ModelTabSlug =
-  | "telegram"
-  | "fanvue"
-  | "persona"
-  | "behavior"
-  | "voice"
-  | "photos"
-  | "chats";
+export type ModelTabSlug = "telegram" | "fanvue" | "persona" | "voice";
+
+/**
+ * Podkarty jednej karty. Slug je druhý segment URL, `index` je samotná karta
+ * (`/app/m/[id]/telegram` = Connection, `/app/m/[id]/fanvue` = Connect,
+ * `/app/m/[id]/persona` = Identity) — nie redirect na `/connection`, aby staré
+ * odkazy aj návrat z Fanvue OAuth (`?error=`) pristáli presne tam, kde predtým.
+ */
+export type ModelSubTabSlug = "index" | "settings" | "photos" | "chats" | "behavior";
 
 export type ModelTypeInfo = {
   value: ModelType;
@@ -79,9 +81,44 @@ export const DEFAULT_MODEL_TYPE: ModelType = "persona";
  * (žiadne Fanvue, žiadny hlas) je vidieť na jednom mieste.
  */
 export const MODEL_TYPE_TABS: Record<ModelType, readonly ModelTabSlug[]> = {
-  persona: ["telegram", "fanvue", "persona", "behavior", "voice", "photos", "chats"],
-  business: ["telegram", "persona", "behavior", "photos", "chats"],
-  private: ["telegram", "persona", "behavior", "chats"],
+  persona: ["telegram", "fanvue", "persona", "voice"],
+  business: ["telegram", "persona"],
+  private: ["telegram", "persona"],
+};
+
+/**
+ * Typ → karta → podkarty. Poradie je poradie v druhom (tichšom) tab bare.
+ *
+ * Fotky aj konverzácie sedia pod Telegramom zámerne: fotky odchádzajú len tam
+ * a `dm_users`/`dm_messages` je telegramová história. Fanvue má svoje vlastné
+ * fotky (vault) aj svoje vlastné konverzácie (`fv_users`/`fv_messages`) — sú to
+ * dvaja agenti, nie dva pohľady na to isté.
+ *
+ * Persona a Behavior sú jedna karta z toho istého dôvodu: persona je, KTO je,
+ * chovanie je, AKO sa správa — tá istá osoba z dvoch strán. Rozdeliť ich do
+ * dvoch tabov znamenalo dvakrát otvárať to isté.
+ *
+ * Karta bez riadku tu podkarty nemá a druhý tab bar sa jej nevykreslí (Voice).
+ * Rozdiely medzi typmi ostávajú na jednom mieste: osobný agent fotky neposiela,
+ * tak ich pod Telegramom ani nemá.
+ */
+export const MODEL_TYPE_SUBTABS: Record<
+  ModelType,
+  Partial<Record<ModelTabSlug, readonly ModelSubTabSlug[]>>
+> = {
+  persona: {
+    telegram: ["index", "settings", "photos", "chats"],
+    fanvue: ["index", "settings", "photos", "chats"],
+    persona: ["index", "behavior"],
+  },
+  business: {
+    telegram: ["index", "settings", "photos", "chats"],
+    persona: ["index", "behavior"],
+  },
+  private: {
+    telegram: ["index", "settings", "chats"],
+    persona: ["index", "behavior"],
+  },
 };
 
 const KNOWN: readonly ModelType[] = MODEL_TYPES.map((type) => type.value);
@@ -111,4 +148,65 @@ export function modelTypeHasTab(
   slug: ModelTabSlug,
 ): boolean {
   return MODEL_TYPE_TABS[asModelType(value)].includes(slug);
+}
+
+/** Podkarty danej karty pre daný typ. Prázdne pole = druhý tab bar netreba. */
+export function modelTypeSubTabs(
+  value: string | null | undefined,
+  tab: ModelTabSlug,
+): readonly ModelSubTabSlug[] {
+  if (!modelTypeHasTab(value, tab)) return [];
+  return MODEL_TYPE_SUBTABS[asModelType(value)][tab] ?? [];
+}
+
+/**
+ * Má tento typ takúto podkartu? Kontroluje aj rodičovskú kartu — `/fanvue/chats`
+ * na firemnom agentovi musí padnúť rovnako ako `/fanvue`.
+ */
+export function modelTypeHasSubTab(
+  value: string | null | undefined,
+  tab: ModelTabSlug,
+  sub: ModelSubTabSlug,
+): boolean {
+  return modelTypeSubTabs(value, tab).includes(sub);
+}
+
+/**
+ * Z cesty `/app/m/<id>/<tab>/<sub>/…` vytiahne, kde klient stojí.
+ *
+ * `sub: null` znamená „druhý segment podkartou nie je" — `/persona/build` je
+ * sprievodca, teda tok, nie záložka, a nesmie podfarbiť „Identity", akoby na
+ * nej klient stál. Logika je tu (nie v komponente), lebo je to to isté pravidlo
+ * ako `MODEL_TYPE_SUBTABS` a dá sa overiť bez prehliadača.
+ */
+export function activeModelTab(
+  pathname: string,
+  modelId: string,
+  modelType: string | null | undefined,
+): {
+  tab: ModelTabSlug | null;
+  sub: ModelSubTabSlug | null;
+  subTabs: readonly ModelSubTabSlug[];
+} {
+  const prefix = `/app/m/${modelId}/`;
+  const rest = pathname.startsWith(prefix) ? pathname.slice(prefix.length).split("/") : [];
+  const tab = MODEL_TYPE_TABS[asModelType(modelType)].find((slug) => slug === rest[0]) ?? null;
+  if (!tab) return { tab: null, sub: null, subTabs: [] };
+
+  const subTabs = modelTypeSubTabs(modelType, tab);
+  const sub = rest[1]
+    ? (subTabs.find((slug) => slug !== "index" && slug === rest[1]) ?? null)
+    : "index";
+  return { tab, sub, subTabs };
+}
+
+/** URL podkarty. `index` je samotná karta — bez druhého segmentu. */
+export function subTabHref(
+  modelId: string,
+  tab: ModelTabSlug,
+  sub: ModelSubTabSlug,
+): string {
+  return sub === "index"
+    ? `/app/m/${modelId}/${tab}`
+    : `/app/m/${modelId}/${tab}/${sub}`;
 }

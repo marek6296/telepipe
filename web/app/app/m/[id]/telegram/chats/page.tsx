@@ -7,22 +7,27 @@ import { RelativeTime } from "@/components/app/relative-time";
 import { Card, EmptyState } from "@/components/app/ui";
 import { chatTitle, DM_USER_COLUMNS, type DmUserRow } from "@/lib/chats";
 import { compactNumber } from "@/lib/format";
-import { requireModel } from "@/lib/models";
+import { requireModelSubTab } from "@/lib/models";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
-  title: "Chats",
+  title: "Telegram chats",
 };
 
 const PAGE_SIZE = 50;
 
+/**
+ * Telegramové konverzácie (`dm_users`/`dm_messages`). Fanvue má vlastné pod
+ * `/fanvue/chats` — sú to dvaja agenti a dve histórie, nie jeden zoznam
+ * s prepínačom.
+ */
 export default async function ChatsPage({
   params,
   searchParams,
-}: PageProps<"/app/m/[id]/chats">) {
+}: PageProps<"/app/m/[id]/telegram/chats">) {
   const { id } = await params;
   const query = await searchParams;
-  const model = await requireModel(id);
+  const model = await requireModelSubTab(id, "telegram", "chats");
 
   const search = typeof query?.q === "string" ? query.q.trim() : "";
   const take = Math.min(Number(query?.take ?? PAGE_SIZE) || PAGE_SIZE, 500);
@@ -48,7 +53,7 @@ export default async function ChatsPage({
 
   return (
     <div className="space-y-4">
-      <form className="relative max-w-sm" action={`/app/m/${model.id}/chats`}>
+      <form className="relative max-w-sm" action={`/app/m/${model.id}/telegram/chats`}>
         <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--app-text-4)]" />
         <input
           name="q"
@@ -75,7 +80,7 @@ export default async function ChatsPage({
             {chats.map((chat) => (
               <li key={chat.tg_id}>
                 <Link
-                  href={`/app/m/${model.id}/chats/${chat.tg_id}`}
+                  href={`/app/m/${model.id}/telegram/chats/${chat.tg_id}`}
                   className="flex items-center gap-4 px-4 py-3.5 transition-colors hover:bg-[var(--app-surface-hover)] sm:px-5"
                 >
                   <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-[var(--app-border)] bg-[#111111] text-[13px] font-semibold text-[var(--app-text-2)]">
@@ -113,7 +118,7 @@ export default async function ChatsPage({
       {chats.length === take && (
         <div className="flex justify-center">
           <Link
-            href={`/app/m/${model.id}/chats?take=${take + PAGE_SIZE}${
+            href={`/app/m/${model.id}/telegram/chats?take=${take + PAGE_SIZE}${
               search ? `&q=${encodeURIComponent(search)}` : ""
             }`}
             className="app-btn app-btn-ghost h-9 px-4"

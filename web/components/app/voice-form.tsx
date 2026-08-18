@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-import { saveBehaviorAction } from "@/app/app/m/[id]/behavior/actions";
+import { saveBehaviorAction } from "@/app/app/m/[id]/persona/behavior/actions";
 import { reloadVoicesAction } from "@/app/app/m/[id]/voice/actions";
 import { AutoSaveForm, useAutoSaveField } from "@/components/app/forms/auto-save";
 import {
@@ -22,6 +22,7 @@ import {
 } from "@/components/app/forms/fields";
 import { Callout, Card, CardHeader } from "@/components/app/ui";
 import type { VoiceCatalog } from "@/lib/eleven";
+import { TEMPO_MAX, TEMPO_MIN, VOICE_AMBIENCES, VOICE_STRENGTHS } from "@/lib/voice";
 import { cn } from "@/lib/utils";
 
 /**
@@ -52,17 +53,11 @@ export type VoiceRow = {
   voice_when_hot: boolean;
 };
 
-const AMBIENCE = [
-  { value: "home", label: "At home" },
-  { value: "bedroom", label: "Bedroom" },
-  { value: "kitchen", label: "Kitchen" },
-  { value: "bathroom", label: "Bathroom" },
-  { value: "car", label: "In the car" },
-  { value: "outside", label: "Outside" },
-  { value: "cafe", label: "Café" },
-  { value: "gym", label: "Gym" },
-  { value: "none", label: "Silent" },
-];
+// Zoznamy hodnôt žijú v `lib/voice.ts` — tá istá karta ich potrebuje dvakrát
+// (tu a v štúdiu) a dve kópie by sa raz rozišli. Čo tam nie je, to pipeline
+// nevie prehrať.
+const AMBIENCE = [...VOICE_AMBIENCES];
+const STRENGTH = [...VOICE_STRENGTHS];
 
 const num = (value: number | string): number =>
   typeof value === "number" ? value : Number.parseFloat(value) || 0;

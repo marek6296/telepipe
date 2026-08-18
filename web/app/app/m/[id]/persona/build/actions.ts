@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 
-import { saveBehaviorAction } from "@/app/app/m/[id]/behavior/actions";
+import { saveBehaviorAction } from "@/app/app/m/[id]/persona/behavior/actions";
 import { savePersonaAction } from "@/app/app/m/[id]/persona/actions";
 import { OUT_OF_CREDITS_MSG, creditState, hasCredit, recordUsage } from "@/lib/credits";
 import { chatJson, llmConfigured, llmModel, parseJsonish, type ChatMessage } from "@/lib/llm";

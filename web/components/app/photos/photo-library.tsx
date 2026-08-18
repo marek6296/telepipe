@@ -20,7 +20,7 @@ import {
   createPhotoAction,
   deletePhotoAction,
   updatePhotoAction,
-} from "@/app/app/m/[id]/photos/actions";
+} from "@/app/app/m/[id]/telegram/photos/actions";
 import { AutoSaveForm } from "@/components/app/forms/auto-save";
 import { SwitchField, TextField } from "@/components/app/forms/fields";
 import { Callout, EmptyState } from "@/components/app/ui";

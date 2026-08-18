@@ -2,18 +2,16 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  AudioLines,
-  Heart,
-  Images,
-  MessageSquare,
-  Send,
-  SlidersHorizontal,
-  UserRound,
-  type LucideIcon,
-} from "lucide-react";
+import { AudioLines, Heart, Send, UserRound, type LucideIcon } from "lucide-react";
 
-import { MODEL_TYPE_TABS, asModelType, type ModelTabSlug } from "@/lib/model-types";
+import {
+  MODEL_TYPE_TABS,
+  activeModelTab,
+  asModelType,
+  subTabHref,
+  type ModelSubTabSlug,
+  type ModelTabSlug,
+} from "@/lib/model-types";
 import { cn } from "@/lib/utils";
 
 /**
@@ -25,11 +23,33 @@ const TAB_META: Record<ModelTabSlug, { label: string; icon: LucideIcon }> = {
   telegram: { label: "Telegram", icon: Send },
   fanvue: { label: "Fanvue", icon: Heart },
   persona: { label: "Persona", icon: UserRound },
-  behavior: { label: "Behavior", icon: SlidersHorizontal },
   voice: { label: "Voice", icon: AudioLines },
-  photos: { label: "Photos", icon: Images },
-  chats: { label: "Chats", icon: MessageSquare },
 };
+
+/**
+ * Názvy podkariet. Prvá („index") je samotná karta a volá sa inak podľa toho,
+ * čo na nej je: Telegram sa pripája sprievodcom, Fanvue jedným preklikom,
+ * Persona je jej identita.
+ */
+const SUB_TAB_LABEL: Partial<Record<ModelTabSlug, Partial<Record<ModelSubTabSlug, string>>>> =
+  {
+    telegram: {
+      index: "Connection",
+      settings: "Settings",
+      photos: "Photos",
+      chats: "Chats",
+    },
+    fanvue: {
+      index: "Connect",
+      settings: "Settings",
+      photos: "Photos",
+      chats: "Chats",
+    },
+    persona: {
+      index: "Identity",
+      behavior: "Behavior",
+    },
+  };
 
 /** Podmenu jednej modelky — vodorovné taby, na mobile scrollovateľné. */
 export function ModelTabs({
@@ -44,39 +64,76 @@ export function ModelTabs({
   const pathname = usePathname();
   const tabs = MODEL_TYPE_TABS[asModelType(modelType)];
 
+  const {
+    tab: activeTab,
+    sub: activeSub,
+    subTabs,
+  } = activeModelTab(pathname, modelId, modelType);
+
   return (
-    <nav className="-mx-1 mb-8 flex gap-1 overflow-x-auto border-b border-[var(--app-border)] pb-px">
-      {tabs.map((slug) => {
-        const meta = TAB_META[slug];
-        const href = `/app/m/${modelId}/${slug}`;
-        const active = pathname === href || pathname.startsWith(`${href}/`);
-        const Icon = meta.icon;
-        return (
-          <Link
-            key={slug}
-            href={href}
-            aria-current={active ? "page" : undefined}
-            className={cn(
-              "app-tap relative flex shrink-0 items-center gap-2 px-3 py-2.5 text-[13px] transition-colors",
-              active
-                ? "font-medium text-[var(--app-text)]"
-                : "text-[var(--app-text-3)] hover:text-[var(--app-text-2)]",
-            )}
-          >
-            <Icon className="h-4 w-4" strokeWidth={1.75} />
-            {meta.label}
-            {slug === "telegram" && needsSetup && (
-              <span
-                className="h-1.5 w-1.5 rounded-full bg-[var(--app-text-3)]"
-                title="Setup not finished"
-              />
-            )}
-            {active && (
-              <span className="absolute inset-x-0 -bottom-px h-px bg-[var(--app-text)]" />
-            )}
-          </Link>
-        );
-      })}
-    </nav>
+    <div className="mb-8">
+      <nav className="-mx-1 flex gap-1 overflow-x-auto border-b border-[var(--app-border)] pb-px">
+        {tabs.map((slug) => {
+          const meta = TAB_META[slug];
+          const href = `/app/m/${modelId}/${slug}`;
+          const active = slug === activeTab;
+          const Icon = meta.icon;
+          return (
+            <Link
+              key={slug}
+              href={href}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "app-tap relative flex shrink-0 items-center gap-2 px-3 py-2.5 text-[13px] transition-colors",
+                active
+                  ? "font-medium text-[var(--app-text)]"
+                  : "text-[var(--app-text-3)] hover:text-[var(--app-text-2)]",
+              )}
+            >
+              <Icon className="h-4 w-4" strokeWidth={1.75} />
+              {meta.label}
+              {slug === "telegram" && needsSetup && (
+                <span
+                  className="h-1.5 w-1.5 rounded-full bg-[var(--app-text-3)]"
+                  title="Setup not finished"
+                />
+              )}
+              {active && (
+                <span className="absolute inset-x-0 -bottom-px h-px bg-[var(--app-text)]" />
+              )}
+            </Link>
+          );
+        })}
+      </nav>
+
+      {/* Druhý rad — o stupeň tichší: bez ikon, menšie písmo, tenšia čiara.
+          Je to podmenu jednej karty, nie druhá navigácia rovnakej váhy. */}
+      {activeTab && subTabs.length > 1 && (
+        <nav className="-mx-1 mt-px flex gap-0.5 overflow-x-auto border-b border-[var(--app-border)] pb-px">
+          {subTabs.map((sub) => {
+            const label = SUB_TAB_LABEL[activeTab]?.[sub] ?? sub;
+            const active = sub === activeSub;
+            return (
+              <Link
+                key={sub}
+                href={subTabHref(modelId, activeTab, sub)}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "app-tap relative shrink-0 px-3 py-2 text-[12px] transition-colors",
+                  active
+                    ? "font-medium text-[var(--app-text-2)]"
+                    : "text-[var(--app-text-4)] hover:text-[var(--app-text-3)]",
+                )}
+              >
+                {label}
+                {active && (
+                  <span className="absolute inset-x-2 -bottom-px h-px bg-[var(--app-text-2)]" />
+                )}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
+    </div>
   );
 }

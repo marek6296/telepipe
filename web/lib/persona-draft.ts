@@ -79,7 +79,7 @@ export type MapResult = {
 };
 
 /* --------------------------------------------------------------------------
-   Hranice — musia sedieť s `persona/actions.ts` a `behavior/actions.ts`
+   Hranice — musia sedieť s `persona/actions.ts` a `persona/behavior/actions.ts`
 -------------------------------------------------------------------------- */
 
 const HEAT: readonly string[] = ["mild", "medium", "hot"];

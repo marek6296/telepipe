@@ -83,13 +83,13 @@ export function ModelCard({
           Persona
         </QuickLink>
         <QuickLink
-          href={`/app/m/${model.id}/photos`}
+          href={`/app/m/${model.id}/telegram/photos`}
           icon={<Images className="h-3.5 w-3.5" strokeWidth={1.75} />}
         >
           Photos
         </QuickLink>
         <QuickLink
-          href={`/app/m/${model.id}/chats`}
+          href={`/app/m/${model.id}/telegram/chats`}
           icon={<MessageSquare className="h-3.5 w-3.5" strokeWidth={1.75} />}
         >
           Chats

@@ -40,7 +40,7 @@ export async function createPhotoAction(
   });
 
   if (error) return { error: error.message };
-  revalidatePath(`/app/m/${model.id}/photos`);
+  revalidatePath(`/app/m/${model.id}/telegram/photos`);
   return { ok: true };
 }
 
@@ -86,7 +86,7 @@ export async function updatePhotoAction(
     .eq("model_id", modelId);
 
   if (error) return { error: error.message };
-  revalidatePath(`/app/m/${modelId}/photos`);
+  revalidatePath(`/app/m/${modelId}/telegram/photos`);
   return { ok: true };
 }
 
@@ -120,7 +120,7 @@ export async function deletePhotoAction(
     await supabase.storage.from(BUCKET).remove([path]);
   }
 
-  revalidatePath(`/app/m/${modelId}/photos`);
+  revalidatePath(`/app/m/${modelId}/telegram/photos`);
   return { ok: true };
 }
 
