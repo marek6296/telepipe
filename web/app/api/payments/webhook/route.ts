@@ -1,7 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { refreshPayment, settlePermanentDeposit } from "@/lib/payments";
-import { parsePlisioPayIn, plisioEnabled, verifyCallbackHash } from "@/lib/plisio";
+import {
+  getPayInOperation,
+  parsePlisioPayIn,
+  plisioEnabled,
+  verifyCallbackHash,
+} from "@/lib/plisio";
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -45,16 +50,20 @@ export async function POST(request: NextRequest) {
 
   const callbackType = String(payload.ipn_type ?? payload.type ?? "").toLowerCase();
   if (callbackType === "pay_in") {
-    // Unlike legacy invoices, a permanent transfer has no pre-created payment
-    // row. A valid Plisio HMAC is therefore mandatory before any credit path.
-    if (!isJson || !verifyCallbackHash(raw)) {
-      console.warn("Rejected unsigned Plisio pay_in callback for", txnId);
-      return NextResponse.json({ ok: false }, { status: 401 });
-    }
-
-    const deposit = parsePlisioPayIn(payload);
+    // Podpísanému JSON callbacku veríme priamo (žiadne kolo navyše). Všetko
+    // ostatné — zlý/neznámy formát verify_hash, form-encoded telo, neúplné
+    // polia — NEzahadzujeme: stav si autoritatívne doptáme z Plisio API naším
+    // kľúčom. Pripísanie tak ostáva okamžité a podvrhnutý callback aj tak
+    // nič nezmôže, lebo dáta prídu z Plisia a settle overuje vlastníctvo
+    // adresy v DB.
+    let deposit =
+      isJson && verifyCallbackHash(raw) ? parsePlisioPayIn(payload) : null;
     if (!deposit) {
-      return NextResponse.json({ ok: true, skipped: "incomplete pay_in" });
+      console.warn("Unverified Plisio pay_in callback — re-fetching operation", txnId);
+      deposit = await getPayInOperation(txnId);
+    }
+    if (!deposit) {
+      return NextResponse.json({ ok: true, skipped: "unverifiable pay_in" });
     }
     if (deposit.status !== "completed" && deposit.status !== "finished") {
       return NextResponse.json({ ok: true, skipped: deposit.status });

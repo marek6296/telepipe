@@ -379,6 +379,29 @@ export async function getOperation(txnId: string): Promise<PlisioOperation | nul
   }
 }
 
+/**
+ * Autoritatívny stav jednej pay_in operácie — pýta sa naším secret kľúčom.
+ * Webhook ním overuje callbacky, ktorých `verify_hash` nesedí: pripísanie tak
+ * ostáva okamžité aj pri inom formáte podpisu a podvrhnutý callback nič
+ * nezmôže, lebo dáta idú vždy z Plisio API, nie z tela požiadavky.
+ */
+export async function getPayInOperation(txnId: string): Promise<PlisioPayIn | null> {
+  try {
+    const res = await fetch(
+      `${API}/operations/${encodeURIComponent(txnId)}?api_key=${encodeURIComponent(plisioSecretKey())}`,
+      { headers: { Accept: "application/json" }, cache: "no-store" },
+    );
+    const j = (await res.json().catch(() => ({}))) as {
+      status?: string;
+      data?: Record<string, unknown>;
+    };
+    if (j.status !== "success" || !j.data) return null;
+    return parsePlisioPayIn(j.data);
+  } catch {
+    return null;
+  }
+}
+
 /** Recent permanent-address transfers, used only as a webhook-loss backstop. */
 export async function listPayInOperations(
   page = 1,
