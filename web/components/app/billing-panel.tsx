@@ -112,7 +112,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       ) : (
         <Copy className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
       )}
-      {copied ? "Skopírované" : "Kopírovať"}
+      {copied ? "Copied" : "Copy"}
     </button>
   );
 }
@@ -123,9 +123,9 @@ function CopyButton({ value, label }: { value: string; label: string }) {
 
 function NewToCrypto({ label }: { label: string }) {
   const wallets = [
-    { icon: Smartphone, name: "Revolut", note: "Najľahšie, ak ho už máš", how: "Karta → Krypto → kúp trochu → Poslať → vlož adresu nižšie." },
-    { icon: Wallet, name: "MetaMask", note: "Zadarmo, appka za 5 minút", how: "Nainštaluj → kúp krypto kartou → Send → vlož adresu nižšie." },
-    { icon: CreditCard, name: "Burza (Binance…)", note: "Ak už niekde krypto máš", how: "Kúp → Withdraw / Send → vlož adresu a vyber sieť." },
+    { icon: Smartphone, name: "Revolut", note: "Easiest if you have it", how: "Card → Crypto → buy a little → Send → paste the address below." },
+    { icon: Wallet, name: "MetaMask", note: "Free app, 5 minutes", how: "Install → buy crypto by card → Send → paste the address below." },
+    { icon: CreditCard, name: "Exchange (Binance…)", note: "If you already hold crypto", how: "Buy → Withdraw / Send → paste the address and pick the network." },
   ];
 
   return (
@@ -137,9 +137,9 @@ function NewToCrypto({ label }: { label: string }) {
           </span>
           <span>
             <span className="block text-[13px] font-medium text-[var(--app-text)]">
-              Prvýkrát platíš kryptom? Zvládneš to za pár minút
+              First time paying with crypto? It only takes a few minutes
             </span>
-            <span className="block text-[11.5px] text-[var(--app-text-4)]">Ako na to — krok za krokom</span>
+            <span className="block text-[11.5px] text-[var(--app-text-4)]">How to do it — step by step</span>
           </span>
         </span>
         <ChevronDown className="h-4 w-4 shrink-0 text-[var(--app-text-3)] transition-transform group-open:rotate-180" strokeWidth={1.75} aria-hidden />
@@ -150,26 +150,26 @@ function NewToCrypto({ label }: { label: string }) {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="flex items-center gap-2 text-[13px] font-semibold text-[var(--app-text)]">
               <CreditCard className="h-4 w-4" strokeWidth={1.75} aria-hidden />
-              Najjednoduchšie — zaplať kartou
+              Easiest — pay by card
               <span className="rounded-full border border-[var(--app-border-strong)] px-2 py-0.5 text-[10px] font-medium text-[var(--app-text-3)]">
-                bez peňaženky aj bez účtu
+                no wallet, no account
               </span>
             </p>
             <a href={CARD_ONRAMP_URL} target="_blank" rel="noopener noreferrer" className="app-btn app-btn-secondary h-8 shrink-0 px-3 text-[12px]">
-              Otvoriť Guardarian
+              Open Guardarian
               <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.75} aria-hidden />
             </a>
           </div>
           <p className="mt-1.5 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-            Bez registrácie — len rýchle overenie totožnosti (zákonná povinnosť u každého).
-            Krypto pošle rovno na tvoju adresu u nás.
+            No registration — just a quick identity check (required by law everywhere). The crypto
+            goes straight to your address here.
           </p>
           <ol className="mt-3 space-y-2">
             {[
-              `Nižšie vyber ${label} a klikni „Zobraziť adresu“ — dostaneš svoju stálu adresu.`,
-              "Otvor Guardarian a tú adresu vlož ako príjemcu (recipient wallet address).",
-              "Vyber tú istú menu, zadaj sumu a zaplať kartou. Over totožnosť.",
-              "Krypto dorazí za pár minút a coiny sa pripíšu samy.",
+              `Below, pick ${label} and click “Show my address” — you get your permanent address.`,
+              "Open Guardarian and paste that address as the recipient wallet address.",
+              "Pick the same coin, enter an amount and pay by card. Verify your identity.",
+              "The crypto arrives in a few minutes and coins are added automatically.",
             ].map((text, index) => (
               <li key={index} className="flex items-start gap-2.5">
                 <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[var(--app-border-strong)] text-[10px] font-semibold text-[var(--app-text-2)]">
@@ -182,7 +182,7 @@ function NewToCrypto({ label }: { label: string }) {
         </div>
 
         <div>
-          <p className="mb-2.5 text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">Alebo ak už krypto niekde máš</p>
+          <p className="mb-2.5 text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">Or if you already have crypto somewhere</p>
           <div className="grid gap-2.5 sm:grid-cols-3">
             {wallets.map((wallet) => (
               <div key={wallet.name} className="rounded-lg border border-[var(--app-border)] p-3">
@@ -259,12 +259,12 @@ export function BillingPanel({
       });
       const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
       if (!response.ok) {
-        setError(String(data.error ?? "Adresu sa nepodarilo načítať."));
+        setError(String(data.error ?? "Could not load the deposit address."));
         return;
       }
       setAddress(data as unknown as PermanentAddress);
     } catch {
-      setError("Adresu sa nepodarilo načítať. Skontroluj pripojenie a skús znova.");
+      setError("Could not load the address. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -308,8 +308,8 @@ export function BillingPanel({
     return (
       <div className="p-5">
         <Callout tone="neutral" icon={<Mail className="h-4 w-4" strokeWidth={1.75} />}>
-          Krypto vklady sú dočasne nedostupné. Napíš nám na{" "}
-          <a className="underline" href={`mailto:${supportEmail}`}>{supportEmail}</a> a pomôžeme ti.
+          Crypto deposits are temporarily unavailable. Email us at{" "}
+          <a className="underline" href={`mailto:${supportEmail}`}>{supportEmail}</a> and we will help you.
         </Callout>
       </div>
     );
@@ -323,11 +323,11 @@ export function BillingPanel({
       <div>
         <div className="mb-2.5 flex items-center justify-between">
           <span className="text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
-            Koľko chceš dobiť
+            How much to top up
           </span>
           {bonusPct > 0 && (
             <span className="rounded-full border border-[var(--app-border-strong)] px-2 py-0.5 text-[10.5px] font-semibold text-[var(--app-text-2)]">
-              +{bonusPct}% coinov navyše
+              +{bonusPct}% bonus coins
             </span>
           )}
         </div>
@@ -366,7 +366,7 @@ export function BillingPanel({
         </div>
         {!amountValid && (
           <p className="mt-2 text-[12px] text-[var(--app-text-4)]">
-            Zadaj sumu ${CUSTOM_MIN_USD}–${CUSTOM_MAX_USD.toLocaleString("en-US")}.
+            Enter ${CUSTOM_MIN_USD}–${CUSTOM_MAX_USD.toLocaleString("en-US")}.
           </p>
         )}
       </div>
@@ -374,9 +374,9 @@ export function BillingPanel({
       {/* --- Mena ------------------------------------------------------------- */}
       <div>
         <span className="mb-2.5 block text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
-          Čím zaplatíš
+          Pay with
         </span>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Kryptomena">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" role="radiogroup" aria-label="Cryptocurrency">
           {currencies.map((item) => {
             const active = item.cid === currency;
             const badge = cryptoMeta(item.cid);
@@ -429,8 +429,8 @@ export function BillingPanel({
           ) : (
             <CoinBadge cid={currency} size={22} />
           )}
-          Zaplatiť {selectedCurrency?.label ?? currency}
-          {sendAmount && <span className="opacity-70">· pošleš ≈ {sendAmount}</span>}
+          Pay with {selectedCurrency?.label ?? currency}
+          {sendAmount && <span className="opacity-70">· send ≈ {sendAmount}</span>}
         </button>
       ) : (
         <div className="billing-reveal rounded-xl border border-[var(--app-border)] bg-[var(--app-surface-hover)]/30">
@@ -440,10 +440,10 @@ export function BillingPanel({
               <CoinBadge cid={address.payCurrency} size={26} />
               <span>
                 <span className="block text-[13px] font-semibold text-[var(--app-text)]">
-                  Pošli {selectedCurrency?.label ?? address.payCurrency}
+                  Send {selectedCurrency?.label ?? address.payCurrency}
                 </span>
                 <span className="block text-[10.5px] text-[var(--app-text-4)]">
-                  Sieť {selectedCurrency?.network ?? address.payCurrency} · adresa nikdy nevyprší
+                  {selectedCurrency?.network ?? address.payCurrency} network · address never expires
                 </span>
               </span>
             </span>
@@ -452,7 +452,7 @@ export function BillingPanel({
               onClick={() => setAddress(null)}
               className="app-tap text-[12px] text-[var(--app-text-3)] underline underline-offset-4 hover:text-[var(--app-text)]"
             >
-              Zmeniť
+              Change
             </button>
           </div>
 
@@ -469,7 +469,7 @@ export function BillingPanel({
               />
               <p className="mt-2 flex items-center justify-center gap-1.5 text-center text-[11px] text-[var(--app-text-4)]">
                 <ScanLine className="h-3 w-3" strokeWidth={1.75} aria-hidden />
-                V peňaženke daj „Send“ a naskenuj
+                Open Send in your wallet and scan
               </p>
             </div>
 
@@ -480,7 +480,7 @@ export function BillingPanel({
                 style={{ borderColor: `${meta.color}55`, background: `${meta.color}0f` }}
               >
                 <p className="text-[11px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
-                  Pošli približne
+                  Send about
                 </p>
                 <p className="mt-1 flex items-baseline gap-2">
                   <span className="text-[26px] font-bold leading-none tabular-nums text-[var(--app-text)]">
@@ -491,19 +491,19 @@ export function BillingPanel({
                   </span>
                 </p>
                 <p className="mt-1.5 text-[11.5px] text-[var(--app-text-3)]">
-                  za ${usd} · dostaneš{" "}
-                  <strong className="text-[var(--app-text)]">{expectedCoins.toLocaleString("en-US")}</strong> coinov
+                  for ${usd} · you get{" "}
+                  <strong className="text-[var(--app-text)]">{expectedCoins.toLocaleString("en-US")}</strong> coins
                   {bonusPct > 0 ? ` (+${bonusPct}%)` : ""}
                 </p>
               </div>
 
               <div className="rounded-lg border border-[var(--app-border)] p-3">
-                <p className="text-[10.5px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">Adresa</p>
+                <p className="text-[10.5px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">Address</p>
                 <div className="mt-1.5 flex items-start gap-2">
                   <p className="min-w-0 flex-1 break-all font-mono text-[12.5px] leading-relaxed text-[var(--app-text)]">
                     {address.payAddress}
                   </p>
-                  <CopyButton value={address.payAddress} label="Kopírovať adresu" />
+                  <CopyButton value={address.payAddress} label="Copy address" />
                 </div>
               </div>
             </div>
@@ -513,24 +513,24 @@ export function BillingPanel({
           <div className="space-y-3 border-t border-[var(--app-border)] px-4 py-3.5">
             {credited ? (
               <Callout tone="success" icon={<CircleCheck className="h-4 w-4" strokeWidth={1.75} />}>
-                <strong>Platba prijatá.</strong> Pripísali sme{" "}
-                {Number(credited.coins).toLocaleString("en-US")} Pipe Coinov z ${Number(credited.source_usd).toFixed(2)}
+                <strong>Payment received.</strong> We credited{" "}
+                {Number(credited.coins).toLocaleString("en-US")} Pipe Coins from ${Number(credited.source_usd).toFixed(2)}
                 {Number(credited.bonus_pct) > 0 ? ` (+${Number(credited.bonus_pct)}%).` : "."}{" "}
-                <button type="button" onClick={watchForAnother} className="underline">Sledovať ďalšiu platbu</button>
+                <button type="button" onClick={watchForAnother} className="underline">Watch for another</button>
               </Callout>
             ) : (
               <p className="flex items-center gap-2 text-[12.5px] text-[var(--app-text-3)]">
                 <Loader2 className="h-4 w-4 shrink-0 animate-spin" strokeWidth={1.75} aria-hidden />
-                Čakám na platbu. Coiny sa pripíšu samy — stránku môžeš zavrieť.
+                Waiting for your payment. Coins are added automatically — you can close this page.
               </p>
             )}
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px] text-[var(--app-text-4)]">
               <span className="flex items-center gap-1.5">
                 <TriangleAlert className="h-3 w-3" strokeWidth={1.75} aria-hidden />
-                Pošli len {meta.ticker} na sieti {selectedCurrency?.network}.
+                Send only {meta.ticker} on the {selectedCurrency?.network} network.
               </span>
               <a href={CARD_ONRAMP_URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 underline hover:text-[var(--app-text-2)]">
-                Nemáš krypto? Kúp kartou
+                No crypto? Buy with card
                 <ExternalLink className="h-3 w-3" strokeWidth={1.75} aria-hidden />
               </a>
             </div>
