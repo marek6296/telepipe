@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 import { FeatureGrid } from "@/components/marketing/feature-grid";
-import { CtaBand, PageHeader } from "@/components/marketing/page-shell";
+import { PageHeader } from "@/components/marketing/page-shell";
 import { marketingMetadata } from "@/lib/seo";
 
 export const metadata: Metadata = marketingMetadata({
@@ -34,12 +34,6 @@ export default function FeaturesPage() {
       <section className="relative px-6 pb-24">
         <FeatureGrid />
       </section>
-
-      <CtaBand
-        title="See her handle your inbox for a day."
-        body="Connect one model and see her work — persona, memory and the Telegram agent are all included. There is no subscription: you buy Pipe Coins and spend them as she replies."
-        note="No card required · No subscription · Pipe Coins never expire"
-      />
     </>
   );
 }

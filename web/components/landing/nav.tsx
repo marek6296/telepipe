@@ -69,11 +69,14 @@ export function LandingNav() {
           : "border-b border-transparent bg-transparent",
       )}
     >
-      <nav className="mx-auto flex h-[68px] max-w-7xl items-center justify-between px-5 sm:px-8">
+      <nav className="mx-auto grid h-[68px] max-w-7xl grid-cols-[1fr_auto_1fr] items-center px-5 sm:px-8">
         <Link
           href="/"
           {...revealAttr}
-          className={cn("flex items-center", revealClass)}
+          className={cn(
+            "col-start-1 row-start-1 flex items-center justify-self-start",
+            revealClass,
+          )}
           aria-label="Telepipe home"
         >
           {cinematic ? (
@@ -104,7 +107,10 @@ export function LandingNav() {
 
         <ul
           {...revealAttr}
-          className={cn("hidden items-center gap-8 md:flex", revealClass)}
+          className={cn(
+            "col-start-2 row-start-1 hidden items-center gap-8 justify-self-center md:flex",
+            revealClass,
+          )}
         >
           {LINKS.map((link) => {
             const active = pathname === link.href;
@@ -133,7 +139,10 @@ export function LandingNav() {
 
         <div
           {...revealAttr}
-          className={cn("hidden items-center gap-2.5 md:flex", revealClass)}
+          className={cn(
+            "col-start-3 row-start-1 hidden items-center gap-2.5 justify-self-end md:flex",
+            revealClass,
+          )}
         >
           <Link href="/login" className="lp-btn lp-btn-quiet h-9 px-3.5 text-[13.5px]">
             Sign in
@@ -150,7 +159,7 @@ export function LandingNav() {
           aria-label={open ? "Close menu" : "Open menu"}
           aria-expanded={open}
           className={cn(
-            "lp-hairline flex h-9 w-9 items-center justify-center rounded-lg text-white/75 transition-colors hover:text-white md:hidden",
+            "lp-hairline col-start-3 row-start-1 flex h-9 w-9 items-center justify-center justify-self-end rounded-lg text-white/75 transition-colors hover:text-white md:hidden",
             revealClass,
           )}
         >

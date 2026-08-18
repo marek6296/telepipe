@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { CtaBand, PageHeader } from "@/components/marketing/page-shell";
+import { PageHeader } from "@/components/marketing/page-shell";
 import { StepsInteractor, type Step } from "@/components/marketing/steps-interactor";
 import { marketingMetadata } from "@/lib/seo";
 
@@ -57,12 +57,6 @@ export default function HowItWorksPage() {
           <StepsInteractor steps={STEPS} />
         </div>
       </section>
-
-      <CtaBand
-        title="Three steps away from a model that never sleeps."
-        body="Start on Free with a single model — Telegram, persona and memory are all in there before you pay anything for the platform."
-        note="No card required · No subscription · Pipe Coins never expire"
-      />
     </>
   );
 }

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { CtaBand, PageHeader } from "@/components/marketing/page-shell";
+import { PageHeader } from "@/components/marketing/page-shell";
 import { PricingTable } from "@/components/marketing/pricing-table";
 import { COINS_PER_REPLY, COINS_PER_USD } from "@/lib/coins";
 import { marketingMetadata } from "@/lib/seo";
@@ -91,12 +91,6 @@ export default function PricingPage() {
           ))}
         </div>
       </section>
-
-      <CtaBand
-        title="Start free. Buy coins when she has earned them."
-        body="Connect one model in a few minutes and watch what she does with your DMs. You only ever pay for the work she actually does."
-        note="No card required · No subscription · Pipe Coins never expire"
-      />
     </>
   );
 }
