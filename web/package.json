@@ -12,6 +12,7 @@
     "test:persona": "node scripts/persona-draft-test.mts",
     "test:schedule": "node scripts/schedule-draft-test.mts",
     "test:coins": "node scripts/coins-test.mts",
+    "test:access": "node scripts/access-test.mts",
     "seo:indexnow": "node scripts/submit-indexnow.mjs"
   },
   "dependencies": {

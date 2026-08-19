@@ -10,14 +10,18 @@ export const ROLES = ["user", "admin", "superadmin"] as const;
  *  Pipe Coiny a míňa ich, ako modelka pracuje. Plán už neriadi funkcie, riadi
  *  jedinú vec: cenu.
  *
- *  free — bežný účet, účtovaný `pricing.multiplier` (2.0)
- *  vip  — kamaráti, účtovaní nákupnou cenou Atlasu (1.0), nezarábame na nich
+ *  free      — bežný účet, účtovaný `pricing.multiplier` (2.0). Od migrácie
+ *              20260819120000 je ZAMKNUTÝ: nesmie založiť modelku ani kúpiť
+ *              coiny, kým ho Marek neschváli.
+ *  free_plus — schválený účet („Standard+"). Účtuje sa PRESNE ako `free`;
+ *              nesie povolenie pracovať, nie inú cenu.
+ *  vip       — kamaráti, účtovaní nákupnou cenou Atlasu (1.0), nezarábame na nich
  *
  *  `vip` je zámerne posledný: nikde sa neinzeruje, prideliť ho smie iba
  *  superadmin a `record_usage` mu prepočíta sumu sám (021). Verejný cenník
  *  (`/pricing`) vymenúva balíky coinov natvrdo z `lib/coins.ts`, takže sa tam
  *  odtiaľto nemá ako dostať. */
-export const PLANS = ["free", "vip"] as const;
+export const PLANS = ["free", "free_plus", "vip"] as const;
 
 /** Balíky, ktoré smie prideliť aj obyčajný admin. VIP chýba schválne —
  *  DB to strážila prvá (`admin_set_plan` → 42501), toto je len UI. */
@@ -56,12 +60,16 @@ export const ROLE_STYLE: Record<AccountRole, string> = {
 /** „Standard", nie „Free" — účet nie je zadarmo, len sa naň dokupujú coiny. */
 export const PLAN_LABEL: Record<Plan, string> = {
   free: "Standard",
+  free_plus: "Standard+",
   vip: "VIP",
 };
 
-/** Vysvetlenie pri VIP — aby bolo v admine hneď jasné, čo ten balík robí
- *  s účtovaním, a neplietol sa s `unlimited` (ten neodpočítava vôbec). */
+/** Vysvetlenie pri balíkoch, ktoré niečo naozaj robia — aby bolo v admine hneď
+ *  jasné, čo prepnutie spôsobí, a aby sa VIP neplietlo s `unlimited` (ten
+ *  neodpočítava vôbec). */
 export const PLAN_HINT: Partial<Record<Plan, string>> = {
+  free: "Locked — cannot create models or buy coins until approved.",
+  free_plus: "Approved — full access. Billed like Standard.",
   vip: "Billed at cost — no margin. Pipe Coins still run down.",
 };
 
