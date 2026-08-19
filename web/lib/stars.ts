@@ -19,6 +19,26 @@ import { COINS_PER_USD } from "./coins.ts";
 export const USD_PER_STAR = 0.013;
 
 /**
+ * Bezpečnostná rezerva pri prepočte na Stars.
+ *
+ * PREČO: Telegram vo vlastnej tabuľke píše, že sumy sa môžu líšiť „kvôli DPH
+ * a ďalším poplatkom mimo kontroly Telegramu". Bez rezervy vychádzalo 770 ⭐
+ * na $10,01 oproti pripísaným $10,00 — rezerva jednej desatiny percenta.
+ * Stačilo by, aby nám z niektorej krajiny prišlo o percento menej, a pri
+ * KAŽDOM nákupe by sme pripisovali viac, než sme dostali.
+ *
+ * Päť percent je kompromis: klienta to za $10 coinov vyjde o ~80 centov
+ * drahšie, čo pri metóde, ktorá je aj tak drahšia, nikoho neprekvapí — a nás
+ * to drží nad vodou aj keď sa kurz mierne pohne.
+ *
+ * Až budeme mať skutočné čísla z `getStarTransactions`, dá sa to dotiahnuť.
+ */
+export const SAFETY_MARGIN = 0.05;
+
+/** Kurz, s ktorým naozaj počítame — kurz Telegramu znížený o rezervu. */
+export const USD_PER_STAR_SAFE = USD_PER_STAR * (1 - SAFETY_MARGIN);
+
+/**
  * Koľko používateľa stojí jeden Star v obchode. Slúži LEN na to, aby sme mu
  * vedeli ukázať približnú cenu v dolároch — účtuje Telegram, nie my, a
  * skutočná suma sa líši podľa DPH a krajiny.
@@ -37,7 +57,7 @@ export const STARS_MAX_USD = 500;
  * v Telegrame nesvietili čísla ako „771 ⭐".
  */
 export function starsForUsd(usd: number): number {
-  const raw = usd / USD_PER_STAR;
+  const raw = usd / USD_PER_STAR_SAFE;
   return Math.ceil(raw / 10) * 10;
 }
 
@@ -110,10 +130,14 @@ export const STAR_OPTIONS: StarOption[] = [5, 10, 20, 50].map((usd) => ({
 export function assertStarsProfitable(options: StarOption[] = STAR_OPTIONS): void {
   for (const option of options) {
     const net = option.stars * USD_PER_STAR;
-    if (net < option.usd) {
+    // Nestačí „aspoň na svoje". Musí ostať aj rezerva — inak by pohyb kurzu
+    // o percento robil z každého nákupu stratu.
+    const potrebne = option.usd / (1 - SAFETY_MARGIN);
+    if (net < potrebne) {
       throw new Error(
-        `Stars: ${option.stars} ⭐ vynesie $${net.toFixed(2)}, ale pripisujeme ` +
-          `$${option.usd.toFixed(2)} — predávame pod cenu`,
+        `Stars: ${option.stars} ⭐ vynesie $${net.toFixed(2)}, ale pri pripísaných ` +
+          `$${option.usd.toFixed(2)} potrebujeme aspoň $${potrebne.toFixed(2)} ` +
+          `(rezerva ${SAFETY_MARGIN * 100} %)`,
       );
     }
     if (option.coins !== Math.round(option.usd * COINS_PER_USD)) {

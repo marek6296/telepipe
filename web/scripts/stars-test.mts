@@ -13,6 +13,7 @@ import {
   STARS_MAX_USD,
   STARS_MIN_USD,
   STAR_OPTIONS,
+  SAFETY_MARGIN,
   USD_PER_STAR,
   approxUserCostUsd,
   assertStarsProfitable,
@@ -40,10 +41,16 @@ console.log("  ok — žiadna ponuka nie je pod cenou");
 // Zaokrúhľuje sa NAHOR, nikdy nadol.
 for (const usd of [5, 7, 10, 13, 20, 50, 137]) {
   const stars = starsForUsd(usd);
-  assert.ok(stars * USD_PER_STAR >= usd, `$${usd} → ${stars} ⭐ je pod cenou`);
+  const net = stars * USD_PER_STAR;
+  assert.ok(net >= usd, `$${usd} → ${stars} ⭐ je pod cenou`);
+  // A ešte s rezervou — samotné „aspoň na svoje" je pri 0,1 % rozdiele ilúzia.
+  assert.ok(
+    net >= usd / (1 - SAFETY_MARGIN),
+    `$${usd} → ${stars} ⭐ nemá ${SAFETY_MARGIN * 100} % rezervu (vynesie $${net.toFixed(2)})`,
+  );
   assert.equal(stars % 10, 0, "počet Stars má byť zaokrúhlený na desiatku");
 }
-console.log("  ok — zaokrúhľovanie vždy nahor");
+console.log(`  ok — zaokrúhľovanie nahor + ${SAFETY_MARGIN * 100} % rezerva`);
 
 // Bonusy za objem pri Stars NEPLATIA — inak by veľký nákup cez Telegram
 // prerobil, lebo poplatok je 35 %, nie 1 %.
