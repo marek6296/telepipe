@@ -63,6 +63,16 @@ export async function createModelAction(
     if (error?.message.includes("model type not available yet")) {
       return { error: "That agent type is not available yet — pick AI Persona Agent." };
     }
+    // Strop slotov stráži trigger `models_slot_limit` v databáze, nie táto
+    // akcia — modelka sa dá založiť viacerými cestami a dva súbežné requesty
+    // pri jednom voľnom slote by kontrolu tu oba prešli. Sem už príde len
+    // strojová hláška, ktorú treba preložiť do ľudskej.
+    if (error?.message.includes("no free model slot")) {
+      return {
+        error:
+          "All your model slots are in use. Delete a model to free one up, or add a slot on the Models page.",
+      };
+    }
     return { error: error?.message ?? "Could not create the model. Please try again." };
   }
 
@@ -203,4 +213,41 @@ export async function deleteModelAction(modelId: string): Promise<ActionResult> 
 
   revalidatePath("/app", "layout");
   redirect("/app/models");
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Sloty na modelky                                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Kúpa ďalšieho slotu. Celá logika (kontrola zostatku, strop 8, odpočet,
+ * zápis do `model_slot_purchases`) je v RPC `buy_model_slot` — jedna
+ * transakcia, takže dva súbežné kliky nemôžu strhnúť dvakrát a pripísať raz.
+ *
+ * Tu prekladáme len strojové hlášky do ľudských; sumu ani strop tu NEDRŽÍME,
+ * aby cena nemala dve pravdy (druhá by časom začala klamať).
+ */
+export async function buyModelSlotAction(): Promise<ActionResult> {
+  await requireUser();
+  await requireUnlocked();
+
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("buy_model_slot");
+
+  if (error) {
+    const message = error.message ?? "";
+    if (message.includes("insufficient credits")) {
+      return { error: "Not enough Pipe Coins for another slot. Top up and try again." };
+    }
+    if (message.includes("slot limit reached")) {
+      return { error: "You already have the maximum number of model slots." };
+    }
+    if (message.includes("does not need slots")) {
+      return { error: "Your account already has unlimited models." };
+    }
+    return { error: "Could not add the slot. Please try again." };
+  }
+
+  revalidatePath("/app", "layout");
+  return { ok: true };
 }

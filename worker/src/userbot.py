@@ -1444,6 +1444,9 @@ class UserBot:
             await self._db.add_message(
                 tg_id, "assistant", f"[poslala fotku: {photo.get('caption') or 'selfie'}]"
             )
+            # Az TERAZ — fotka naozaj odisla. Ucet za nedorucenu fotku by bol
+            # najhorsi druh polozky na fakture.
+            await self._llm.charge_unit("photo", "photo_usd", 0.10)
         except Exception as exc:  # noqa: BLE001 - fotka nesmie zhodiť odpoveď
             log.warning("Fotku sa nepodarilo poslať %s: %s", tg_id, exc)
 
@@ -1613,6 +1616,14 @@ class UserBot:
             await self._client.send_file(tg_id, buffer, voice_note=True)
             await self._db.update_user(tg_id, {"last_voice_at": _utc_iso()})
             await self._db.add_message(tg_id, "assistant", f"(hlasovka) {text}".strip())
+            # Cena zavisi od toho, ci sla cez NAS kluc (managed hlas) alebo
+            # klientov — pri jeho kluci nam ElevenLabs nic neuctuje.
+            managed = (await self._behavior()).voice_source == "managed"
+            await self._llm.charge_unit(
+                "voice",
+                "voice_managed_usd" if managed else "voice_own_usd",
+                0.50 if managed else 0.30,
+            )
         except Exception as exc:  # noqa: BLE001 - odpoveď nesmie zapadnúť
             log.warning("Hlasovku na mieru sa nepodarilo poslať %s: %s", tg_id, exc)
             await self._client.send_message(tg_id, text)

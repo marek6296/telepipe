@@ -68,6 +68,12 @@ export type AccountRow = {
    * pohľady ju ignorujú. `null` = počíta sa od začiatku.
    */
   stats_since: string | null;
+  /**
+   * Migrácia 20260819150000 — koľko modeliek smie účet mať naraz. Strop drží
+   * trigger `models_slot_limit` v DB; toto je len číslo pre UI. Účty s rolou
+   * admin/superadmin alebo plánom `vip` sú vyňaté a hodnota im nič nehovorí.
+   */
+  model_slots: number;
 };
 
 /** Modelka + čísla, ktoré chce klient vidieť na karte. */
@@ -108,7 +114,9 @@ export const getAccount = cache(async function getAccount(): Promise<AccountRow 
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("accounts")
-    .select("id, email, credit_balance_usd, created_at, role, plan, stats_since")
+    .select(
+      "id, email, credit_balance_usd, created_at, role, plan, stats_since, model_slots",
+    )
     .maybeSingle();
 
   // Chyba dotazu NIE JE „účet neexistuje". Kým sa sem vracalo len `data`,

@@ -3,8 +3,16 @@ import { Bot } from "lucide-react";
 
 import { AddModelDialog } from "@/components/app/add-model-dialog";
 import { ModelCard } from "@/components/app/model-card";
+import { ModelSlots } from "@/components/app/model-slots";
 import { EmptyState, PageHeader } from "@/components/app/ui";
-import { getModelStats, getPausedMap, listModels, type ModelRow } from "@/lib/models";
+import {
+  getAccount,
+  getModelStats,
+  getPausedMap,
+  listModels,
+  type ModelRow,
+} from "@/lib/models";
+import { getAppConfig, isSlotExempt } from "@/lib/slots";
 import { getConnectedMap } from "@/lib/telegram";
 
 export const metadata: Metadata = {
@@ -14,11 +22,17 @@ export const metadata: Metadata = {
 export default async function ModelsPage() {
   const models = await listModels();
   const modelIds = models.map((model) => model.id);
-  const [stats, connected, paused] = await Promise.all([
+  const [stats, connected, paused, account, config] = await Promise.all([
     getModelStats(modelIds),
     getConnectedMap(models),
     getPausedMap(modelIds),
+    getAccount(),
+    getAppConfig(),
   ]);
+
+  // Vyňaté účty (admin, superadmin, VIP) strop nemajú — panel by im ukazoval
+  // číslo, ktoré na ne neplatí.
+  const showSlots = account !== null && !isSlotExempt(account);
 
   return (
     <>
@@ -28,6 +42,18 @@ export default async function ModelsPage() {
         description="Each model is one Telegram account with her own persona, photos and conversations."
         actions={models.length > 0 ? <AddModelDialog /> : undefined}
       />
+
+      {showSlots && (
+        <div className="mb-5">
+          <ModelSlots
+            slots={account.model_slots}
+            used={models.length}
+            balanceUsd={Number(account.credit_balance_usd)}
+            slotPriceUsd={config.model_slot_usd}
+            maxSlots={config.max_model_slots}
+          />
+        </div>
+      )}
 
       <ModelsGrid models={models} stats={stats} connected={connected} paused={paused} />
     </>

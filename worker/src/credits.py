@@ -127,6 +127,15 @@ class MeteredLlm:
         except Exception:
             log.exception("Zápis usage zlyhal — odpoveď ide ďalej, dorovná sa ďalším volaním")
 
+    async def charge_unit(self, kind: str, key: str, default_price: float) -> None:
+        """Zauctuje jeden kus (hlasovka/fotka) po USPESNOM odoslani.
+
+        Je to tu, a nie v userbote, aby vsetko uctovanie islo cez jedno miesto —
+        tokeny aj kusy. Cena sa cita z `app_config` v DB (tu istu hodnotu
+        zobrazuje web), nie z konstanty v kode.
+        """
+        await self._reg.charge_unit(self._model_id, kind, key, default_price)
+
     async def reply(self, *a, **kw): return await self._metered("reply", *a, **kw)
     async def structured(self, *a, **kw): return await self._metered("structured", *a, **kw)
     async def summarize(self, *a, **kw): return await self._metered("summarize", *a, **kw)

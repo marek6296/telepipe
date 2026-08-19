@@ -21,7 +21,7 @@ export const ROLES = ["user", "admin", "superadmin"] as const;
  *  superadmin a `record_usage` mu prepočíta sumu sám (021). Verejný cenník
  *  (`/pricing`) vymenúva balíky coinov natvrdo z `lib/coins.ts`, takže sa tam
  *  odtiaľto nemá ako dostať. */
-export const PLANS = ["free", "free_plus", "vip"] as const;
+export const PLANS = ["free", "free_plus", "vip_lite", "vip"] as const;
 
 /** Balíky, ktoré smie prideliť aj obyčajný admin. VIP chýba schválne —
  *  DB to strážila prvá (`admin_set_plan` → 42501), toto je len UI. */
@@ -61,6 +61,7 @@ export const ROLE_STYLE: Record<AccountRole, string> = {
 export const PLAN_LABEL: Record<Plan, string> = {
   free: "Standard",
   free_plus: "Standard+",
+  vip_lite: "VIP Lite",
   vip: "VIP",
 };
 
@@ -69,7 +70,8 @@ export const PLAN_LABEL: Record<Plan, string> = {
  *  neodpočítava vôbec). */
 export const PLAN_HINT: Partial<Record<Plan, string>> = {
   free: "Locked — cannot create models or buy coins until approved.",
-  free_plus: "Approved — full access. Billed like Standard.",
+  free_plus: "Approved — full access. Billed at the Standard+ margin.",
+  vip_lite: "Approved — reduced margin. Model slots apply as usual.",
   vip: "Billed at cost — no margin. Pipe Coins still run down.",
 };
 

@@ -1,6 +1,7 @@
 """Globálne operácie nad Supabase — lease, ledger, cenník, stav modelov."""
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -9,9 +10,13 @@ from transport import SupabaseTransport
 
 MODELS = "/models"
 PRICING = "/pricing"
+APP_CONFIG = "/app_config"
 WORKER_REPLICAS = "/worker_replicas"
 
+log = logging.getLogger(__name__)
+
 PRICING_TTL_SECONDS = 300
+CONFIG_TTL_SECONDS = 300
 
 
 class Registry:
@@ -21,6 +26,8 @@ class Registry:
         self._t = transport
         self._pricing_cache: Dict[str, Dict[str, Any]] = {}
         self._pricing_loaded_at: Optional[float] = None
+        self._config_cache: Dict[str, Dict[str, float]] = {}
+        self._config_loaded_at: Optional[float] = None
 
     # ---------- lease ----------
 
@@ -121,6 +128,61 @@ class Registry:
         if not isinstance(row, dict):
             return 0.0, False
         return float(row.get("balance") or 0), bool(row.get("unlimited"))
+
+
+    # ---------- ceny za kus (hlasovka, fotka) ----------
+
+    async def config(self, key: str, default: float = 0.0) -> Tuple[float, float]:
+        """`(cena pre klienta, náš náklad)` z `app_config`, s TTL cache.
+
+        Ceny sú v DB, nie v kóde, lebo tú istú hodnotu potrebuje aj web (musí
+        ju napísať skôr, než klient klikne). Dve konštanty v dvoch repozitároch
+        by sa raz rozišli a tlačidlo by sľubovalo iné číslo, než sa strhne.
+
+        Výpadok NEPREHLTÁME do nuly — vrátime `default`, aby sa hlasovka radšej
+        zaúčtovala za očakávanú cenu, než zadarmo.
+        """
+        now = time.time()
+        if self._config_loaded_at is None or now - self._config_loaded_at > CONFIG_TTL_SECONDS:
+            try:
+                rows = await self._t._get(APP_CONFIG, {"select": "key,value,our_cost"})
+                self._config_cache = {
+                    str(r["key"]): {
+                        "value": float(r.get("value") or 0),
+                        "our_cost": float(r.get("our_cost") or 0),
+                    }
+                    for r in (rows or [])
+                }
+                self._config_loaded_at = now
+            except Exception:  # noqa: BLE001 — cenník za kus nesmie zhodiť odpoveď
+                if not self._config_cache:
+                    return float(default), 0.0
+
+        row = self._config_cache.get(key)
+        if not row:
+            return float(default), 0.0
+        return row["value"], row["our_cost"]
+
+    async def charge_unit(
+        self, model_id: str, kind: str, key: str, default_price: float
+    ) -> None:
+        """Zaúčtuje JEDEN kus (hlasovku/fotku) po ÚSPEŠNOM odoslaní.
+
+        Ide tou istou `record_usage` ako tokeny — vďaka tomu platia zľavy
+        plánov (`vip` 1:1, `vip_lite` 1.5×) automaticky a ledger má jeden tvar.
+        `our_cost` je naša nákupka: pri managed hlase ElevenLabs, pri hlasovke
+        cez klientov kľúč a pri fotke nula.
+
+        Zlyhanie zápisu odpoveď NEZHODÍ — správa už odišla, účtovníctvo sa
+        dorovná ďalším volaním.
+        """
+        price, our_cost = await self.config(key, default_price)
+        if price <= 0:
+            return
+        try:
+            await self.record_usage(model_id, kind, 0, 0, 1, round(our_cost, 6), round(price, 6))
+        except Exception:
+            log.exception("Zauctovanie kusu (%s) zlyhalo", kind)
 
     async def record_usage(
         self,

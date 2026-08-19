@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Bot, LayoutDashboard, UserPlus, Users } from "lucide-react";
+import {
+  BarChart3,
+  Bot,
+  DollarSign,
+  LayoutDashboard,
+  Mic,
+  UserPlus,
+  Users,
+} from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -12,6 +20,8 @@ const TABS = [
   { href: "/app/admin/users", label: "Users", icon: Users, exact: false },
   { href: "/app/admin/models", label: "Models", icon: Bot, exact: false },
   { href: "/app/admin/usage", label: "Usage", icon: BarChart3, exact: false },
+  { href: "/app/admin/pricing", label: "Pricing", icon: DollarSign, exact: false },
+  { href: "/app/admin/voices", label: "Voices", icon: Mic, exact: false },
 ];
 
 /** Podnavigácia admin sekcie — o prístupe nerozhoduje, ten je v layoute. */
