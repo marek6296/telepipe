@@ -135,7 +135,7 @@ export async function refreshTelegramOtpAction(orderId: string): Promise<OtpActi
     }
 
     const provider = await checkOrder(row.provider_order_id);
-    await applyProviderOrder(row.id, provider);
+    await applyProviderOrder(row.id, provider, row.provider);
     await refundIfProviderFailed(row, provider.status);
     return success(await requireDbOrder(account, orderId), await balance(account));
   } catch (error) {
@@ -187,7 +187,7 @@ export async function cancelTelegramOtpAction(orderId: string): Promise<OtpActio
       };
     }
     const provider = await cancelOrder(row.provider_order_id);
-    await applyProviderOrder(row.id, provider);
+    await applyProviderOrder(row.id, provider, row.provider);
     const refundedBalance = await refund(row, "cancelled", "customer_cancelled");
     return success(
       await requireDbOrder(account, row.id),
@@ -228,7 +228,7 @@ async function provisionReservedOrder(row: TelegramOtpDbOrder): Promise<OtpActio
     const provider = row.provider_order_id
       ? await checkOrder(row.provider_order_id)
       : await buyActivation(row.service || DEFAULT_OTP_SERVICE, row.country_code);
-    await applyProviderOrder(row.id, provider);
+    await applyProviderOrder(row.id, provider, row.provider);
     await refundIfProviderFailed(row, provider.status);
     return success(await requireDbOrder(row.account_id!, row.id), await balance(row.account_id!));
   } catch (error) {

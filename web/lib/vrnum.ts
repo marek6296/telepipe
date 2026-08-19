@@ -1,6 +1,8 @@
 /** Server-only VRNUM integracia pre jednorazove Telegram OTP cisla. */
 
 import { coinPriceFromUsdCost } from "@/lib/coins";
+// Mapovanie stavov žije v samostatnom module, aby sa dalo testovať bez servera.
+import { mapProviderStatus, type TelegramOtpStatus } from "@/lib/otp-status";
 import { vrnumApiToken, vrnumOtpPriceMultiplier } from "@/lib/env";
 import { toNumber } from "@/lib/format";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -16,16 +18,6 @@ export type TelegramOtpCountry = {
   available: number;
   priceCredits: number;
 };
-
-export type TelegramOtpStatus =
-  | "reserved"
-  | "provisioning"
-  | "waiting"
-  | "code_received"
-  | "completed"
-  | "cancelled"
-  | "expired"
-  | "failed";
 
 export type TelegramOtpOrder = {
   id: string;
@@ -270,8 +262,9 @@ export async function getDbOrderByIdempotency(
 export async function applyProviderOrder(
   orderId: string,
   provider: ProviderTelegramOrder,
+  providerName: string,
 ): Promise<void> {
-  const status = mapProviderStatus(provider.status, Boolean(provider.code));
+  const status = mapProviderStatus(provider.status, Boolean(provider.code), providerName);
   const now = new Date().toISOString();
   const supabase = createServiceClient();
   const { data: current } = await supabase
@@ -293,6 +286,10 @@ export async function applyProviderOrder(
   if (provider.code) {
     update.otp_code = provider.code;
     update.code_received_at = now;
+  } else if (status === "code_received") {
+    // Poistka na tú istú chybu z druhej strany: „kód dorazil" bez kódu je stav,
+    // v ktorom appka klientovi klame a on čaká na niečo, čo tam nie je.
+    throw new Error(`code_received bez kódu (provider ${providerName}, stav ${provider.status})`);
   }
   if (status === "cancelled") update.cancelled_at = now;
 
@@ -319,19 +316,6 @@ export function publicOrder(row: TelegramOtpDbOrder): TelegramOtpOrder {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
-}
-
-export function mapProviderStatus(status: string, hasCode: boolean): TelegramOtpStatus {
-  const value = status.trim().toLowerCase().replaceAll("-", "_");
-  if (value.includes("cancel")) return "cancelled";
-  if (value.includes("expire")) return "expired";
-  if (value.includes("fail") || value.includes("error") || value.includes("reject")) {
-    return "failed";
-  }
-  if (value.includes("complete") || value.includes("success")) return "completed";
-  if (hasCode || value.includes("received")) return "code_received";
-  if (value.includes("provision") || value.includes("pending")) return "provisioning";
-  return "waiting";
 }
 
 async function vrnumRequest<T>(
@@ -434,3 +418,6 @@ function lower(value: unknown): string {
 function number(value: unknown): number {
   return toNumber(value as string | number | null | undefined);
 }
+
+export { mapProviderStatus };
+export type { TelegramOtpStatus };

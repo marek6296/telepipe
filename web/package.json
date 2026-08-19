@@ -15,7 +15,8 @@
     "test:access": "node scripts/access-test.mts",
     "test:stars": "node scripts/stars-test.mts",
     "seo:indexnow": "node scripts/submit-indexnow.mjs",
-    "test:languages": "node scripts/languages-test.mts"
+    "test:languages": "node scripts/languages-test.mts",
+    "test:otp-status": "node scripts/otp-status-test.mts"
   },
   "dependencies": {
     "@number-flow/react": "^0.6.2",
