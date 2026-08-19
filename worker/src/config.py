@@ -152,6 +152,9 @@ class Config:
     voice_api_url: str = ""
     voice_api_key: str = ""
     voice_ambience: str = ""
+    # NAS ElevenLabs kluc pre managed hlasy (behavior.voice_source = "managed").
+    # Prazdne = managed hlasy su vypnute a padne sa spat na klientov kluc.
+    platform_eleven_key: str = ""
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -174,6 +177,7 @@ class Config:
             voice_api_url=os.getenv("VOICE_API_URL", ""),
             voice_api_key=os.getenv("VOICE_API_KEY", ""),
             voice_ambience=os.getenv("VOICE_AMBIENCE", ""),
+            platform_eleven_key=os.getenv("PLATFORM_ELEVEN_KEY", "").strip(),
             # 24, nie 12: dvanásť správ je šesť výmen — téma spred desiatich
             # minút už z okna vypadla a vracala sa len cez archívne FTS, keď
             # sadli kľúčové slová. Odmerané na živej prevádzke: priemerný vstup

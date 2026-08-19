@@ -193,7 +193,8 @@ class TenantRunner:
         # ho drží v cache s krátkym TTL, nie v `TenantConfig` — inak by sa
         # prekľúčovanie v dashboarde prejavilo až reštartom modelky, a reštart
         # znamená odpojenie Telethon session.
-        db = TenantDb(self._transport, cfg.model_id, g.encryption_key, cfg.account_id)
+        db = TenantDb(self._transport, cfg.model_id, g.encryption_key, cfg.account_id,
+                      g.platform_eleven_key)
         raw_llm = Llm(
             g.llm_key, g.model, g.summary_model, g.llm_base_url, g.reasoning_effort,
             g.vision_model, g.audio_model,

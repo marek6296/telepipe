@@ -58,6 +58,7 @@ LOOPS = "/open_loops"
 CLAIMS = "/self_claims"
 JUDGE_LOG = "/judge_log"
 BEHAVIOR = "/behavior"
+MANAGED_VOICES = "/managed_voices"
 SCHEDULE = "/model_schedule"
 VOICE_CLIPS = "/voice_clips"
 VOICE_JOBS = "/voice_jobs"
@@ -197,6 +198,66 @@ class AccountKeyCache:
         return self._sealed
 
 
+
+class PlatformKeyCache:
+    """ElevenLabs kľúč PLATFORMY — ten, ktorým hovoria naše managed hlasy.
+
+    PREČO SA BERIE Z ÚČTU SUPERADMINA A NIE Z ENV. Je to ten istý kľúč, ktorý
+    má Marek pripojený v nastaveniach účtu. Keby sa musel zapisovať aj do env
+    premennej, boli by to dve pravdy — a po prvej výmene kľúča v dashboarde by
+    sa rozišli a managed hlasy by ticho prestali fungovať. Takto ho vymení na
+    jednom mieste a platí všade.
+
+    Zdieľané cez všetkých tenantov (je to jeden globálny kľúč), preto je cache
+    na úrovni modulu, nie inštancie.
+
+    Env `PLATFORM_ELEVEN_KEY` ostáva ako OVERRIDE pre prípad, že by managed
+    hlasy mali raz bežať na inom účte než Marekovom.
+    """
+
+    def __init__(self, ttl_s: float = ACCOUNT_KEY_TTL_S) -> None:
+        self._ttl = ttl_s
+        self._key = ""
+        self._at = 0.0
+
+    async def key(self, transport, encryption_key: str, override: str = "") -> str:
+        if override:
+            return override
+        if transport is None or not encryption_key:
+            return ""
+
+        now = time.monotonic()
+        if self._at and now - self._at < self._ttl:
+            return self._key
+
+        try:
+            rows = await transport._get(
+                ACCOUNTS,
+                {"role": "eq.superadmin", "select": "eleven_key_enc", "limit": "1"},
+            )
+        except Exception as exc:  # noqa: BLE001 - výpadok nesmie zhodiť odpoveď
+            log.warning("Platformový ElevenLabs kľúč sa nenačítal (%s) — platí posledný", exc)
+            return self._key
+
+        sealed = str((rows[0].get("eleven_key_enc") if rows else "") or "")
+        if not sealed:
+            self._key, self._at = "", now
+            return ""
+
+        from crypto import decrypt
+
+        try:
+            self._key = decrypt(sealed, encryption_key)
+        except Exception as exc:  # noqa: BLE001 - pokazená šifra = hlasovky dnes nie sú
+            log.warning("Platformový kľúč sa nepodarilo dešifrovať: %s", exc)
+            self._key = ""
+        self._at = now
+        return self._key
+
+
+_platform_key = PlatformKeyCache()
+
+
 class ScheduleCache:
     """Riadok `model_schedule` jednej modelky — načítaný raz, osviežený po TTL.
 
@@ -245,9 +306,14 @@ class TenantDb:
         model_id: str,
         encryption_key: str = "",
         account_id: str = "",
+        platform_eleven_key: str = "",
     ) -> None:
         self._t = transport
         self.model_id = model_id
+        # OVERRIDE platformového kľúča (env `PLATFORM_ELEVEN_KEY`). Prázdne =
+        # kľúč sa vezme z účtu superadmina, teda z toho, ktorý je pripojený
+        # v dashboarde. Viď `PlatformKeyCache`.
+        self._platform_eleven_key = platform_eleven_key
         # Prázdny kľúč je legitímny stav (testy, staré volania): vtedy sa nič
         # nedešifruje a platí zastaraný `eleven_key`.
         self._key = encryption_key
@@ -302,9 +368,73 @@ class TenantDb:
         rows = await self._get(BEHAVIOR, {"model_id": self._mine, "select": "*"})
         if not rows:
             return {}
-        return unseal_eleven_key(
+        row = unseal_eleven_key(
             rows[0], self._key, self.model_id, await self._account_key.sealed()
         )
+        return await self._apply_managed_voice(row)
+
+    async def _apply_managed_voice(self, row: Dict[str, Any]) -> Dict[str, Any]:
+        """Keď má modelka vybraný NÁŠ hlas, podstrčí náš kľúč a jeho voice id.
+
+        PREČO TU A NIE PRI GENEROVANÍ. Kľúč aj hlas si zvyšok workera berie
+        výhradne z `behavior.eleven_key` / `.eleven_voice_id` — a robí to na
+        šiestich rôznych miestach (bežná odpoveď, ukážka, semi-auto, job…).
+        Keby sa managed hlas riešil až tam, muselo by sa to ošetriť šesťkrát
+        a siedme miesto by na to raz zabudlo. Takto o tom zvyšok kódu nemusí
+        vedieť vôbec.
+
+        Fail-safe: keď chýba náš kľúč (env `PLATFORM_ELEVEN_KEY`) alebo hlas
+        v `managed_voices` nie je či je vypnutý, kľúč sa VYPRÁZDNI. To znamená
+        „hlasovky dnes nie sú" a modelka pošle text — nie pád a nie ticho
+        prepnutie späť na klientov kľúč, ktorý si pre tento hlas nevybral.
+        """
+        if str(row.get("voice_source") or "own") != "managed":
+            return row
+
+        row["eleven_key"] = ""
+        row["eleven_voice_id"] = ""
+
+        platform_key = await _platform_key.key(
+            self._t, self._key, self._platform_eleven_key
+        )
+        if not platform_key:
+            log.warning(
+                "Managed hlas je vybraný, ale platformový ElevenLabs kľúč chýba "
+                "— pripoj ho v nastaveniach účtu superadmina"
+            )
+            return row
+
+        voice_id = row.get("managed_voice_id")
+        if not voice_id:
+            return row
+        try:
+            eleven_id = await self.managed_voice(str(voice_id))
+        except Exception as exc:  # noqa: BLE001 - hlas je bonus, nie podmienka
+            log.warning("Managed hlas sa nenačítal: %s", exc)
+            return row
+
+        if not eleven_id:
+            log.warning("Managed hlas %s neexistuje alebo je vypnutý", voice_id)
+            return row
+
+        row["eleven_key"] = platform_key
+        row["eleven_voice_id"] = eleven_id
+        return row
+
+    async def managed_voice(self, voice_id: str) -> str:
+        """`eleven_voice_id` zapnutého hlasu z NÁŠHO katalógu, inak prázdne.
+
+        `managed_voices` je globálny číselník našich hlasov — zámerne NIE je
+        filtrovaný podľa `model_id`. Nie sú v ňom tenantské dáta; je to zoznam
+        hlasov, ktoré ponúkame všetkým rovnako.
+        """
+        rows = await self._get(
+            MANAGED_VOICES,
+            {"id": f"eq.{voice_id}", "active": "is.true", "select": "eleven_voice_id"},
+        )
+        if not rows:
+            return ""
+        return str(rows[0].get("eleven_voice_id") or "")
 
     async def set_behavior_field(self, field: str, value: Any) -> None:
         await self._patch(

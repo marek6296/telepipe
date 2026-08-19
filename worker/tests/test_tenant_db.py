@@ -66,6 +66,7 @@ CALLS = {
     "get_persona": ((), {}),
     "set_persona_field": (("name", "Eva"), {}),
     "get_behavior": ((), {}),
+    "managed_voice": (("11111111-1111-1111-1111-111111111111",), {}),
     "set_behavior_field": (("heat", "hot"), {}),
     "get_schedule": ((), {}),
     "pair_control_bot": (("TP-4F9K2X", 777), {}),
@@ -133,6 +134,10 @@ CALLS = {
 # Tenké delegáty na transport — samé o sebe žiadnu tabuľku neoslovujú.
 DELEGATES = {"_get", "_patch", "_post"}
 
+# `_apply_managed_voice` je len post-processing riadku `behavior` — jediný
+# dotaz, ktorý robí, ide cez `managed_voice`, a tá v sieti nižšie JE.
+DELEGATES |= {"_apply_managed_voice"}
+
 
 def _public_methods():
     return {
@@ -145,6 +150,11 @@ def _public_methods():
 def _assert_scoped(call, method_name):
     url, verb, body = call["url"], call["method"], call["body"]
     where = f"{method_name} -> {verb} {url} body={body}"
+
+    if "/managed_voices" in url:
+        # Globálny číselník NAŠICH hlasov — nie sú v ňom tenantské dáta a
+        # filtruje sa podľa id hlasu, nie podľa modelky.
+        return
 
     if "/storage/" in url:
         # Cesty v úložisku sú už tenant-unikátne (volajúci ich stavia zo schémy
@@ -657,3 +667,97 @@ async def test_schedule_row_becomes_a_usable_day():
     assert bloky[0].kde == "cafe"
     assert 600 <= bloky[0].od <= 660
     assert bloky[-1].do == den.KONIEC_DNA
+
+
+# ---------------------------------------------------------------------------
+# Managed hlasy — keď si klient vyberie NÁŠ hlas, musí sa podstrčiť NÁŠ kľúč
+# ---------------------------------------------------------------------------
+
+class _FakeRows:
+    """Transport: `behavior` riadok, `managed_voices` hlas a `accounts` kľúč platformy."""
+
+    def __init__(self, behavior_row, voice_row=None, account_sealed=""):
+        self._behavior = behavior_row
+        self._voice = voice_row
+        self._account_sealed = account_sealed
+
+    async def _get(self, path, params=None):
+        if "managed_voices" in path:
+            return [self._voice] if self._voice else []
+        if "accounts" in path:
+            return [{"eleven_key_enc": self._account_sealed}]
+        return [self._behavior]
+
+
+def _db_with(behavior_row, voice_row=None, platform_key="PLATFORM",
+             account_sealed=""):
+    return TenantDb(
+        _FakeRows(behavior_row, voice_row, account_sealed), MODEL,
+        platform_eleven_key=platform_key,
+    )
+
+
+async def test_managed_voice_podstrci_nas_kluc():
+    db = _db_with(
+        {"voice_source": "managed", "managed_voice_id": "v1", "eleven_key": "KLIENTOV"},
+        {"eleven_voice_id": "ELEVEN_ABC"},
+    )
+    row = await db.get_behavior()
+    assert row["eleven_key"] == "PLATFORM"
+    assert row["eleven_voice_id"] == "ELEVEN_ABC"
+
+
+async def test_vlastny_kluc_ostane_nedotknuty():
+    db = _db_with({"voice_source": "own", "eleven_key": "KLIENTOV",
+                   "eleven_voice_id": "JEHO_HLAS"})
+    row = await db.get_behavior()
+    assert row["eleven_key"] == "KLIENTOV"
+    assert row["eleven_voice_id"] == "JEHO_HLAS"
+
+
+async def test_managed_bez_nasho_kluca_vypne_hlasovky():
+    """Nesmie ticho spadnúť späť na klientov kľúč — ten si pre tento hlas nevybral."""
+    db = _db_with(
+        {"voice_source": "managed", "managed_voice_id": "v1", "eleven_key": "KLIENTOV"},
+        {"eleven_voice_id": "ELEVEN_ABC"},
+        platform_key="",
+    )
+    row = await db.get_behavior()
+    assert row["eleven_key"] == ""
+
+
+async def test_zmazany_managed_hlas_vypne_hlasovky():
+    db = _db_with(
+        {"voice_source": "managed", "managed_voice_id": "v1", "eleven_key": "KLIENTOV"},
+        None,
+    )
+    row = await db.get_behavior()
+    assert row["eleven_key"] == ""
+
+
+async def test_platformovy_kluc_sa_berie_z_uctu_superadmina(monkeypatch):
+    """Bez env premennej — kľúč je ten, ktorý má Marek pripojený v dashboarde.
+
+    Dve pravdy (env + účet) by sa po prvej výmene kľúča rozišli a managed
+    hlasy by ticho prestali fungovať.
+    """
+    import db as db_mod
+
+    crypto_mod = types.ModuleType("crypto")
+    crypto_mod.decrypt = lambda sealed, key: "KLUC_Z_UCTU"
+    monkeypatch.setitem(sys.modules, "crypto", crypto_mod)
+    # Cache je modulová (kľúč je jeden globálny) — pre test ju vynulujeme.
+    monkeypatch.setattr(db_mod, "_platform_key", db_mod.PlatformKeyCache())
+
+    db = TenantDb(
+        _FakeRows(
+            {"voice_source": "managed", "managed_voice_id": "v1", "eleven_key": "KLIENTOV"},
+            {"eleven_voice_id": "ELEVEN_ABC"},
+            account_sealed="zasifrovane",
+        ),
+        MODEL,
+        encryption_key="tajomstvo",
+    )
+    row = await db.get_behavior()
+    assert row["eleven_key"] == "KLUC_Z_UCTU"
+    assert row["eleven_voice_id"] == "ELEVEN_ABC"

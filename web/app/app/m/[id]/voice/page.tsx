@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 
 import { recentPreviewsAction } from "@/app/app/m/[id]/voice/actions";
 import { VoiceForm, type VoiceRow } from "@/components/app/voice-form";
+import { VoiceSource, type ManagedVoiceOption } from "@/components/app/voice-source";
 import { VoiceStudio } from "@/components/app/voice-studio";
 import { Callout, PageHeader } from "@/components/app/ui";
 import { loadVoiceCatalog } from "@/lib/eleven";
 import { getAccount, requireModelTab } from "@/lib/models";
+import { getAppConfig } from "@/lib/slots";
 import { createClient } from "@/lib/supabase/server";
 import { toNumber } from "@/lib/format";
 import {
@@ -33,7 +35,9 @@ const VOICE_COLUMNS =
   // migrácii — bez neho by celý tento select spadol na „permission denied",
   // nie len tieto stĺpce.
   "voice_volume_min, voice_volume_max, voice_lead_min, voice_lead_max, " +
-  "voice_tail_min, voice_tail_max";
+  "voice_tail_min, voice_tail_max, " +
+  // 20260819160000 — odkial berie hlas (nas katalog vs. klientov kluc).
+  "voice_source, managed_voice_id";
 
 export default async function VoicePage({ params }: PageProps<"/app/m/[id]/voice">) {
   const { id } = await params;
@@ -60,6 +64,18 @@ export default async function VoicePage({ params }: PageProps<"/app/m/[id]/voice
   const catalog = await loadVoiceCatalog(account?.id ?? "");
 
   const voice = data as unknown as VoiceRow;
+  const row = data as unknown as Record<string, unknown>;
+
+  // Katalog nasich hlasov + cena za hlasovku. RLS pusti len zapnute hlasy,
+  // takze filtrovat tu netreba.
+  const [{ data: managed }, config] = await Promise.all([
+    supabase
+      .from("managed_voices")
+      .select("id, label, description")
+      .order("sort")
+      .order("label"),
+    getAppConfig(),
+  ]);
 
   // Štúdio má zmysel iba s pripojeným účtom — bez kľúča nie je čím prehovoriť
   // a tlačidlo „Generate" by sľubovalo niečo, čo nemôže vzniknúť.
@@ -72,6 +88,17 @@ export default async function VoicePage({ params }: PageProps<"/app/m/[id]/voice
         title="Voice"
         description="Voice notes convert better than text — and they are the hardest thing to fake. The ElevenLabs account is connected once in Account settings; here you only pick her voice and how she uses it."
       />
+      <div className="mb-5">
+        <VoiceSource
+          modelId={model.id}
+          source={String(row.voice_source ?? "own")}
+          managedVoiceId={(row.managed_voice_id as string | null) ?? null}
+          voices={(managed ?? []) as ManagedVoiceOption[]}
+          managedPriceUsd={config.voice_managed_usd}
+          hasOwnKey={catalog.connected}
+        />
+      </div>
+
       <VoiceForm
         voice={voice}
         catalog={catalog}

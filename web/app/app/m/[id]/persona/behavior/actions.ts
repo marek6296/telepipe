@@ -21,6 +21,8 @@ export type SaveResult = { error?: string };
 
 const ENUMS: Record<string, readonly string[]> = {
   mode: ["real", "ai"],
+  // Odkial berie hlas: klientov ElevenLabs kluc, alebo nas katalog.
+  voice_source: ["own", "managed"],
   heat: ["mild", "medium", "hot"],
   slang: ["none", "light", "medium"],
   voice_ambience: [
@@ -166,6 +168,15 @@ export async function saveBehaviorAction(
         return { error: "That is not an ElevenLabs voice id." };
       }
       update.eleven_voice_id = voice;
+      continue;
+    }
+    if (key === "managed_voice_id") {
+      // uuid z `managed_voices`, alebo prazdne (= ziadny nas hlas vybraty).
+      const raw = String(value ?? "").trim();
+      if (raw && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(raw)) {
+        return { error: "That is not a voice we offer." };
+      }
+      update.managed_voice_id = raw || null;
       continue;
     }
     if (key === "active_tz") {
