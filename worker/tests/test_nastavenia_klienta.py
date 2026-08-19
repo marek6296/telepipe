@@ -23,8 +23,12 @@ PERSONA = {
     "name": "Klaudia",
     "age": 24,
     "city": "Lisabon",
-    "language": "ODPOVEDAJ-PO-ANGLICKY-MARKER",
-    "languages": "JAZYKY-MARKER slovensky a nemecky",
+    # `language` (voľný text) sa do promptu ZÁMERNE nedáva — jazyk určuje
+    # štruktúra nižšie. Preto tu nie je: pole, ktoré prompt ignoruje, nesmie
+    # byť ani vo formulári, inak klientovi klame.
+    "lang_primary": "de",
+    "lang_extra": [{"code": "es", "level": "B1"}],
+    "languages": "JAZYKY-MARKER s Nemcami radsej po anglicky",
     "backstory": "BACKSTORY-MARKER studuje dizajn",
     "tone": "TONE-MARKER hravy a drzy",
     "msg_style": "STYLE-MARKER kratke vety",
@@ -60,21 +64,31 @@ class TestPersonaVPrompte:
     políčko, ktoré klientovi klame.
     """
 
+    # Jazyky sa do promptu dostávajú PRELOŽENÉ ("de" -> "German", úroveň ->
+    # veta o štýle), nie doslova. Ich prítomnosť preto kontroluje test nižšie.
+    _STRUKTUROVANE = ("lang_primary", "lang_extra")
+
     def test_vsetky_policka_su_v_prompte(self):
         out = prompt(allow_link=True)
         chyba = [
             f"{pole}={hodnota!r}"
             for pole, hodnota in PERSONA.items()
-            if str(hodnota) not in out
+            if pole not in self._STRUKTUROVANE and str(hodnota) not in out
         ]
         assert not chyba, f"Persona sa nedostala do promptu: {chyba}"
+
+    def test_jazyky_su_v_prompte_prelozene(self):
+        """Kód jazyka sa v prompte objaviť nesmie — modelu nič nehovorí."""
+        out = prompt(allow_link=True)
+        assert "German" in out and "Spanish" in out
+        assert "úroveň B1" in out
 
     def test_kazde_policko_ma_svoju_sekciu(self):
         """Hodnota nesmie len tak visieť — patrí pod nadpis, ktorý jej dá význam."""
         out = prompt(allow_link=True)
         for nadpis, marker in (
-            ("JAZYK ODPOVEDÍ", "ODPOVEDAJ-PO-ANGLICKY-MARKER"),
-            ("ČO OVLÁDAŠ ZA JAZYKY", "JAZYKY-MARKER"),
+            ("JAZYK ODPOVEDÍ", "German"),
+            ("JAZYKY, KTORÉ VIEŠ", "Spanish"),
             ("O TEBE", "BACKSTORY-MARKER"),
             ("TÓN", "TONE-MARKER"),
             ("ŠTÝL SPRÁV", "STYLE-MARKER"),

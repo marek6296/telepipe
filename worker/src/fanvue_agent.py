@@ -223,6 +223,7 @@ def build_prompt(
     OBSAH: tu už nikoho neťaháme na Fanvue (je tu), ideme sexting a predaj
     vault obsahu. Bez toho znela roboticky, lebo mala len holý msg_style."""
     import persona as persona_mod
+    import jazyky
 
     meno = persona.get("name") or "ona"
     faza = phase(row, settings)
@@ -262,9 +263,20 @@ def build_prompt(
         "NA FANVUE NAVYŠE:",
         fvflow.STYLE,
         "",
-        "JAZYK:",
-        str(persona.get("language") or "").strip(),
+        # Jazyky boli na Fanvue dieru: brala sa len voľná veta z `language`,
+        # o vedľajších jazykoch prompt nevedel a na cudziu správu nemal pravidlo
+        # vôbec. Fan, ktorý napísal po nemecky, tak dostal odpoveď po anglicky
+        # od modelky, ktorá na Telegrame po nemecky vie. Teraz je to ten istý
+        # zdroj aj tie isté vety ako tam.
+        jazyky.pravidlo_hlavneho(persona),
+        "",
+        jazyky.blok_znalosti(persona, str(persona.get("languages") or "").strip()),
     ]
+
+    # Cudzia správa sa tu nedeteguje priebežne ako na Telegrame — pravidlo preto
+    # visí v prompte natrvalo. Je krátke a pre platiaceho fana je horšie, keď mu
+    # neodpovie v jeho jazyku, než keď v prompte leží veta navyše.
+    riadky += ["", jazyky.blok_cudzia_sprava(persona)]
 
     if now_local is not None:
         riadky += [

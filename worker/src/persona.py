@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 import behavior as behaviour_mod
 import checkout
 import humanize
+import jazyky
 import topics as topics_mod
 from behavior import Behavior
 
@@ -57,9 +58,6 @@ AKO PÍSAŤ
 - Píš, ako sa reálne píše v chate: skrátene („dont", „im", „whats"), krátke vety,
   aj vetné zvyšky. Nemusí to byť gramaticky dokonalé, práve naopak.
 - Nepiš dokonalé súvetia. Radšej dve krátke vety než jedna dlhá s vloženou vsuvkou.
-- ÚROVEŇ ANGLIČTINY: B1–B2. Nie si rodená Američanka. Jednoduché časy, bežné slová,
-  žiadne idiomy, žiadne kvetnaté výrazy. Občas malá chyba je v poriadku (vynechaný
-  člen, jednoduchšia väzba) — znie to prirodzenejšie než dokonalá angličtina.
 - Nikdy nepoužívaj hviezdičkové akcie typu *usmieva sa*. Nepíš svoje meno pred text.
 - Nepýtaj sa otázku v každej správe. Občas len zareaguj.
 - Neopakuj to, čo si už povedala. Nadväzuj na to, čo bolo.
@@ -272,9 +270,14 @@ def build_system_prompt(
 
     sections.append(_REAL_MODE if bhv.mode == behaviour_mod.REAL else _AI_MODE)
 
-    language = (persona.get("language") or "").strip()
-    if language:
-        sections.append(f"JAZYK ODPOVEDÍ (dodrž vždy)\n{language}")
+    # Jazyk ide zo ŠTRUKTÚRY (`lang_primary`/`lang_extra`), nie z voľného textu.
+    # Staré pole `language` sa do promptu už nedáva: keby si klient nastavil
+    # primárny jazyk na jeden a do textu napísal druhý, prompt by si odporoval
+    # a modelka by prepínala podľa toho, ktorá veta je bližšie. Jeho vlastné
+    # slová o jazykoch žijú ďalej v `languages` a pripájajú sa POD štruktúru.
+    sections.append(
+        f"JAZYK ODPOVEDÍ (dodrž vždy)\n{jazyky.nazov(jazyky.primarny(persona))}"
+    )
 
     for label, field in (
         ("O TEBE", "backstory"),
@@ -288,6 +291,9 @@ def build_system_prompt(
             sections.append(f"{label}\n{value}")
 
     sections.append(_CORE_RULES)
+    # Úroveň hlavného jazyka patrí k jadru pravidiel, ale nesmie byť natvrdo
+    # angličtina — modelka píšuca po nemecky dostávala pokyn o angličtine.
+    sections.append(jazyky.pravidlo_hlavneho(persona))
 
     if recent_emoji:
         sections.append(
@@ -609,38 +615,19 @@ def build_system_prompt(
             "na chvíľu, keď sa ťa naozaj spýta."
         )
 
-    languages = (persona.get("languages") or "").strip()
-    if languages:
-        sections.append(
-            "ČO OVLÁDAŠ ZA JAZYKY\n"
-            f"{languages}\n"
-            "Toto je pravda o tebe. Nikdy netvrď, že vieš jazyk, ktorý tu nie je, "
-            "a nikdy nezapieraj ten, ktorý tu je. Keď sa ťa spýta, akými jazykmi "
-            "hovoríš, povedz to presne podľa tohto — normálne, nie ako zoznam."
-        )
+    # Zoznam jazykov ide VŽDY, aj keď žiadny vedľajší nemá — inak by na otázku
+    # „hovoríš po španielsky?" odpovedala, čo ju napadne.
+    sections.append(
+        jazyky.blok_znalosti(persona, (persona.get("languages") or "").strip())
+    )
 
-    if foreign:
-        if languages:
-            sections.append(
-                "NAPÍSAL TI V INOM JAZYKU\n"
-                "Ak je to jazyk, ktorý podľa zoznamu vyššie ovládaš, odpovedz mu "
-                "V TOM JAZYKU. Ten, čo vieš plynulo, píš prirodzene ako rodená. "
-                "Ten, čo vieš len základy, píš jednoducho na úrovni B1 — krátke vety, "
-                "bežné slová, pokojne aj s drobnou chybou, tak ako píše človek, "
-                "ktorý sa jazyk kedysi učil. Nikdy nepredstieraj dokonalosť.\n"
-                "Ak je to jazyk, ktorý neovládaš, povedz to milo a s humorom po "
-                "anglicky a nech to skúsi po anglicky. NEPREKLADAJ jeho správu a "
-                "nepredstieraj, že si rozumela.\n"
-                "Cieľ ostáva rovnaký aj v cudzom jazyku — bavte sa ďalej a smeruj "
-                "to k tvojej stránke presne tak, ako by si to robila po anglicky."
-            )
-        else:
-            sections.append(
-                "NAPÍSAL TI V INOM JAZYKU\n"
-                "Nerozumieš mu. Povedz to milo a s humorom — že hovoríš len po anglicky "
-                "a nech to skúsi znova. Buď roztomilá, nie odmeraná.\n"
-                "NEPREKLADAJ jeho správu a nepredstieraj, že si rozumela."
-            )
+    # `humanize.looks_foreign` vie povedať len „toto nie je angličtina" — má
+    # anglické markery a nič iné. Pre modelku s iným hlavným jazykom by skákalo
+    # na KAŽDEJ správe, tak sa na jej signál spoliehame len pri angličtine.
+    # Inak pravidlo visí v prompte natrvalo (rovnako ako na Fanvue): pár viet
+    # navyše je lacnejšie než odpoveď v zlom jazyku.
+    if foreign or jazyky.primarny(persona) != "en":
+        sections.append(jazyky.blok_cudzia_sprava(persona))
 
     # --- prijatá fotka od neho ---
     incoming = (last_incoming or "")
@@ -1036,14 +1023,7 @@ def build_system_prompt(
             "krátka nová veta je vždy lepšia než dlhá zopakovaná."
         )
 
-    if language:
-        pripomenutie = f"PRIPOMENUTIE — jazyk odpovede: {language}"
-        if languages:
-            pripomenutie += (
-                " Výnimka je len vtedy, keď ti napísal jazykom, ktorý ovládaš — "
-                "vtedy mu odpovedz v ňom."
-            )
-        sections.append(pripomenutie)
+    sections.append(jazyky.pripomenutie(persona))
 
     if taper:
         import taper as taper_mod

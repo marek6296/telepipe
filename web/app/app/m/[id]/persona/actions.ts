@@ -1,5 +1,6 @@
 "use server";
 
+import { normalizeExtra, normalizePrimary } from "@/lib/languages";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -13,7 +14,9 @@ import { createClient } from "@/lib/supabase/server";
 const TEXT_COLUMNS = [
   "name",
   "city",
-  "language",
+  // `language` (voľný text) sa už do promptu nedáva — jazyk určuje
+  // `lang_primary`. Ostáva v databáze kvôli starým riadkom, ale zapisovať sa
+  // nedá: dve pravdy o jazyku by si v prompte odporovali.
   "languages",
   "backstory",
   "tone",
@@ -36,6 +39,23 @@ export async function savePersonaAction(
   for (const [key, value] of Object.entries(patch)) {
     if ((TEXT_COLUMNS as readonly string[]).includes(key)) {
       update[key] = typeof value === "string" ? value.slice(0, 8000) : "";
+      continue;
+    }
+    // Jazyky sa neukladajú naslepo — do databázy smie ísť len to, čo appka
+    // pozná. CHECK v DB stráži tvar, toto stráži katalóg: kód mimo zoznamu by
+    // prešiel constraintom, ale worker by ho v prompte nemal ako pomenovať.
+    if (key === "lang_primary") {
+      update.lang_primary = normalizePrimary(value);
+      continue;
+    }
+    if (key === "lang_extra") {
+      // Primárny musí byť známy UŽ TERAZ, inak by `normalizeExtra` nevedela,
+      // ktorý kód z poľa vyhodiť ako duplicitu hlavného jazyka.
+      const primary =
+        typeof patch.lang_primary === "string"
+          ? normalizePrimary(patch.lang_primary)
+          : normalizePrimary(await currentPrimary(modelId));
+      update.lang_extra = normalizeExtra(value, primary);
       continue;
     }
     if (key === "age") {
@@ -74,4 +94,22 @@ export async function savePersonaAction(
 
   if (error) return { error: error.message };
   return {};
+}
+
+/**
+ * Aktuálny hlavný jazyk modelky.
+ *
+ * Potrebné vtedy, keď patch nesie len `lang_extra` (klient pridal jazyk, ale
+ * hlavný nemenil). Bez neho by sa nedalo rozhodnúť, či niektorý z vedľajších
+ * nie je zhodou okolností ten hlavný — a CHECK v databáze by patch odmietol
+ * chybou, ktorej by klient nerozumel.
+ */
+async function currentPrimary(modelId: string): Promise<string> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("persona")
+    .select("lang_primary")
+    .eq("model_id", modelId)
+    .maybeSingle();
+  return (data as { lang_primary?: string } | null)?.lang_primary ?? "";
 }

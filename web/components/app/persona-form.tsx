@@ -5,6 +5,8 @@ import { Quote } from "lucide-react";
 import { savePersonaAction } from "@/app/app/m/[id]/persona/actions";
 import { AutoSaveForm } from "@/components/app/forms/auto-save";
 import { NumberField, TextAreaField, TextField } from "@/components/app/forms/fields";
+import { LanguagePicker } from "@/components/app/forms/language-picker";
+import { normalizeExtra, normalizePrimary } from "@/lib/languages";
 import { Card, CardHeader } from "@/components/app/ui";
 
 export type PersonaRow = {
@@ -12,8 +14,12 @@ export type PersonaRow = {
   name: string;
   age: number | null;
   city: string | null;
+  /** Voľné pole z čias pred štruktúrou. Do promptu už nejde — jazyk určuje
+   *  `lang_primary`. Ostáva v type, lebo stĺpec v databáze stále existuje. */
   language: string;
   languages: string;
+  lang_primary: string;
+  lang_extra: unknown;
   backstory: string;
   tone: string;
   msg_style: string;
@@ -59,25 +65,21 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
             placeholder="Los Angeles"
             help="Where she says she lives. Drives her local time and small talk."
           />
-          {/* Viacriadkové zámerne: jazyk na riadok aj s úrovňou („Slovak —
-              mother tongue"), presne ako to worker číta do sekcie „ČO OVLÁDAŠ
-              ZA JAZYKY". Jednoriadkový input tie riadky pri prvej úprave ticho
-              zlepil do jedného — a asistovaná persona ich píše vždy. */}
+          <LanguagePicker
+            primary={normalizePrimary(persona.lang_primary)}
+            extra={normalizeExtra(persona.lang_extra, normalizePrimary(persona.lang_primary))}
+          />
+          {/* Doplnok, nie ďalší jazyk. Zoznam vyššie hovorí ČO vie; sem patrí,
+              AKO s tým narába („s Nemcami radšej po anglicky, hanbí sa"). Prompt
+              to pripája pod štruktúru, takže to tvrdé fakty neprepíše. */}
           <TextAreaField
             name="languages"
-            label="Languages she speaks"
+            label="Anything else about languages"
             defaultValue={persona.languages}
-            rows={3}
-            placeholder={"English — this is what she writes in with everyone.\nSlovak — fluent, her mother tongue."}
-            help="What she claims to understand when a fan switches language. One language per line."
-          />
-          <TextField
-            name="language"
-            label="Reply language"
-            defaultValue={persona.language}
-            placeholder="English only. Simple everyday English, short common words."
+            rows={2}
             className="sm:col-span-2"
-            help="The strongest rule in her prompt — it is repeated at the start and the end. Whatever a fan writes in, she answers in this."
+            placeholder="Learned Spanish on holiday, still shy about it."
+            help="Optional. A note in her own words — it does not add a language, the picker above does that."
           />
           <TextAreaField
             name="backstory"

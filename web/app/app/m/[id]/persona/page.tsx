@@ -12,8 +12,8 @@ export const metadata: Metadata = {
 };
 
 const PERSONA_COLUMNS =
-  "model_id, name, age, city, language, languages, backstory, tone, msg_style, " +
-  "boundaries, funnel_rules, cta_link, extra_rules, examples";
+  "model_id, name, age, city, language, languages, lang_primary, lang_extra, " +
+  "backstory, tone, msg_style, boundaries, funnel_rules, cta_link, extra_rules, examples";
 
 /**
  * Identita — KTO je. Ako sa správa, sedí o podkartu ďalej (`/persona/behavior`):

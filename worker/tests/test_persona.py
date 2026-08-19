@@ -3,13 +3,20 @@ from persona import build_system_prompt
 
 
 class TestJazyky:
-    """Anglicky s každým, ale kto napíše jazykom, ktorý vie, dostane odpoveď v ňom."""
+    """Hlavným jazykom s každým — kto napíše jazykom, ktorý vie, dostane odpoveď v ňom.
+
+    Jazyky sú ŠTRUKTÚRA (`lang_primary` + `lang_extra`), nie voľný text. Voľné
+    pole `languages` ostáva len ako doplnok vlastnými slovami; samo o sebe už
+    modelke jazyk nepridáva — inak by stačilo napísať do textu „vie po nemecky"
+    a obišlo by to úroveň aj kontrolu tvaru v databáze.
+    """
 
     @staticmethod
-    def _prompt(languages="", foreign=False):
+    def _prompt(extra=None, foreign=False, primary="en", note=""):
         persona = {
-            "name": "Simona", "language": "English by default.",
-            "languages": languages, "backstory": "", "tone": "", "msg_style": "",
+            "name": "Simona", "language": "", "languages": note,
+            "lang_primary": primary, "lang_extra": extra or [],
+            "backstory": "", "tone": "", "msg_style": "",
             "boundaries": "", "funnel_rules": "", "cta_link": "", "extra_rules": "",
         }
         return build_system_prompt(
@@ -18,25 +25,54 @@ class TestJazyky:
         )
 
     def test_zoznam_jazykov_je_v_prompte(self):
-        out = self._prompt("Slovak fluent. German basic B1.")
-        assert "Slovak fluent" in out and "ČO OVLÁDAŠ ZA JAZYKY" in out
+        out = self._prompt([{"code": "de", "level": "B1"}])
+        assert "JAZYKY, KTORÉ VIEŠ" in out
+        assert "German" in out and "úroveň B1" in out
+
+    def test_uroven_meni_pokyn(self):
+        """A2 a C1 nesmú dostať ten istý pokyn — inak je úroveň len ozdoba."""
+        nizka = self._prompt([{"code": "es", "level": "A2"}])
+        vysoka = self._prompt([{"code": "es", "level": "C1"}])
+        assert "vieš základy" in nizka
+        assert "veľmi dobre" in vysoka
+        assert nizka != vysoka
 
     def test_cudzi_jazyk_smie_odpovedat_v_nom(self):
-        out = self._prompt("Slovak fluent.", foreign=True)
-        assert "V TOM JAZYKU" in out
+        out = self._prompt([{"code": "de", "level": "B1"}], foreign=True)
+        assert "odpovedz mu V ŇOM" in out
 
-    def test_bez_zoznamu_ostava_len_anglictina(self):
-        """Modelka bez vyplnených jazykov sa nesmie zrazu tváriť, že vie po nemecky."""
-        out = self._prompt("", foreign=True)
-        assert "hovoríš len po anglicky" in out and "V TOM JAZYKU" not in out
+    def test_cudzi_jazyk_nemeni_styl(self):
+        """Najčastejší spôsob, ako sa to pokazí: v cudzom jazyku začne písať inak."""
+        out = self._prompt([{"code": "de", "level": "B1"}], foreign=True)
+        assert "ŠTÝL SA NEMENÍ" in out
 
-    def test_neznamy_jazyk_prizna(self):
-        out = self._prompt("Slovak fluent.", foreign=True)
-        assert "jazyk, ktorý neovládaš" in out
+    def test_bez_zoznamu_ostava_len_hlavny_jazyk(self):
+        """Modelka bez ďalších jazykov sa nesmie zrazu tváriť, že vie po nemecky."""
+        out = self._prompt([], foreign=True)
+        assert "Nerozumieš mu" in out
+        assert "odpovedz mu V ŇOM" not in out
 
     def test_zoznam_nema_zvadzat_ku_klamstvu(self):
-        out = self._prompt("Slovak fluent.")
+        out = self._prompt([{"code": "de", "level": "B1"}])
         assert "Nikdy netvrď, že vieš jazyk, ktorý tu nie je" in out
+
+    def test_volny_text_nepridava_jazyk(self):
+        """Poznámka je doplnok, nie ďalší jazyk. Inak by obišla úroveň aj CHECK."""
+        out = self._prompt([], note="vie aj po grécky")
+        assert "vie aj po grécky" in out          # poznámka sa nezahodí
+        assert "Iný jazyk NEVIEŠ" in out          # ale zoznam ju za jazyk nepovažuje
+
+    def test_hlavny_jazyk_nie_je_natvrdo_anglictina(self):
+        """Jadro pravidiel kedysi hlásilo „ÚROVEŇ ANGLIČTINY" každej modelke."""
+        out = self._prompt(primary="de")
+        assert "ÚROVEŇ JAZYKA (German)" in out
+        assert "ANGLIČTINY" not in out
+
+    def test_iny_hlavny_jazyk_ma_pravidlo_aj_bez_detekcie(self):
+        """`looks_foreign` pozná len angličtinu, takže pri inom hlavnom jazyku
+        musí pravidlo visieť natrvalo — inak by ho nikdy nič nespustilo."""
+        out = self._prompt([{"code": "en", "level": "B2"}], foreign=False, primary="de")
+        assert "NAPÍSAL TI INÝM JAZYKOM" in out
 
 
 class TestUkazkyAStyl:
