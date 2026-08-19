@@ -56,14 +56,18 @@ modelky. Kto si nevie založiť modelku, nemá sa čoho chytiť — ani ručne
 napísanou URL, ani priamym volaním PostgREST. Jedna brána namiesto dvadsiatich.
 
 Druhá brána je nákup Pipe Coinov: **pred schválením od nikoho neberieme peniaze.**
+Tá musí byť v route handleri `/api/payments/topup`, nie v RLS — depozitnú adresu
+zakladá service klient, ktorého sa RLS netýka. Rola `authenticated` má na
+platobných tabuľkách jediný grant, `select (invoice_url)`, takže iná cesta
+k platbe neexistuje; ak by niekto grant pridal, treba doplniť aj RLS policy.
 
 Zvyšok je pohodlie, nie bezpečnosť:
 
 | Vrstva | Kde | Čo robí |
 |---|---|---|
-| RLS `models` INSERT | migrácia | skutočná hranica — zamknutý si nezaloží modelku |
-| RLS na platbách | migrácia | zamknutý si nezaloží depozit / neminie coiny |
-| `requireUnlocked()` | `web/lib/access.ts` | server-side redirect na `/app/locked` |
+| RLS `models` INSERT | migrácia | **skutočná hranica** — zamknutý si nezaloží modelku |
+| `isUnlocked()` v topup route | `/api/payments/topup` | **skutočná hranica** — zamknutý si nekúpi coiny |
+| `requireUnlocked()` | `web/lib/models.ts` | server-side redirect na `/locked` |
 | `/app` layout | `web/app/app/layout.tsx` | zamknutý nevidí workspace nav |
 
 ## Dátový model
@@ -139,10 +143,10 @@ Bod 5 a 7 sú tu podstatné — bez nich by migrácia mohla prejsť aj s dierou.
 - `requireUnlocked()` ide do `web/lib/models.ts` k `requireUser()`/`getAccount()`,
   lebo robí redirect a číta session — rovnaké rozdelenie ako
   `admin-ui.ts` (browser) vs `admin.ts` (server).
-- `web/app/app/locked/page.tsx` — jediná obrazovka zamknutého účtu. Stav
+- `web/app/locked/page.tsx` — jediná obrazovka zamknutého účtu. Stav
   (`Čaká na schválenie` / `Zamietnuté` + dôvod / `Ešte si nepožiadal`), formulár
   s krátkou správou, tlačidlo *Request access*.
-- `web/app/app/locked/actions.ts` — `requestAccessAction`, volá `request_access`
+- `web/app/locked/actions.ts` — `requestAccessAction`, volá `request_access`
   a odošle Telegram ping.
 - `web/app/app/admin/requests/page.tsx` + tabuľka — nová záložka v admin paneli
   vedľa Users / Models / Usage. Approve / Reject na riadok.
@@ -154,7 +158,7 @@ Bod 5 a 7 sú tu podstatné — bez nich by migrácia mohla prejsť aj s dierou.
 - `web/lib/admin-ui.ts` — `PLANS`, `PLAN_LABEL` (`free_plus → "Standard+"`),
   `PLAN_HINT`, `ADMIN_ASSIGNABLE_PLANS`. Dropdown v `users-table.tsx` sa
   prekreslí sám, nemení sa.
-- `web/app/app/layout.tsx` — zamknutý účet dostane redirect na `/app/locked`
+- `web/app/app/layout.tsx` — zamknutý účet dostane redirect na `/locked`
   a shell mu nevykreslí workspace nav.
 - Server actions, ktoré zakladajú modelku a kupujú coiny, dostanú
   `requireUnlocked()`.
@@ -209,12 +213,12 @@ Vrstvy 2 a 3 dostanú vlastný spec. Tu len to, čo nesmieme teraz zabetónovať
   notifikáciu doňho neskôr len dopíšeme.
 - **Vrstva 3 — chat.** Dva verejné kanály: **Community** pre všetkých vrátane
   zamknutých a **Community+** len pre odomknutých, plus DM na Mareka. Preto
-  `/app/locked` **nesmie** byť slepá ulica — chat sa naň musí dať pripojiť, a
+  `/locked` **nesmie** byť slepá ulica — chat sa naň musí dať pripojiť, a
   `account_unlocked()` bude rozhodovať aj o prístupe do Community+.
 
 ## Overenie
 
 - `npm run build` + typecheck vo `web/`
 - migrácia prejde vlastnou sondou (8 bodov vyššie)
-- ručne: nová registrácia → `/app/locked` → request → ping do Telegramu →
+- ručne: nová registrácia → `/locked` → request → ping do Telegramu →
   approve → workspace sa otvorí, Marekov a kamarátov účet sa nezmenia
