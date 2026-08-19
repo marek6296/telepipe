@@ -14,8 +14,15 @@ import { asPlan, isAdminRole, type Plan } from "./admin-ui.ts";
  *
  * Keď meníš pravidlo tu, MUSÍŠ ho zmeniť aj v `account_unlocked()`. Rozídenie
  * by neznamenalo rozbité UI, ale tichú dieru.
+ *
+ * PRAVIDLO: odomknuté je VŠETKO okrem `free`. Zoznam je vymenovaný, a nie
+ * odvodený ako „všetko okrem free", zámerne — nový plán má vyžadovať vedomé
+ * rozhodnutie. Aby sa naň nezabudlo, `scripts/access-test.mts` overuje, že
+ * každý plán z `PLANS` okrem `free` je tu. Presne na tom sa potklo `vip_lite`:
+ * pribudlo do plánov, účtovania aj admin panela, ale nie sem — a partner by
+ * skončil na `/locked` so schváleným účtom.
  */
-export const UNLOCKED_PLANS: readonly Plan[] = ["free_plus", "vip"];
+export const UNLOCKED_PLANS: readonly Plan[] = ["free_plus", "vip_lite", "vip"];
 
 export type AccessAccount =
   | { role?: string | null; plan?: string | null }
