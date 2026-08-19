@@ -132,5 +132,34 @@ export function telegramShopConfigured(): boolean {
   return Boolean(telegramShopBotToken());
 }
 
+/* -------------------------------------------------------------------------- */
+/*  5sim — lacnejší zdroj Telegram OTP čísel                                   */
+/* -------------------------------------------------------------------------- */
+
+export function fiveSimApiToken(): string {
+  return process.env.FIVESIM_API_TOKEN ?? "";
+}
+
+export function fiveSimConfigured(): boolean {
+  return Boolean(fiveSimApiToken());
+}
+
+/**
+ * Násobok ceny voči nákupke. Default 5 a je to zámerne viac než pri VRNUM (1,5).
+ *
+ * Dôvod nie je chamtivosť, ale to, že v cene sú **tri pokusy**: keď na prvé
+ * číslo SMS nepríde, klient dostane druhé a tretie zadarmo. V najhoršom prípade
+ * teda míňame 3× nákupku pri tržbe 5× — stále v pluse, aj keby 5sim nevrátil
+ * ani cent. Znižovať tento násobok bez zníženia počtu pokusov znamená predávať
+ * so stratou v chvoste.
+ */
+export function fiveSimPriceMultiplier(): number {
+  const value = Number(process.env.FIVESIM_PRICE_MULTIPLIER ?? "5");
+  return Number.isFinite(value) ? Math.max(value, 2) : 5;
+}
+
+/** Koľko čísel dostane klient za jednu platbu, kým sa vzdáme. */
+export const OTP_ATTEMPTS_INCLUDED = 3;
+
 // Feature flagy žijú v `lib/flags.ts` (client-safe) — tu ich len reexportujeme
 export { googleAuthEnabled } from "@/lib/flags";
