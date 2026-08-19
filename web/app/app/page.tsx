@@ -15,6 +15,7 @@ import { ResetStatsButton } from "@/components/app/reset-stats-button";
 import { Card, CardHeader, EmptyState, PageHeader, StatTile } from "@/components/app/ui";
 import { COINS_PER_USD, coinsPrecise, toCoins } from "@/lib/coins";
 import { compactNumber, toNumber } from "@/lib/format";
+import { modelTypeHasTab } from "@/lib/model-types";
 import { getAccount, getModelStats, getPausedMap, listModels, type ModelRow } from "@/lib/models";
 import { getAppConfig } from "@/lib/slots";
 import { getConnectedMap } from "@/lib/telegram";
@@ -53,10 +54,6 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
     listModels(),
     getAppConfig(),
   ]);
-  // Uvítanie sa ukáže RAZ a rozhoduje o tom server: `onboarding_done_at` je
-  // v databáze, takže sa okno nevráti na inom zariadení ani po vymazaní
-  // úložiska prehliadača. Admin ho nedostane — jeho účet nikto neschvaľoval.
-  const showWelcome = Boolean(account) && !account?.onboarding_done_at;
   const startCoins = Math.round(config.signup_credit_usd * COINS_PER_USD);
   // Hranica z „Reset stats" (027). Klient ňou vynuluje SVOJE prehľady; riadky
   // v `usage_events` ostávajú a admin ich vidí ďalej.
@@ -72,6 +69,26 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
     recentUsage(range.days * 2, baseline),
   ]);
 
+  /*
+   * Uvítanie visí na JEDINEJ otázke: má už niektorá modelka prihlásený
+   * Telegram?
+   *
+   * Kým nie, okno vyskočí pri každom príchode na dashboard — je to prvá vec,
+   * bez ktorej appka nerobí vôbec nič, takže pripomenúť ju je užitočnejšie než
+   * decentné. Len čo je čo i len jedna prihlásená, prestane navždy.
+   *
+   * Zamknutý účet sa sem nedostane (`app/app/layout.tsx` ho posiela na
+   * `/locked`), takže nový človek pred schválením okno nevidí — dostane ho až
+   * po odomknutí.
+   *
+   * Počítajú sa len modelky, ktoré Telegram vôbec MAJÚ. Dnes je to každá, ale
+   * Fanvue-only agent by inak dostal nápovedu, ktorú nemá kde splniť.
+   */
+  const telegramCapable = models.filter((model) =>
+    modelTypeHasTab(model.model_type, "telegram"),
+  );
+  const showWelcome = !telegramCapable.some((model) => connected[model.id]);
+
   return (
     <>
       <WelcomeDialog show={showWelcome} startCoins={startCoins} />
@@ -81,9 +98,10 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
         description="Everything your models did while you were away."
         actions={
           <>
-            {/* Kým nemá ani jednu modelku, je návod užitočnejší než prehľad
-                spotreby — vtedy stojí na jeho mieste. */}
-            {models.length === 0 ? (
+            {/* Kým nemá prihlásený Telegram, je návod užitočnejší než prehľad
+                spotreby — vtedy stojí na jeho mieste. Rovnaká podmienka ako
+                uvítanie, aby si tlačidlo a okno neodporovali. */}
+            {showWelcome ? (
               <HelpGuideButton startCoins={startCoins} className="h-9 px-3.5" />
             ) : (
               <Link href="/app/usage" className="app-btn app-btn-ghost h-9 px-3.5">

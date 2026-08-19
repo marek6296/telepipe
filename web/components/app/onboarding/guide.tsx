@@ -14,7 +14,6 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-import { markOnboardingDoneAction } from "@/app/app/actions";
 import { cn } from "@/lib/utils";
 
 /**
@@ -274,19 +273,21 @@ function GuideDialog({
 /* -------------------------------------------------------------------------- */
 
 /**
- * Server rozhodne, či sa okno má ukázať (`show`), klient si to zapíše späť.
+ * O zobrazení rozhoduje VÝHRADNE server (`show`) a odpoveď na jedinú otázku:
+ * má už niektorá modelka prihlásený Telegram?
  *
- * Zápis ide HNEĎ pri zavretí a jeho výsledok sa nečaká: keby server nestíhal,
- * človek by pozeral na zamrznuté okno. Najhoršie, čo sa môže stať pri zlyhaní,
- * je že sa mu návod raz ukáže znova.
+ * Zavretie sa preto nikam nezapisuje. Kým Telegram prihlásený nie je, okno
+ * vyskočí pri každom príchode na dashboard — to je zámer, nie chyba. Len čo
+ * ho prihlási, prestane samo a natrvalo.
+ *
+ * Bola tu aj značka „videl som to" (`accounts.onboarding_done_at`). Zahodila
+ * sa: hovorila o tom, či človek okno zavrel, nie o tom, či má appku
+ * nastavenú — a práve to druhé je jediné, na čom záleží.
  */
 export function WelcomeDialog({ show, startCoins }: { show: boolean; startCoins: number }) {
   const [open, setOpen] = useState(show);
 
-  const close = useCallback(() => {
-    setOpen(false);
-    void markOnboardingDoneAction();
-  }, []);
+  const close = useCallback(() => setOpen(false), []);
 
   return <GuideDialog open={open} startCoins={startCoins} onClose={close} />;
 }
