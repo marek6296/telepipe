@@ -20,7 +20,15 @@ import { cn } from "@/lib/utils";
  * Bez vlastnej hlavičky a rámu — sedí vnútri karty s prepínačom metód
  * (`billing-methods.tsx`), ktorá hlavičku aj postup rieši za neho.
  */
-export function TelegramStarsForm({ alreadyLinked }: { alreadyLinked: boolean }) {
+export function TelegramStarsForm({
+  alreadyLinked,
+  brand = "#2aabee",
+}: {
+  alreadyLinked: boolean;
+  /** Značková farba Telegramu — nesie ju vybraná karta aj tlačidlo, nech je
+   *  jasné, kam klik vedie. */
+  brand?: string;
+}) {
   const [usd, setUsd] = useState(10);
   const [custom, setCustom] = useState("");
   const [busy, setBusy] = useState(false);
@@ -69,9 +77,10 @@ export function TelegramStarsForm({ alreadyLinked }: { alreadyLinked: boolean })
               className={cn(
                 "app-tap rounded-xl border px-3 py-3 text-left transition-colors",
                 selected
-                  ? "border-[var(--app-text)] bg-[var(--app-surface)]"
+                  ? "bg-[var(--app-surface)]"
                   : "border-[var(--app-border)] hover:border-[var(--app-border-strong)]",
               )}
+              style={selected ? { borderColor: brand } : undefined}
             >
               <div className="text-[15px] text-[var(--app-text)] tabular-nums">
                 {option.coins.toLocaleString("en-US")}
@@ -115,7 +124,8 @@ export function TelegramStarsForm({ alreadyLinked }: { alreadyLinked: boolean })
         type="button"
         onClick={() => void pay()}
         disabled={busy || !valid}
-        className="app-btn app-btn-primary mt-4 w-full justify-center disabled:opacity-40"
+        className="app-btn mt-4 w-full justify-center font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+        style={{ background: brand, borderColor: brand }}
       >
         {busy ? (
           <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />
