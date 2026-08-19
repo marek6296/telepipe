@@ -80,6 +80,12 @@ export type AccountRow = {
    * rovno do jeho chatu. `null` = ešte cez Telegram neplatil.
    */
   telegram_user_id: number | null;
+  /**
+   * Kedy človek zavrel uvítacie okno (migrácia 20260819230000). `null` = ešte
+   * ho nevidel, takže sa mu po odomknutí ukáže samo. Zapisuje výhradne RPC
+   * `mark_onboarding_done()`; klient má na stĺpec iba SELECT.
+   */
+  onboarding_done_at: string | null;
 };
 
 /** Modelka + čísla, ktoré chce klient vidieť na karte. */
@@ -122,7 +128,7 @@ export const getAccount = cache(async function getAccount(): Promise<AccountRow 
     .from("accounts")
     .select(
       "id, email, credit_balance_usd, created_at, role, plan, stats_since, model_slots, " +
-        "telegram_user_id",
+        "telegram_user_id, onboarding_done_at",
     )
     .maybeSingle();
 

@@ -20,6 +20,10 @@ const FALLBACK = {
   voice_managed_usd: 0.5,
   voice_own_usd: 0.3,
   photo_usd: 0.1,
+  // Migrácia 20260819230000 — kredit pripísaný pri prvom schválení. Uvítacie
+  // okno ho vypisuje, takže musí prísť odtiaľ, kde ho pripisuje
+  // `decide_access_request`; natvrdo napísaná suma by sa raz rozišla.
+  signup_credit_usd: 5,
 } as const;
 
 export type ConfigKey = keyof typeof FALLBACK;

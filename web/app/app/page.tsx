@@ -10,11 +10,13 @@ import {
   type SpendPoint,
 } from "@/components/app/dashboard-charts";
 import { ModelCard } from "@/components/app/model-card";
+import { HelpGuideButton, WelcomeDialog } from "@/components/app/onboarding/guide";
 import { ResetStatsButton } from "@/components/app/reset-stats-button";
 import { Card, CardHeader, EmptyState, PageHeader, StatTile } from "@/components/app/ui";
-import { coinsPrecise, toCoins } from "@/lib/coins";
+import { COINS_PER_USD, coinsPrecise, toCoins } from "@/lib/coins";
 import { compactNumber, toNumber } from "@/lib/format";
 import { getAccount, getModelStats, getPausedMap, listModels, type ModelRow } from "@/lib/models";
+import { getAppConfig } from "@/lib/slots";
 import { getConnectedMap } from "@/lib/telegram";
 import { createClient } from "@/lib/supabase/server";
 import { cn } from "@/lib/utils";
@@ -46,7 +48,16 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
   const query = await searchParams;
   const range = pickRange(typeof query?.range === "string" ? query.range : undefined);
 
-  const [account, models] = await Promise.all([getAccount(), listModels()]);
+  const [account, models, config] = await Promise.all([
+    getAccount(),
+    listModels(),
+    getAppConfig(),
+  ]);
+  // Uvítanie sa ukáže RAZ a rozhoduje o tom server: `onboarding_done_at` je
+  // v databáze, takže sa okno nevráti na inom zariadení ani po vymazaní
+  // úložiska prehliadača. Admin ho nedostane — jeho účet nikto neschvaľoval.
+  const showWelcome = Boolean(account) && !account?.onboarding_done_at;
+  const startCoins = Math.round(config.signup_credit_usd * COINS_PER_USD);
   // Hranica z „Reset stats" (027). Klient ňou vynuluje SVOJE prehľady; riadky
   // v `usage_events` ostávajú a admin ich vidí ďalej.
   const baseline = account?.stats_since ? new Date(account.stats_since).getTime() : null;
@@ -63,14 +74,22 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
 
   return (
     <>
+      <WelcomeDialog show={showWelcome} startCoins={startCoins} />
+
       <PageHeader
         title="Dashboard"
         description="Everything your models did while you were away."
         actions={
           <>
-            <Link href="/app/usage" className="app-btn app-btn-ghost h-9 px-3.5">
-              View usage
-            </Link>
+            {/* Kým nemá ani jednu modelku, je návod užitočnejší než prehľad
+                spotreby — vtedy stojí na jeho mieste. */}
+            {models.length === 0 ? (
+              <HelpGuideButton startCoins={startCoins} className="h-9 px-3.5" />
+            ) : (
+              <Link href="/app/usage" className="app-btn app-btn-ghost h-9 px-3.5">
+                View usage
+              </Link>
+            )}
             {models.length > 0 && <AddModelDialog className="h-9 px-3.5" />}
           </>
         }

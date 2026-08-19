@@ -251,3 +251,24 @@ export async function buyModelSlotAction(): Promise<ActionResult> {
   revalidatePath("/app", "layout");
   return { ok: true };
 }
+
+/* -------------------------------------------------------------------------- */
+/*  Uvítanie                                                                   */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Zavretie uvítacieho okna. Značku drží DB (`accounts.onboarding_done_at`),
+ * nie prehliadač — inak by sa okno vrátilo pri každom novom zariadení a po
+ * vymazaní úložiska.
+ *
+ * Zlyhanie sa NEHLÁSI: človek okno zavrel a to je jediné, na čom mu záleží.
+ * Horší prípad je, že sa mu raz ukáže znova — nie chybová hláška nad návodom.
+ */
+export async function markOnboardingDoneAction(): Promise<ActionResult> {
+  const supabase = await createClient();
+  const { error } = await supabase.rpc("mark_onboarding_done");
+  if (error) return { error: error.message };
+
+  revalidatePath("/app", "layout");
+  return { ok: true };
+}

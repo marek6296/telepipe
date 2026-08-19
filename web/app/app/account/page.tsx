@@ -7,10 +7,12 @@ import {
   ElevenLabsCard,
   SignOutEverywhereButton,
 } from "@/components/app/account-forms";
+import { HelpGuideButton } from "@/components/app/onboarding/guide";
 import { Callout, Card, CardHeader, PageHeader } from "@/components/app/ui";
 import { RelativeTime } from "@/components/app/relative-time";
-import { COIN_NAME_PLURAL, coins } from "@/lib/coins";
+import { COINS_PER_USD, COIN_NAME_PLURAL, coins } from "@/lib/coins";
 import { getAccount, requireUser } from "@/lib/models";
+import { getAppConfig } from "@/lib/slots";
 import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
@@ -24,7 +26,10 @@ export default async function AccountPage() {
   // Von z databázy ide jediný bit. `accounts.eleven_key_enc` si prihlásený
   // používateľ prečítať nevie (migrácia 017) a ani nemá prečo.
   const supabase = await createClient();
-  const { data: hasEleven } = await supabase.rpc("has_account_eleven_key");
+  const [{ data: hasEleven }, config] = await Promise.all([
+    supabase.rpc("has_account_eleven_key"),
+    getAppConfig(),
+  ]);
 
   return (
     <>
@@ -32,6 +37,14 @@ export default async function AccountPage() {
         eyebrow="Settings"
         title="Account"
         description="Your sign-in details, Pipe Coin balance and the integrations shared by all your models."
+        // Návod patrí sem, lebo sem chodí človek, keď nevie ďalej — nie na
+        // dashboard, kde je len prehľad toho, čo už beží.
+        actions={
+          <HelpGuideButton
+            startCoins={Math.round(config.signup_credit_usd * COINS_PER_USD)}
+            label="Getting started"
+          />
+        }
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
