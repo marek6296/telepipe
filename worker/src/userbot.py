@@ -80,6 +80,11 @@ MIN_FACTOR = 0.35
 # Nie sú označené ako bot, takže by prešli ako bežný klient.
 SYSTEM_IDS = frozenset({777000, 42777, 4244000, 333000})
 
+# „Koľko sa ešte zmestí", keď je strop vypnutý (0). Konkrétne číslo, nie
+# `math.inf`: hodnota ide do `min()` a do `kto_ide_na_rad`, kde sa porovnáva
+# s dĺžkami zoznamov a nekonečno by tam len robilo neporiadok v typoch.
+_BEZ_LIMITU = 10_000
+
 # Koľko posledných spracovaných správ si držíme, aby sme spoznali znovudoručenie.
 # 500 je s rezervou viac, než čo Telegram po jednom reconnecte zopakuje, a v pamäti
 # je to zopár kilobajtov.
@@ -2058,6 +2063,14 @@ class UserBot:
         aj z archívu. Ten počíta odoslané SPRÁVY, a keďže sa odpoveď delí až na
         tri bubliny, má vlastný, voľnejší strop.
         """
+        # 0 = strop vypnutý, rovnako ako pri `max_active_chats` a
+        # `max_outreach_per_hour`. Doteraz tu nula znamenala pravý opak — účet
+        # onemel navždy — a je to klientsky editovateľné tlačidlo v control
+        # bote. Kto ho nastavil na nulu v domnení „bez limitu", umlčal modelku
+        # a nemal ako zistiť prečo.
+        if max_per_hour <= 0:
+            return _BEZ_LIMITU
+
         cutoff = datetime.now(timezone.utc) - timedelta(hours=1)
         while self._reply_times and self._reply_times[0] < cutoff:
             self._reply_times.popleft()

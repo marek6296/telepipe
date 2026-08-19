@@ -1042,7 +1042,10 @@ class TestOdpovedeStropNaLudiNebrzdi:
 
     def test_strop_na_spravy_stale_plati(self):
         bot, db, client = self._bot([])
-        db.behavior["max_replies_per_hour"] = 0
+        # Vyčerpaný strop sa vyjadruje NAPLNENÍM, nie nulou. Nula od tejto
+        # chvíle znamená „bez limitu" — rovnako ako pri ostatných stropoch.
+        db.behavior["max_replies_per_hour"] = 1
+        bot._reply_times.append(datetime.now(timezone.utc))
         asyncio.run(bot.reply_to(555))
         assert not client.sent
         assert db.users[555]["pending_reply"] is True
@@ -1252,6 +1255,32 @@ class TestDennyStrop:
         client.send_message = zapis
         asyncio.run(bot.reply_to(555))
         assert poslane, "0 = strop vypnutý (rovnako ako pri ostatných stropoch)"
+
+
+class TestNulaZnamenaVsadeToIste:
+    """Nula bola pri jednom strope „bez limitu" a pri druhom „ticho navždy".
+
+    A sú to klientsky editovateľné tlačidlá v control bote. Kto nastavil
+    „max odpovedí/h" na nulu v domnení, že tým strop vypína, umlčal modelku
+    a nemal ako zistiť prečo.
+    """
+
+    def test_nulovy_hodinovy_strop_neumlci_ucet(self):
+        bot, _db, _llm, client, _notes = build(
+            user_row(msg_count=10),
+            [{"role": "user", "content": "hey"}],
+            "hey you",
+            behavior={"active_start_min": 0, "active_end_min": 0,
+                      "max_replies_per_hour": 0},
+        )
+        poslane = []
+
+        async def zapis(tg_id, text):
+            poslane.append(text)
+
+        client.send_message = zapis
+        asyncio.run(bot.reply_to(555))
+        assert poslane, "0 musí znamenať 'bez limitu', rovnako ako pri ostatných stropoch"
 
 
 class TestLimityZlyhavajuZatvorene:

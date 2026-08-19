@@ -22,6 +22,7 @@ import asyncio
 import contextlib
 import logging
 import os
+import random
 import signal
 import sys
 from datetime import datetime, timezone
@@ -40,6 +41,12 @@ log = logging.getLogger("main")
 # na claim (parameter typu do RPC alebo vlastná claim funkcia) — nie ďalšiu
 # vetvu tu. Jeden pool = jeden typ.
 RUNNABLE_MODEL_TYPES = frozenset({"persona"})
+
+# Rozostup medzi štartmi tenantov v jednom ticku. Bez neho sa pri deployi
+# pripájalo až `max_tenants` Telethon session naraz z jednej IP — a Telegram
+# koreluje účty práve podľa IP a času. Pri 25 tenantoch to rozloží rozbeh na
+# ~1–2 minúty; nikto to nepocíti, lebo replika aj tak nabieha postupne.
+START_ROZOSTUP_S = (2.0, 6.0)
 
 # Riadok bez `model_type` je starý riadok, nie firemný agent. Chýbajúcu hodnotu
 # preto berieme ako `persona`: keby sa replika nasadila skôr než migrácia,
@@ -180,6 +187,13 @@ class Pool:
                 task = asyncio.create_task(runner.run())
                 self._running[mid] = (runner, task)
                 log.info("model %s: runner naštartovaný", mid)
+
+                # Rozostup medzi štartmi. Doteraz sa až 25 Telethon session
+                # pripájalo v jednej iterácii z jednej Railway IP — a Telegram
+                # spája účty práve podľa IP a času. Pár sekúnd navyše pri
+                # deployi nikoho nebolí, hromadný pripojovací impulz áno.
+                if len(rows) > 1:
+                    await asyncio.sleep(random.uniform(*START_ROZOSTUP_S))
 
         # 4. heartbeat — Supabase nech vie, že replika žije, a nech povie,
         #    ktorých tenantov ešte naozaj vlastní (fencing, viď nižšie)
