@@ -145,25 +145,37 @@ export function fiveSimConfigured(): boolean {
 }
 
 /**
- * Násobok ceny voči nákupke. Default 4 a je zámerne vyšší než pri VRNUM (1,5),
- * lebo v cene sú **tri pokusy**: keď na prvé číslo SMS nepríde, klient dostane
- * druhé a tretie bez doplatku.
+ * Násobok ceny voči nákupke. Default 3 — na každom predanom čísle zarobíme
+ * dvojnásobok nákupky.
  *
- * PREČO PRÁVE 4 (merané na celom katalógu, 108 porovnateľných krajín):
- *   ×3   → lacnejšie všade, ale v najhoršom prípade sme na NULE
- *   ×4   → lacnejšie v 93/108 krajín, najhorší prípad stále v pluse
- *   ×5   → lacnejšie len v 66/108 — tretina krajín by u nás ZDRAŽELA
+ * Jedno číslo = jeden nákup. Pokusy sa NEPRIBALUJÚ: keď SMS nepríde, klient si
+ * kúpi ďalšie. Dáva to zmysel práve preto, že cena je nízka — cez 5sim stojí
+ * české či francúzske Telegram číslo pod dva doláre, takže druhý pokus nikoho
+ * nezruinuje. Pri VRNUM by to bolo neúnosné, tam stálo jedno číslo $1,85.
  *
- * Spodná hranica 3 je tvrdá: pod ňou by tri pokusy stáli viac, než koľko
- * klient zaplatil, a chvost objednávok by sa predával so stratou.
+ * Na celom katalógu (108 porovnateľných krajín) je pri ×3 lacnejšie než dnešný
+ * VRNUM ×1,5 vo VŠETKÝCH krajinách.
+ *
+ * Spodná hranica 2 je tvrdá: pod ňou by marža nepokryla ani jedno nevydarené
+ * číslo, ktoré nám provider nevráti.
  */
 export function fiveSimPriceMultiplier(): number {
-  const value = Number(process.env.FIVESIM_PRICE_MULTIPLIER ?? "4");
-  return Number.isFinite(value) ? Math.max(value, 3) : 4;
+  const value = Number(process.env.FIVESIM_PRICE_MULTIPLIER ?? "3");
+  return Number.isFinite(value) ? Math.max(value, 2) : 3;
 }
 
-/** Koľko čísel dostane klient za jednu platbu, kým sa vzdáme. */
-export const OTP_ATTEMPTS_INCLUDED = 3;
+/**
+ * Koľko čísel dostane klient za jednu platbu.
+ *
+ * JEDNO. Model „tri pokusy v cene" sme zvážili a zahodili: pri nízkej cene je
+ * jednoduchšie a čitateľnejšie predať jedno číslo za jednu cenu. Kto chce
+ * skúsiť znova, kúpi si ďalšie — a keďže stojí okolo dvoch dolárov, nie je to
+ * problém.
+ *
+ * Konštanta ostáva, lebo sa zapisuje do objednávky (`attempts_allowed`) a
+ * riadi, koľko čísel k nej smie padnúť.
+ */
+export const OTP_ATTEMPTS_INCLUDED = 1;
 
 // Feature flagy žijú v `lib/flags.ts` (client-safe) — tu ich len reexportujeme
 export { googleAuthEnabled } from "@/lib/flags";

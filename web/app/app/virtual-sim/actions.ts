@@ -156,8 +156,8 @@ export async function resendTelegramOtpAction(orderId: string): Promise<OtpActio
       return {
         ok: false,
         error:
-          "This network cannot resend an SMS. Cancel the number and use one of " +
-          "your remaining attempts instead — they are included in the price.",
+          "This network cannot resend an SMS. Cancel this number — your Pipe " +
+          "Coins come back — and buy another one.",
       };
     }
     if (!row.provider_order_id || !["waiting", "code_received"].includes(row.status)) {

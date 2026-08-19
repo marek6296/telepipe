@@ -76,9 +76,9 @@ export function TelegramOtpPanel({
   service?: string;
   serviceName?: string;
 }) {
-  // Tri pokusy sú v cene (viď `OTP_ATTEMPTS_INCLUDED`). Klient to musí vidieť
-  // PRED nákupom, nie až keď mu SMS nepríde.
-  const attemptsLabel = "3 numbers included";
+  // Jedno číslo za jednu cenu. Keď SMS nepríde, klient zruší (coiny sa vrátia)
+  // a kúpi ďalšie — pri tejto cene je to únosné.
+  const attemptsLabel = "One number";
 
   const firstAvailable =
     countries.find(
