@@ -221,9 +221,15 @@ function Steps({ method, supportEmail }: { method: Method; supportEmail: string 
         {method === "crypto" ? (
           <>
             Coins missing after a few hours?{" "}
-            <a className="underline underline-offset-2" href={`mailto:${supportEmail}`}>
-              {supportEmail}
-            </a>
+            {supportEmail ? (
+              <a className="underline underline-offset-2" href={`mailto:${supportEmail}`}>
+                {supportEmail}
+              </a>
+            ) : (
+              // Chat v pravom dolnom rohu existuje a chodí priamo Marekovi —
+              // je to lepší kontakt než e-mail, ktorý ešte nemá schránku.
+              <>message us in the chat, bottom right</>
+            )}
           </>
         ) : (
           <>Costs more than crypto — the app stores take a cut. No volume bonuses.</>

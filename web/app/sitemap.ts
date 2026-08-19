@@ -1,12 +1,15 @@
 import type { MetadataRoute } from "next";
 
+import { LEGAL_READY } from "@/lib/legal";
 import { SITE_URL } from "@/lib/seo";
 
-const PAGES: Array<{
+type PageEntry = {
   path: string;
   priority: number;
-  changeFrequency: "weekly" | "monthly";
-}> = [
+  changeFrequency: "weekly" | "monthly" | "yearly";
+};
+
+const PAGES: PageEntry[] = [
   { path: "/", priority: 1, changeFrequency: "weekly" },
   { path: "/telegram-ai-chatbot", priority: 0.95, changeFrequency: "monthly" },
   { path: "/telegram-automation", priority: 0.9, changeFrequency: "monthly" },
@@ -37,8 +40,22 @@ const PAGES: Array<{
   },
 ];
 
+/**
+ * Právne stránky pridávame do sitemapy až keď sú v `lib/legal.ts` skutočné
+ * údaje prevádzkovateľa. Ponúkať vyhľadávačom Privacy Policy bez identifikácie
+ * prevádzkovateľa by bolo horšie než ju neponúkať — je to presne tá vec, ktorú
+ * hodnotiace automaty kontrolujú.
+ */
+const LEGAL_PAGES: PageEntry[] = LEGAL_READY
+  ? [
+      { path: "/contact", priority: 0.6, changeFrequency: "yearly" },
+      { path: "/privacy", priority: 0.4, changeFrequency: "yearly" },
+      { path: "/terms", priority: 0.4, changeFrequency: "yearly" },
+    ]
+  : [];
+
 export default function sitemap(): MetadataRoute.Sitemap {
-  return PAGES.map(({ path, priority, changeFrequency }) => ({
+  return [...PAGES, ...LEGAL_PAGES].map(({ path, priority, changeFrequency }) => ({
     url: `${SITE_URL}${path}`,
     lastModified: new Date(),
     changeFrequency,

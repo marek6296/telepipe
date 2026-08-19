@@ -5,6 +5,7 @@ import { BillingMethods } from "@/components/app/billing-methods";
 import { type CurrencyOption } from "@/components/app/billing-panel";
 import { RelativeTime } from "@/components/app/relative-time";
 import { telegramShopConfigured } from "@/lib/env";
+import { OPERATOR } from "@/lib/legal";
 import { Card, CardHeader, PageHeader, StatTile, TableWrap, Th } from "@/components/app/ui";
 import {
   COINS_PER_REPLY,
@@ -22,7 +23,10 @@ export const metadata: Metadata = {
   title: "Billing",
 };
 
-const SUPPORT_EMAIL = "support@telepipe.app";
+// Bola tu natvrdo adresa na telepipe.APP — doména je pritom telepipe.ME, takže
+// kto na ňu napísal, písal do prázdna. Berie sa z `lib/legal.ts`; kým tam mail
+// nie je, UI ponúkne chat, ktorý naozaj funguje.
+const SUPPORT_EMAIL = OPERATOR.email;
 
 type HistoryRow = {
   payment_id: string;

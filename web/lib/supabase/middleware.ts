@@ -17,6 +17,11 @@ const MARKETING_PREFIXES = [
   "/ai-chatbot-for-model-agencies",
   "/virtual-number-for-telegram",
   "/guides",
+  // Právne stránky MUSIA byť verejné. Privacy Policy schovaná za loginom je
+  // bezcenná — číta ju aj fanúšik, ktorý u nás nemá účet a nikdy mať nebude.
+  "/privacy",
+  "/terms",
+  "/contact",
 ] as const;
 
 /** Metadata a discovery súbory musia crawlerovi odpovedať bez auth roundtripu. */

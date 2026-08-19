@@ -19,6 +19,12 @@ const RESOURCE_LINKS = [
   { href: "/ai-chatbot-for-model-agencies", label: "For agencies" },
 ];
 
+const LEGAL_LINKS = [
+  { href: "/contact", label: "Contact" },
+  { href: "/privacy", label: "Privacy" },
+  { href: "/terms", label: "Terms" },
+];
+
 export function LandingFooter() {
   return (
     <footer className="relative border-t border-white/[0.07] px-6 py-14">
@@ -94,8 +100,21 @@ export function LandingFooter() {
         </div>
       </div>
 
-      <div className="mx-auto mt-12 max-w-6xl border-t border-white/[0.06] pt-6 text-[12px] text-white/30">
-        © {new Date().getFullYear()} Telepipe. All rights reserved.
+      <div className="mx-auto mt-12 flex max-w-6xl flex-col gap-3 border-t border-white/[0.06] pt-6 text-[12px] text-white/30 sm:flex-row sm:items-center sm:justify-between">
+        <span>© {new Date().getFullYear()} Telepipe. All rights reserved.</span>
+        {/* Právne odkazy patria do pätičky, nie len do sitemapy — je to prvé
+            miesto, kde ich hľadá človek aj hodnotiaci automat. */}
+        <span className="flex flex-wrap gap-x-5 gap-y-2">
+          {LEGAL_LINKS.map((link) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              className="transition-colors hover:text-white/70"
+            >
+              {link.label}
+            </Link>
+          ))}
+        </span>
       </div>
     </footer>
   );
