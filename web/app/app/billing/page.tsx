@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import { BadgeCheck, Coins, MessageSquareText, Percent, QrCode, Send } from "lucide-react";
+import { Coins, MessageSquareText } from "lucide-react";
 
-import { BillingPanel, type CurrencyOption } from "@/components/app/billing-panel";
+import { BillingMethods } from "@/components/app/billing-methods";
+import { type CurrencyOption } from "@/components/app/billing-panel";
 import { RelativeTime } from "@/components/app/relative-time";
-import { TelegramStarsPanel } from "@/components/app/telegram-stars-panel";
 import { telegramShopConfigured } from "@/lib/env";
 import { Card, CardHeader, PageHeader, StatTile, TableWrap, Th } from "@/components/app/ui";
 import {
@@ -56,34 +56,6 @@ function statusLabel(row: HistoryRow): { text: string; tone: "ok" | "wait" | "ba
     default:
       return { text: row.status, tone: "wait" };
   }
-}
-
-/** Jeden krok v páse „How it works" — symetrická tretina karty. */
-function Step({
-  icon,
-  n,
-  title,
-  children,
-}: {
-  icon: React.ReactNode;
-  n: number;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="p-5">
-      <div className="flex items-center gap-2.5">
-        <span className="flex h-7 w-7 items-center justify-center rounded-lg border border-[var(--app-border)] text-[var(--app-text-3)]">
-          {icon}
-        </span>
-        <p className="text-[11px] font-medium uppercase tracking-[0.12em] text-[var(--app-text-4)]">
-          Step {n}
-        </p>
-      </div>
-      <h3 className="mt-3 text-[13.5px] font-medium text-[var(--app-text)]">{title}</h3>
-      <p className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--app-text-3)]">{children}</p>
-    </div>
-  );
 }
 
 export default async function BillingPage() {
@@ -141,10 +113,13 @@ export default async function BillingPage() {
       <PageHeader
         eyebrow="Workspace"
         title="Billing"
-        description="Top up Pipe Coins with crypto. One permanent address per coin — send whenever you want, the balance updates itself."
+        description="Top up Pipe Coins with crypto or straight from Telegram. Coins never expire and the balance updates itself."
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
+      {/* Dve dlaždice, nie tri. „Volume bonus" tu bol zavádzajúci: platí len
+          pri krypte, nie pri Telegrame — a hore nad oboma metódami to tvrdil
+          o všetkých. Presunul sa k tabu, ktorého sa naozaj týka. */}
+      <div className="grid gap-4 sm:grid-cols-2">
         <StatTile
           label="Balance"
           value={coins(account?.credit_balance_usd)}
@@ -157,59 +132,18 @@ export default async function BillingPage() {
           hint={`≈ ${COINS_PER_REPLY} coins per reply, all-in`}
           icon={<MessageSquareText className="h-3.5 w-3.5" strokeWidth={1.75} />}
         />
-        <StatTile
-          label="Volume bonus"
-          value="+10% · +20%"
-          hint="from $100 · from $250 per deposit"
-          icon={<Percent className="h-3.5 w-3.5" strokeWidth={1.75} />}
-        />
       </div>
 
-      <Card className="mt-4">
-        <CardHeader
-          title="Buy Pipe Coins"
-          description="Choose an amount and currency, then reuse the same personal address for every future top-up."
-          icon={<Coins className="h-4 w-4" strokeWidth={1.75} />}
-        />
-        <BillingPanel
+      <div className="mt-4">
+        <BillingMethods
           currencies={currencies}
           rates={rates}
-          available={plisioEnabled()}
+          cryptoAvailable={plisioEnabled()}
+          telegramAvailable={telegramShopConfigured()}
+          telegramLinked={Boolean(account?.telegram_user_id)}
           supportEmail={SUPPORT_EMAIL}
         />
-      </Card>
-
-      {/* Druhá cesta. Zámerne POD kryptom a menšia — je drahšia (Telegram
-          a app stores si berú ~35 %) a bonusy za objem tu neplatia. */}
-      {telegramShopConfigured() && (
-        <div className="mt-4">
-          <TelegramStarsPanel alreadyLinked={Boolean(account?.telegram_user_id)} />
-        </div>
-      )}
-
-      <Card className="mt-4">
-        <div className="grid divide-y divide-[var(--app-border)] md:grid-cols-3 md:divide-x md:divide-y-0">
-          <Step icon={<QrCode className="h-3.5 w-3.5" strokeWidth={1.75} />} n={1} title="Choose amount and coin">
-            Pick how much you want to add and which cryptocurrency you&apos;ll pay with. The
-            estimate updates live, bonus included.
-          </Step>
-          <Step icon={<Send className="h-3.5 w-3.5" strokeWidth={1.75} />} n={2} title="Send to your permanent address">
-            Every account gets its own address per coin. It never expires and never changes —
-            save it and reuse it for every future top-up.
-          </Step>
-          <Step icon={<BadgeCheck className="h-3.5 w-3.5" strokeWidth={1.75} />} n={3} title="Coins land automatically">
-            After network confirmations the net USD value converts to Pipe Coins, bonus applied.
-            You can close the page — crediting continues on its own.
-          </Step>
-        </div>
-        <div className="border-t border-[var(--app-border)] px-5 py-3.5 text-center text-[12px] leading-relaxed text-[var(--app-text-4)]">
-          Sent a payment and don&apos;t see the coins after a few hours? Email{" "}
-          <a className="underline" href={`mailto:${SUPPORT_EMAIL}`}>
-            {SUPPORT_EMAIL}
-          </a>{" "}
-          — every payment is verifiable on the blockchain, nothing gets lost.
-        </div>
-      </Card>
+      </div>
 
       {history.length > 0 && (
         <Card className="mt-4">
