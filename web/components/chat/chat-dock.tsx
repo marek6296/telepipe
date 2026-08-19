@@ -124,7 +124,9 @@ export function ChatDock({
   const publicRooms = rooms.filter((room) => room.kind !== "admin_dm");
 
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex items-end gap-2 px-3 sm:px-4">
+    // `flex-row-reverse`: bublina je vpravo dole, okná rastú DOĽAVA od nej.
+    // Keby rástli doprava, vyliezli by mimo obrazovky.
+    <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex flex-row-reverse items-end gap-2 px-3 sm:px-4">
       {/* Bublina + panel */}
       <div className="pointer-events-auto relative shrink-0 pb-3">
         <AnimatePresence>
@@ -134,7 +136,7 @@ export function ChatDock({
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 12, scale: 0.96 }}
               transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-              className="absolute bottom-14 left-0 w-[17.5rem] origin-bottom-left overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-bg)] shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)]"
+              className="absolute bottom-14 right-0 w-[17.5rem] origin-bottom-right overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-bg)] shadow-[0_16px_48px_-12px_rgba(0,0,0,0.7)]"
             >
               <div className="flex items-center justify-between border-b border-[var(--app-border)] px-3.5 py-2.5">
                 <span className="text-[11px] tracking-[0.14em] text-[var(--app-text-4)] uppercase">
@@ -225,8 +227,9 @@ export function ChatDock({
         </motion.button>
       </div>
 
-      {/* Otvorené okná — vedľa seba, na mobile len to posledné */}
-      <div className="pointer-events-none flex flex-1 items-end justify-start gap-2 overflow-hidden">
+      {/* Otvorené okná — vedľa seba, na mobile len to posledné.
+          `justify-end` ich drží pri bubline vpravo, nie odhodené na druhý koniec. */}
+      <div className="pointer-events-none flex flex-1 items-end justify-end gap-2 overflow-hidden">
         <AnimatePresence mode="popLayout">
           {open.map((room, index) => (
             <div
