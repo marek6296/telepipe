@@ -98,12 +98,78 @@ export async function accountHealth(): Promise<FiveSimHealth> {
 /*  Cenník                                                                     */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Pod touto úspešnosťou krajinu NEPONÚKAME.
+ *
+ * Dôvod je nameraný, nie odhadnutý. Pri Telegrame má 5sim krajiny s 0 %
+ * (Nemecko, Francúzsko, Holandsko) a klient si pri nich kúpi číslo, ktoré
+ * NIKDY nebude fungovať. Predať to za coiny — hoci ich vrátime — znamená
+ * poslať človeka dvadsaťkrát skúšať niečo, čo nemá šancu vyjsť. Presne to sa
+ * stalo pri prvom teste.
+ *
+ * Cena tu zámerne nerozhoduje. Refund funguje na oboch stranách (overené:
+ * zostatok 5simu sa po zrušení vrátil na cent), takže drahšie číslo, ktoré
+ * vyjde, je vždy lepšie než lacné, ktoré nevyjde.
+ */
+export const MIN_SUCCESS_RATE = 15;
+
+/**
+ * Krajina, ktorá sa ponúka VŽDY, keď má zásobu — aj keby jej úspešnosť dočasne
+ * klesla pod prah. Je to najžiadanejšia destinácia a prázdny zoznam by bol
+ * horší než zoznam s jednou položkou a poctivo napísaným percentom.
+ */
+const ALWAYS_OFFERED = "usa";
+
 /** Naša cena v coinoch. Rovnaké zaokrúhlenie ako pri VRNUM (násobok 50). */
 export function telegramPriceCoins(providerPrice: number): number {
   return coinPriceFromUsdCost(providerPrice * fiveSimPriceMultiplier()).coins;
 }
 
-type GuestPrices = Record<string, Record<string, Record<string, { cost: number; count: number }>>>;
+type OperatorInfo = { cost: number; count: number; rate?: number };
+type GuestPrices = Record<string, Record<string, Record<string, OperatorInfo>>>;
+
+/** Operátor, ktorého naozaj kúpime — aj s jeho úspešnosťou. */
+export type PickedOperator = {
+  name: string;
+  cost: number;
+  count: number;
+  /** Podiel aktivácií, ktoré u tohto operátora dopadli. `null` = 5sim ho neuvádza. */
+  rate: number | null;
+};
+
+/**
+ * Ktorého operátora kúpiť.
+ *
+ * ROZHODUJE ÚSPEŠNOSŤ, NIE CENA — a je to celý rozdiel medzi použiteľným a
+ * nepoužiteľným číslom. Kým sa kupovalo cez `any` (teda najlacnejší), padli na
+ * USA čísla od `virtual63` s 18 % úspešnosťou, prípadne `virtual28` s 8,7 %.
+ * Klient vyskúšal dvadsať čísel a všetky boli zabanované alebo už registrované.
+ * Ten istý deň mal `virtual51` za o 45 centov viac 42 % — viac než dvojnásobok.
+ *
+ * Cena rozhoduje až pri zhodnej úspešnosti. Ušetriť pol dolára na čísle, ktoré
+ * v deviatich z desiatich prípadov nefunguje, nie je úspora.
+ */
+function pickOperator(operators: Record<string, OperatorInfo>): PickedOperator | null {
+  let best: PickedOperator | null = null;
+  for (const [name, info] of Object.entries(operators ?? {})) {
+    const cost = Number(info?.cost);
+    const count = Number(info?.count);
+    if (!Number.isFinite(cost) || cost <= 0 || !(count > 0)) continue;
+    const raw = Number(info?.rate);
+    const rate = Number.isFinite(raw) ? raw : null;
+
+    if (best === null) {
+      best = { name, cost, count, rate };
+      continue;
+    }
+    // Neznáma úspešnosť sa berie ako najhoršia — nechceme, aby operátor bez
+    // údaja vyhral nad tým, o ktorom vieme, že funguje.
+    const a = rate ?? -1;
+    const b = best.rate ?? -1;
+    if (a > b || (a === b && cost < best.cost)) best = { name, cost, count, rate };
+  }
+  return best;
+}
 
 /**
  * Katalóg krajín. Cenník je VEREJNÝ (bez tokenu), takže sa dá čítať aj keď je
@@ -119,15 +185,16 @@ export async function listCountries(service: string): Promise<TelegramOtpCountry
     // Len kurátorované krajiny. 5sim ich vracia 140+, ale číslo z Kamerunu si
     // nikto neobjedná a v zozname by len prekážalo.
     if (!isKnownOtpCountry(country)) continue;
-    // Najlacnejší operátor, ktorý má čísla. Bez zásoby nemá zmysel ponúkať.
-    let best: { cost: number; count: number } | null = null;
-    for (const info of Object.values(operators)) {
-      const cost = Number(info.cost);
-      const count = Number(info.count);
-      if (count <= 0 || !Number.isFinite(cost) || cost <= 0) continue;
-      if (best === null || cost < best.cost) best = { cost, count };
-    }
+    const best = pickOperator(operators);
     if (!best) continue;
+    // Nepoužiteľné krajiny sa neukazujú vôbec. Klient nemá ako vedieť, že
+    // „Nemecko 0 %" znamená vyhodené peniaze a stratený čas — my to vieme.
+    const rate = best.rate ?? 0;
+    // Nula nie je „nízka úspešnosť", je to nefunkčná destinácia — tam neplatí
+    // ani výnimka pre USA. Ponúknuť číslo, ktoré preukázateľne nikdy nevyjde,
+    // je horšie než tú krajinu neponúknuť vôbec.
+    const usable = rate >= MIN_SUCCESS_RATE || (country === ALWAYS_OFFERED && rate > 0);
+    if (!usable) continue;
 
     const priceCredits = telegramPriceCoins(best.cost) / 1000;
     if (priceCredits <= 0) continue;
@@ -139,6 +206,7 @@ export async function listCountries(service: string): Promise<TelegramOtpCountry
       flag: meta?.flag ?? "",
       available: best.count,
       priceCredits,
+      successRate: best.rate,
     });
   }
 
@@ -151,7 +219,12 @@ export async function listCountries(service: string): Promise<TelegramOtpCountry
 export async function quote(
   service: string,
   countryCode: string,
-): Promise<{ country: TelegramOtpCountry; providerPriceUsd: number } | null> {
+): Promise<{
+  country: TelegramOtpCountry;
+  providerPriceUsd: number;
+  /** Operátor, ktorý sa naozaj kúpi. Musí ísť až do `buyActivation`. */
+  operator: string;
+} | null> {
   const product = safeService(service);
   const code = safeCountry(countryCode);
   const body = await request<GuestPrices>(
@@ -160,28 +233,22 @@ export async function quote(
   );
   const operators = body[code]?.[product] ?? {};
 
-  let best: number | null = null;
-  let count = 0;
-  for (const info of Object.values(operators)) {
-    const cost = Number(info.cost);
-    const c = Number(info.count);
-    if (c <= 0 || !Number.isFinite(cost) || cost <= 0) continue;
-    if (best === null || cost < best) {
-      best = cost;
-      count = c;
-    }
-  }
+  // TEN ISTÝ výber ako v `listCountries` a v `buyActivation` — inak by cena
+  // v zozname patrila inému operátorovi než ten, ktorý sa naozaj kúpi.
+  const best = pickOperator(operators);
   if (best === null) return null;
 
   const meta = otpCountry(code);
   return {
-    providerPriceUsd: best,
+    providerPriceUsd: best.cost,
+    operator: best.name,
     country: {
       code,
       name: meta?.name ?? prettyName(code),
       flag: meta?.flag ?? "",
-      available: count,
-      priceCredits: telegramPriceCoins(best) / 1000,
+      available: best.count,
+      priceCredits: telegramPriceCoins(best.cost) / 1000,
+      successRate: best.rate,
     },
   };
 }
@@ -213,8 +280,23 @@ export async function buyActivation(
   countryCode: string,
 ): Promise<ProviderTelegramOrder> {
   const product = safeService(service);
-  const country = encodeURIComponent(safeCountry(countryCode));
-  const body = await request<BuyResponse>(`/user/buy/activation/${country}/any/${product}`);
+  const country = safeCountry(countryCode);
+
+  // `any` znamená u 5simu „najlacnejší operátor" — a najlacnejší je vždy ten
+  // najviac vypálený. Preto sa operátor vyberá vedome podľa úspešnosti (viď
+  // `pickOperator`) a kupuje sa menovite. Keď sa výber nepodarí (výpadok
+  // cenníka), padáme späť na `any`: horšie číslo je lepšie než žiadne.
+  let operator = "any";
+  try {
+    const q = await quote(product, country);
+    if (q?.operator) operator = q.operator;
+  } catch {
+    // Zámerne ticho — nákup nesmie spadnúť na tom, že sa nenačítal cenník.
+  }
+
+  const body = await request<BuyResponse>(
+    `/user/buy/activation/${encodeURIComponent(country)}/${encodeURIComponent(operator)}/${product}`,
+  );
   return toProviderOrder(body);
 }
 

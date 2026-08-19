@@ -283,6 +283,27 @@ export function TelegramOtpPanel({
                             {soldOut
                               ? "Temporarily sold out"
                               : `${country.available.toLocaleString("en-US")} available`}
+                            {/* Úspešnosť patrí klientovi pred oči, nie do nášho
+                                logu. Rozdiel medzi 42 % a 4 % rozhoduje o tom,
+                                či číslo vôbec zaregistruje — a je to jediné
+                                číslo, podľa ktorého sa má rozhodovať. */}
+                            {!soldOut && typeof country.successRate === "number" && (
+                              <>
+                                {" · "}
+                                <span
+                                  style={{
+                                    color:
+                                      country.successRate >= 30
+                                        ? "var(--app-up)"
+                                        : country.successRate >= 15
+                                          ? "var(--gold)"
+                                          : "var(--app-down)",
+                                  }}
+                                >
+                                  {Math.round(country.successRate)}% success
+                                </span>
+                              </>
+                            )}
                           </span>
                         </span>
                         <span className="text-right">

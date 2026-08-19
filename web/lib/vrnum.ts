@@ -17,6 +17,12 @@ export type TelegramOtpCountry = {
   flag: string;
   available: number;
   priceCredits: number;
+  /**
+   * Podiel aktivácií, ktoré u vybraného operátora dopadli (0-100). `null` =
+   * provider údaj neuvádza. Klient to musí vidieť — pri Telegrame sa to medzi
+   * krajinami líši od 0 % do 42 % a bez toho čísla si kúpi nefunkčné číslo.
+   */
+  successRate?: number | null;
 };
 
 export type TelegramOtpOrder = {
