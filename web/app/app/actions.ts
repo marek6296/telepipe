@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { createClient } from "@/lib/supabase/server";
-import { requireUser } from "@/lib/models";
+import { requireUnlocked, requireUser } from "@/lib/models";
 import {
   DEFAULT_MODEL_TYPE,
   isModelTypeEnabled,
@@ -33,6 +33,10 @@ export async function createModelAction(
   formData: FormData,
 ): Promise<ActionResult> {
   const user = await requireUser();
+  // RLS to zastaví tak či tak (`models_owner_insert` → `account_unlocked`), ale
+  // zamknutý človek sa sem cez UI nemá ako dostať — a keby áno, nech dostane
+  // redirect na `/locked`, nie hlášku z databázy.
+  await requireUnlocked();
   const name = String(formData.get("name") ?? "").trim();
   const modelType = String(formData.get("model_type") ?? DEFAULT_MODEL_TYPE);
 

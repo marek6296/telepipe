@@ -2,6 +2,7 @@ import { cache } from "react";
 import { notFound, redirect } from "next/navigation";
 import type { User } from "@supabase/supabase-js";
 
+import { isUnlocked } from "@/lib/access";
 import { createClient, getUser } from "@/lib/supabase/server";
 import { toNumber } from "@/lib/format";
 import {
@@ -81,6 +82,24 @@ export async function requireUser(): Promise<User> {
   const user = await getUser();
   if (!user) redirect("/login");
   return user;
+}
+
+/**
+ * Odomknutý účet, inak redirect na `/locked`.
+ *
+ * `/locked` je ZÁMERNE mimo `/app`: keby bola pod ním, layout `/app` by
+ * redirectoval sám do seba (slučka) a zamknutý človek by videl workspace
+ * sidebar, ktorý aj tak nesmie použiť.
+ *
+ * Toto je pohodlie, nie hranica — tou je RLS `models_owner_insert`
+ * (migrácia 20260819120000). Ide o to, aby človek dostal vetu namiesto chyby
+ * z databázy.
+ */
+export async function requireUnlocked(): Promise<AccountRow> {
+  const account = await getAccount();
+  if (!account) redirect("/login");
+  if (!isUnlocked(account)) redirect("/locked");
+  return account;
 }
 
 // React `cache` žije iba v rámci jedného serverového renderu/requestu. Deduplikuje

@@ -85,5 +85,33 @@ export function vrnumOtpPriceMultiplier(): number {
   return Number.isFinite(value) ? Math.max(value, 1.5) : 1.5;
 }
 
+/**
+ * Marekov SÚKROMNÝ admin bot (@TelePipe_help_bot) — SERVER ONLY.
+ *
+ * Nemá nič spoločné s control botmi modeliek vo workeri; je to samostatný bot
+ * a samostatný kanál pre notifikácie o žiadostiach o prístup.
+ *
+ * Voliteľná integrácia: keď premenné chýbajú, žiadosti stále pribúdajú v admin
+ * paneli, len sa neozve Telegram. Preto `?? ""` a `telegramAdminConfigured()`,
+ * nie tvrdý `required()` — žiadosť sa nesmie stratiť kvôli chýbajúcej env.
+ */
+export function telegramAdminBotToken(): string {
+  return process.env.TELEGRAM_ADMIN_BOT_TOKEN ?? "";
+}
+
+/** Marekov súkromný chat id. Webhook ním overuje, že klik prišiel od neho. */
+export function telegramAdminChatId(): string {
+  return process.env.TELEGRAM_ADMIN_CHAT_ID ?? "";
+}
+
+/** Secret token z `setWebhook` — Telegram ho posiela v hlavičke každého update. */
+export function telegramAdminWebhookSecret(): string {
+  return process.env.TELEGRAM_ADMIN_WEBHOOK_SECRET ?? "";
+}
+
+export function telegramAdminConfigured(): boolean {
+  return Boolean(telegramAdminBotToken() && telegramAdminChatId());
+}
+
 // Feature flagy žijú v `lib/flags.ts` (client-safe) — tu ich len reexportujeme
 export { googleAuthEnabled } from "@/lib/flags";

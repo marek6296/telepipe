@@ -6,6 +6,8 @@ import {
   isPayCurrency,
   plisioEnabled,
 } from "@/lib/plisio";
+import { isUnlocked } from "@/lib/access";
+import { getAccount } from "@/lib/models";
 import { createServiceClient, getUser } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +47,17 @@ function addressResponse(row: AddressRow, qrCode: string) {
 export async function POST(request: NextRequest) {
   const user = await getUser();
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  // Pred schválením od nikoho neberieme peniaze. Depozitnú adresu zakladá
+  // service klient, ktorého sa RLS netýka — takže toto je jediné miesto, kde sa
+  // to dá zastaviť. Nie „pohodlie", ale skutočná brána.
+  if (!isUnlocked(await getAccount())) {
+    return NextResponse.json(
+      { error: "Your account is not approved yet." },
+      { status: 403 },
+    );
+  }
+
   if (!plisioEnabled()) {
     return NextResponse.json(
       { error: "Crypto deposits are not available right now." },

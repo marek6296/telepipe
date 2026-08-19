@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/app/app-shell";
+import { isUnlocked } from "@/lib/access";
 import { isAdminRole } from "@/lib/admin-ui";
 import { toNumber } from "@/lib/format";
 import { getAccount, listModels } from "@/lib/models";
@@ -26,6 +27,10 @@ export default async function AppLayout({ children }: LayoutProps<"/app">) {
   // Spustíme ich naraz, aby layout nevytváral sekvenčný waterfall.
   const [user, account, models] = await Promise.all([getUser(), getAccount(), listModels()]);
   if (!user) redirect("/login");
+
+  // Zamknutý účet nemá v `/app` čo hľadať. Skutočný zámok je v RLS — toto je
+  // len to, aby naň človek nenarazil ako na chybu z databázy.
+  if (!isUnlocked(account)) redirect("/locked");
 
   return (
     <AppShell

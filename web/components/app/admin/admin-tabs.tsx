@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Bot, LayoutDashboard, Users } from "lucide-react";
+import { BarChart3, Bot, LayoutDashboard, UserPlus, Users } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
 const TABS = [
   { href: "/app/admin", label: "Overview", icon: LayoutDashboard, exact: true },
+  { href: "/app/admin/requests", label: "Requests", icon: UserPlus, exact: false },
   { href: "/app/admin/users", label: "Users", icon: Users, exact: false },
   { href: "/app/admin/models", label: "Models", icon: Bot, exact: false },
   { href: "/app/admin/usage", label: "Usage", icon: BarChart3, exact: false },
