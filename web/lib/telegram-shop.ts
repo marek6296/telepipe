@@ -1,7 +1,7 @@
 import "server-only";
 
 import { telegramShopBotToken, telegramShopConfigured } from "@/lib/env";
-import { starsCoinsForUsd, starsForUsd } from "@/lib/stars";
+import { buildPayload, starsCoinsForUsd, starsForUsd } from "@/lib/stars";
 
 /**
  * Obchodný bot — predaj Pipe Coinov za Telegram Stars.
@@ -17,25 +17,6 @@ import { starsCoinsForUsd, starsForUsd } from "@/lib/stars";
  */
 
 const API = "https://api.telegram.org";
-
-/** `payload` má 1–128 bajtov a používateľ ho nikdy nevidí. Nesie si, komu sa
- *  má pripísať — vďaka tomu netreba žiadne párovacie tokeny.
- *
- *  Verzia na začiatku je tam schválne: keby sa tvar raz zmenil, staré faktúry
- *  vystavené pred zmenou musia ostať zaplatiteľné. */
-export function buildPayload(accountId: string, usd: number): string {
-  return `v1:${accountId}:${usd}`;
-}
-
-export type ParsedPayload = { accountId: string; usd: number } | null;
-
-export function parsePayload(payload: string): ParsedPayload {
-  const m = /^v1:([0-9a-f-]{36}):(\d+(?:\.\d+)?)$/.exec(payload ?? "");
-  if (!m) return null;
-  const usd = Number(m[2]);
-  if (!Number.isFinite(usd) || usd <= 0) return null;
-  return { accountId: m[1], usd };
-}
 
 async function call<T>(method: string, body: unknown): Promise<T | null> {
   if (!telegramShopConfigured()) return null;

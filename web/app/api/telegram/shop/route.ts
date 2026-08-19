@@ -2,13 +2,9 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { telegramShopWebhookSecret } from "@/lib/env";
 import { createServiceClient } from "@/lib/supabase/server";
-import {
-  answerPreCheckout,
-  parsePayload,
-  sendShopMessage,
-} from "@/lib/telegram-shop";
+import { answerPreCheckout, sendShopMessage } from "@/lib/telegram-shop";
 import { notifyAdminNote } from "@/lib/telegram-admin";
-import { starsCoinsForUsd } from "@/lib/stars";
+import { parsePayload, starsCoinsForUsd } from "@/lib/stars";
 
 export const dynamic = "force-dynamic";
 

@@ -10,11 +10,14 @@ import assert from "node:assert/strict";
 
 import {
   APPROX_USD_PER_STAR_FOR_USER,
+  STARS_MAX_USD,
   STARS_MIN_USD,
   STAR_OPTIONS,
   USD_PER_STAR,
   approxUserCostUsd,
   assertStarsProfitable,
+  buildPayload,
+  parsePayload,
   starsForUsd,
 } from "../lib/stars.ts";
 import { COINS_PER_USD } from "../lib/coins.ts";
@@ -65,6 +68,44 @@ for (const option of STAR_OPTIONS) {
 }
 assert.ok(APPROX_USD_PER_STAR_FOR_USER > USD_PER_STAR);
 console.log("  ok — odhad ceny pre klienta dáva zmysel");
+
+/* -------------------------------------------------------------------------- */
+/*  Payload — na ňom stojí, na čí účet pôjdu peniaze                           */
+/* -------------------------------------------------------------------------- */
+
+const ACC = "1e23e8bb-1aa7-451d-b5cd-f8c526653939";
+
+{
+  const round = parsePayload(buildPayload(ACC, 10));
+  assert.deepEqual(round, { accountId: ACC, usd: 10 }, "payload sa musí prečítať späť");
+}
+
+// Čokoľvek podvrhnuté musí skončiť ako `null` — vtedy platbu odmietneme ešte
+// pred stiahnutím peňazí, namiesto toho aby sme ju pripísali cudziemu účtu.
+for (const zly of [
+  "",
+  "podvrh",
+  `v1:${ACC}`,
+  `v1:${ACC}:`,
+  `v1:${ACC}:0`,
+  `v1:${ACC}:-5`,
+  `v1:${ACC}:abc`,
+  `v2:${ACC}:10`,
+  `v1:nie-je-uuid:10`,
+  `v1:${ACC}:10:extra`,
+  // Nad horný limit — inak by stačilo podvrhnúť obrovskú sumu.
+  `v1:${ACC}:999999`,
+]) {
+  assert.equal(parsePayload(zly), null, `payload ${JSON.stringify(zly)} mal byť odmietnutý`);
+}
+console.log("  ok — podvrhnutý payload sa odmietne");
+
+// Payload sa musí zmestiť do limitu Telegramu (1–128 bajtov).
+{
+  const bytes = Buffer.byteLength(buildPayload(ACC, STARS_MAX_USD), "utf8");
+  assert.ok(bytes >= 1 && bytes <= 128, `payload má ${bytes} B, limit je 128`);
+  console.log(`  ok — payload má ${bytes} B (limit 128)`);
+}
 
 console.log("\nPrehľad ponuky:");
 for (const o of STAR_OPTIONS) {

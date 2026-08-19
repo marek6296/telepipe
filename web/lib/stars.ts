@@ -53,6 +53,35 @@ export function approxUserCostUsd(stars: number): number {
   return stars * APPROX_USD_PER_STAR_FOR_USER;
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Payload faktúry — na ňom stojí celé priradenie platby k účtu               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * `payload` má 1–128 bajtov a používateľ ho nikdy nevidí. Nesie si, komu sa má
+ * platba pripísať — vďaka tomu netreba žiadne párovanie Telegram účtu s webom.
+ *
+ * Verzia na začiatku je tam schválne: keby sa tvar raz zmenil, faktúry
+ * vystavené pred zmenou musia ostať zaplatiteľné.
+ *
+ * Žije tu, a nie v `telegram-shop.ts`, aby sa to dalo otestovať bez servera —
+ * je to jediné miesto, kde sa rozhoduje, na čí účet pôjdu peniaze.
+ */
+export function buildPayload(accountId: string, usd: number): string {
+  return `v1:${accountId}:${usd}`;
+}
+
+export type ParsedPayload = { accountId: string; usd: number } | null;
+
+export function parsePayload(payload: string): ParsedPayload {
+  const m = /^v1:([0-9a-f-]{36}):(\d+(?:\.\d+)?)$/.exec(payload ?? "");
+  if (!m) return null;
+  const usd = Number(m[2]);
+  if (!Number.isFinite(usd) || usd <= 0) return null;
+  if (usd > STARS_MAX_USD) return null;
+  return { accountId: m[1], usd };
+}
+
 export type StarOption = {
   usd: number;
   stars: number;
