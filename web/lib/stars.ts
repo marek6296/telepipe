@@ -63,7 +63,13 @@ export function starsForUsd(usd: number): number {
 
 /** Koľko coinov klient dostane. Bonusy za objem pri Stars ZÁMERNE neplatia —
  *  sú to peniaze navyše, ktoré si vieme dovoliť pri 1 % poplatku, nie pri 35 %.
- *  Krypto tak ostáva zjavne výhodnejšie, čo je zámer. */
+ *  Krypto tak ostáva zjavne výhodnejšie, čo je zámer.
+ *
+ *  POZOR pri budúcich úpravách: sem NEPRIDÁVAJ odhad počtu správ („≈166
+ *  replies"). Verejné tvrdenia typu „koľko správ za $10" stoja na KRYPTO cene,
+ *  kde $1 = 1 000 coinov. Cez Stars je dolár slabší (Apple a Telegram si berú
+ *  svoje), takže rovnaké číslo by pri tejto metóde klamalo. Prepočet
+ *  coiny → správy je spoločný a ten pokojne ukazuj — mení sa len doláre → coiny. */
 export function starsCoinsForUsd(usd: number): number {
   return Math.round(usd * COINS_PER_USD);
 }
