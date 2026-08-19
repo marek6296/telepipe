@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Sparkles } from "lucide-react";
 
 import { PersonaForm, type PersonaRow } from "@/components/app/persona-form";
+import { SetupModeSwitch } from "@/components/app/setup-mode-switch";
 import { Callout } from "@/components/app/ui";
 import { requireModelSubTab } from "@/lib/models";
 import { createClient } from "@/lib/supabase/server";
@@ -40,6 +41,9 @@ export default async function PersonaPage({ params }: PageProps<"/app/m/[id]/per
   }
 
   const persona = data as unknown as PersonaRow;
+  // `personal` je default aj pre čokoľvek neznáme — mód, ktorý appka nepozná,
+  // nesmie klientovi schovať polia, ktoré si vypísal sám.
+  const mode = model.setup_mode === "easy" ? "easy" : "personal";
 
   return (
     <>
@@ -65,7 +69,11 @@ export default async function PersonaPage({ params }: PageProps<"/app/m/[id]/per
           </Link>
         </div>
       )}
-      <PersonaForm persona={persona} />
+      <div className="mb-4">
+        <SetupModeSwitch modelId={model.id} mode={mode} />
+      </div>
+
+      <PersonaForm persona={persona} mode={mode} />
     </>
   );
 }

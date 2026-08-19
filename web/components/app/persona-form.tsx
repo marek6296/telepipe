@@ -34,7 +34,18 @@ export type PersonaRow = {
  * Persona = kto je a ako píše. Polia sedia 1:1 na stĺpce tabuľky `persona`
  * (migrácia 003), popisy vychádzajú z toho, ako ich používa prompt v predlohe.
  */
-export function PersonaForm({ persona }: { persona: PersonaRow }) {
+export function PersonaForm({
+  persona,
+  mode = "personal",
+}: {
+  persona: PersonaRow;
+  /** V Easy móde sú polia, ktoré vyplnil preset, schované — klient rieši len
+   *  základy. Dáta sa NEMENIA, len sa nezobrazujú; worker číta persona rovnako
+   *  v oboch módoch. */
+  mode?: "personal" | "easy";
+}) {
+  const easy = mode === "easy";
+
   return (
     <AutoSaveForm save={(patch) => savePersonaAction(persona.model_id, patch)}>
       <Card>
@@ -81,6 +92,7 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
             placeholder="Learned Spanish on holiday, still shy about it."
             help="Optional. A note in her own words — it does not add a language, the picker above does that."
           />
+          {!easy && (
           <TextAreaField
             name="backstory"
             label="Backstory"
@@ -95,9 +107,15 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
             className="sm:col-span-2"
             help="Job, studies, hobbies, pets — the facts she can talk about without inventing new ones."
           />
+          )}
         </div>
       </Card>
 
+      {/* Presne tie karty, ktoré v Easy móde vyplnil preset. Nezobrazujú sa,
+          ale dáta ostávajú — po prepnutí na Personal ich klient nájde vyplnené
+          a môže ich prepísať. */}
+      {!easy && (
+      <>
       <Card>
         <CardHeader
           title="How she writes"
@@ -171,6 +189,8 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
           />
         </div>
       </Card>
+      </>
+      )}
 
       <Card>
         <CardHeader
@@ -186,6 +206,7 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
             type="url"
             help="Leave this empty and she never sends a link at all. Hard limits still apply: never before the 6th message, at most once per fan every 48 hours, and never more than the “Links per hour” cap you set on the Behavior tab."
           />
+          {!easy && (
           <TextAreaField
             name="funnel_rules"
             label="How she leads to it"
@@ -199,6 +220,7 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
             }
             help="She never sends the link before the 6th message, and only once the chat is warm."
           />
+          )}
         </div>
       </Card>
 

@@ -1,6 +1,9 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+
 import { normalizeExtra, normalizePrimary } from "@/lib/languages";
+import { PRESET_FIELDS, buildPreset } from "@/lib/persona-preset";
 import { createClient } from "@/lib/supabase/server";
 
 /**
@@ -112,4 +115,84 @@ async function currentPrimary(modelId: string): Promise<string> {
     .eq("model_id", modelId)
     .maybeSingle();
   return (data as { lang_primary?: string } | null)?.lang_primary ?? "";
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Easy agent — prepínač módu                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Prepnutie medzi Personal a Easy.
+ *
+ * PRI ZAPNUTÍ EASY sa preset zapíše LEN DO PRÁZDNYCH polí. Čo si klient napísal
+ * sám, ostáva — prepínač nie je „zahoď moju prácu". Práve preto sa dá zapnúť aj
+ * na rozrobenej modelke a doplní len to, čo chýba.
+ *
+ * PRI VYPNUTÍ sa NEMAŽE nič. Klient dostane plný formulár aj s tým, čo mu
+ * preset naplnil, a môže to prepísať. Mazať by znamenalo, že prepnutie tam a
+ * späť zmaže rozpísanú personu.
+ *
+ * Worker o `setup_mode` NEVIE a vedieť nemá: preset skončí v tabuľke `persona`
+ * a číta sa odtiaľ presne ako čokoľvek ručne napísané. Vďaka tomu nemôže tento
+ * prepínač rozbiť bežiacu modelku — mení dáta, nie správanie.
+ */
+export async function setSetupModeAction(
+  modelId: string,
+  mode: "personal" | "easy",
+): Promise<SaveResult> {
+  if (mode !== "personal" && mode !== "easy") {
+    return { error: "Unknown mode." };
+  }
+
+  const supabase = await createClient();
+
+  if (mode === "easy") {
+    // Meno, vek a mesto musia byť známe UŽ TERAZ — backstory sa o ne opiera.
+    // Bez nich by vznikla šablóna, v ktorej si modelka vek aj bydlisko vymyslí
+    // pri každej odpovedi inak.
+    const { data, error } = await supabase
+      .from("persona")
+      .select(
+        "name, age, city, backstory, tone, msg_style, boundaries, funnel_rules, examples",
+      )
+      .eq("model_id", modelId)
+      .maybeSingle();
+
+    if (error) return { error: error.message };
+    if (!data) return { error: "Her persona row is missing. Reload the page." };
+
+    const row = data as Record<string, unknown>;
+    if (!String(row.name ?? "").trim()) {
+      return { error: "Give her a name first — the preset is written around it." };
+    }
+
+    const preset = buildPreset({
+      name: String(row.name ?? ""),
+      age: typeof row.age === "number" ? row.age : null,
+      city: String(row.city ?? ""),
+    });
+
+    const update: Record<string, string> = {};
+    for (const field of PRESET_FIELDS) {
+      if (!String(row[field] ?? "").trim()) update[field] = preset[field];
+    }
+
+    if (Object.keys(update).length > 0) {
+      const { error: writeError } = await supabase
+        .from("persona")
+        .update({ ...update, updated_at: new Date().toISOString() })
+        .eq("model_id", modelId);
+      if (writeError) return { error: writeError.message };
+    }
+  }
+
+  const { error } = await supabase
+    .from("models")
+    .update({ setup_mode: mode })
+    .eq("id", modelId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/app", "layout");
+  return {};
 }

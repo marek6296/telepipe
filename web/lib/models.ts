@@ -24,7 +24,7 @@ import {
 export const MODEL_COLUMNS =
   "id, account_id, name, model_type, status, status_reason, claimed_by, heartbeat_at, " +
   "tg_api_id, tg_api_hash, owner_chat_id, owner_as_client, voice_only_ids, " +
-  "skip_contacts, contact_exceptions, created_at, updated_at";
+  "skip_contacts, contact_exceptions, setup_mode, created_at, updated_at";
 
 export type ModelRow = {
   id: string;
@@ -50,6 +50,12 @@ export type ModelRow = {
   skip_contacts: boolean;
   /** Telegram chat id, ktoré filtrom prejdú aj tak — na testovanie s kamošmi. */
   contact_exceptions: number[];
+  /**
+   * Migrácia 20260819260000 — `personal` (default) alebo `easy`. Rozhoduje LEN
+   * o tom, koľko polí formulár ukáže; worker o tomto stĺpci nevie a personu
+   * číta rovnako v oboch módoch.
+   */
+  setup_mode: string;
   created_at: string;
   updated_at: string;
 };
