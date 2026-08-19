@@ -6,7 +6,7 @@ import { marketingMetadata, SITE_URL, structuredData } from "@/lib/seo";
 export const metadata: Metadata = marketingMetadata({
   title: "AI Telegram Chatbot for Creators & Agencies",
   description:
-    "Automate Telegram DMs with a persistent AI persona, human-like replies, voice messages and conversion-ready links. Built for creators and model agencies.",
+    "An AI agent that answers your Telegram and Fanvue DMs — in your own name or as a persona you create, with AI voice notes and your photos. Built for creators and model agencies.",
   path: "/",
 });
 
@@ -36,12 +36,13 @@ const HOME_SCHEMA = {
       applicationCategory: "BusinessApplication",
       operatingSystem: "Web",
       description:
-        "AI chat automation for creators and model agencies using Telegram and Fanvue.",
+        "An AI agent that replies to Telegram and Fanvue direct messages on behalf of a creator or a persona they define, including AI-generated voice notes and photos from their own library.",
       featureList: [
-        "Persistent AI persona and conversation memory",
-        "Telegram DM automation",
-        "AI voice messages",
-        "Fanvue chat automation",
+        "AI agent replying on your behalf or as a persona you define",
+        "Telegram and Fanvue direct message automation",
+        "AI-generated voice notes",
+        "Photos sent from your own library",
+        "Per-persona languages, tone and boundaries",
         "Usage-based Pipe Coin billing",
       ],
       publisher: { "@id": `${SITE_URL}/#organization` },

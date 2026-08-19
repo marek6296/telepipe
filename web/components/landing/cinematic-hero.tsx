@@ -459,8 +459,9 @@ function CinematicScene() {
             data-intro-sub
             className="mt-7 max-w-xl text-[clamp(0.95rem,1.7vw,1.15rem)] leading-relaxed text-white/45"
           >
-            Telepipe runs your Telegram DMs on autopilot — human-sounding replies,
-            real voice messages, and the right link at the perfect moment.
+            An AI agent answers your Telegram and Fanvue DMs — in your own name or
+            as a persona you create. It writes in her voice and sends AI voice
+            notes and your photos, around the clock.
           </p>
 
           <div
@@ -507,8 +508,9 @@ function CinematicScene() {
                   data-card-copy
                   className="mt-4 text-[15px] leading-relaxed text-white/45"
                 >
-                  Your model&apos;s persona, tone and boundaries — learned once, then
-                  applied to every conversation, day and night.
+                  You describe her once — persona, tone, languages and the lines she
+                  never crosses. The agent then replies on her behalf in every
+                  conversation, day and night.
                 </p>
 
                 <ul
@@ -516,9 +518,9 @@ function CinematicScene() {
                   className="mt-7 flex flex-wrap justify-center gap-2.5 lg:justify-start"
                 >
                   {[
-                    "Human-sounding replies",
-                    "Real voice notes",
-                    "Funnel-aware links",
+                    "Replies in your name",
+                    "AI voice notes and photos",
+                    "You set the boundaries",
                   ].map((item) => (
                     <li
                       key={item}
@@ -565,10 +567,12 @@ function CinematicScene() {
                       <TrendingUp className="h-4 w-4 text-[var(--gold)]" />
                     </span>
                     <span className="text-left">
+                      {/* Bolo tu „+38 subscribers / this week". Vymyslené číslo
+                          výsledku — nahradené tým, čo agent naozaj robí. */}
                       <span className="block text-[13px] font-semibold text-[var(--gold-light)]">
-                        +38 subscribers
+                        Follow-ups on time
                       </span>
-                      <span className="block text-[10.5px] text-white/45">this week</span>
+                      <span className="block text-[10.5px] text-white/45">nothing forgotten</span>
                     </span>
                   </div>
                 </div>
@@ -589,8 +593,9 @@ function CinematicScene() {
             <span className="lp-text-bright">Put your DMs on autopilot.</span>
           </h2>
           <p data-cta-item className="mt-6 max-w-xl text-base text-white/45">
-            Connect Telegram, describe your model, and let Telepipe turn every
-            conversation into revenue.
+            Connect Telegram, describe your persona, and the agent takes the
+            replies from there. You decide what it may say — and you can read
+            along or step in at any time.
           </p>
           <div
             data-cta-item
@@ -629,8 +634,9 @@ function StaticHero() {
           <span className="block lp-text-bright">Chats become subscribers.</span>
         </h1>
         <p className="mx-auto mt-6 max-w-xl text-base leading-relaxed text-white/45">
-          Telepipe runs your Telegram DMs on autopilot — human-sounding replies,
-          real voice messages, and the right link at the perfect moment.
+          An AI agent answers your Telegram and Fanvue DMs — in your own name or as
+          a persona you create. It writes in her voice and sends AI voice notes and
+          your photos, around the clock.
         </p>
         <div className="mt-10 flex flex-col items-center justify-center gap-3 sm:flex-row">
           <Link href="/register" className="lp-btn lp-btn-primary h-12 px-7 text-[14.5px]">
@@ -654,11 +660,12 @@ function StaticHero() {
               One agent. Every fan. Answered in seconds.
             </h2>
             <p className="mt-4 text-[15px] leading-relaxed text-white/45">
-              Your model&apos;s persona, tone and boundaries — learned once, then
-              applied to every conversation, day and night.
+              You describe her once — persona, tone, languages and the lines she
+              never crosses. The agent then replies on her behalf in every
+              conversation, day and night.
             </p>
             <ul className="mt-7 flex flex-wrap justify-center gap-2.5 lg:justify-start">
-              {["24/7 auto-replies", "Real voice notes", "+38 subscribers this week"].map(
+              {["Replies in your name", "AI voice notes and photos", "You set the boundaries"].map(
                 (item) => (
                   <li
                     key={item}

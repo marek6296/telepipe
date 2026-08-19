@@ -189,8 +189,11 @@ export function PhoneMockup({
                   <Sparkles className="h-2.5 w-2.5 text-[var(--gold)]" />
                   New Fanvue subscriber
                 </p>
+                {/* Bola tu suma „+$24.99". Konkrétny zárobok na landingu je
+                    tvrdenie o výsledku, ktoré nemáme čím podložiť — a presne
+                    tieto čísla si v tomto odvetví všímajú regulátori. */}
                 <p className="mt-0.5 text-[13px] font-bold text-[var(--gold-light)]">
-                  💰 +$24.99
+                  From this chat
                 </p>
               </div>
               <div
@@ -202,7 +205,10 @@ export function PhoneMockup({
                   <Zap className="h-2.5 w-2.5 text-[var(--gold)]" />
                   Auto-reply sent
                 </p>
-                <p className="mt-0.5 text-[13px] font-bold text-white">2.3s ⚡</p>
+                {/* Bolo tu „2.3s". Odporovalo to samotnému produktu: worker
+                    odpoveď ZÁMERNE zdržuje, aby písala v ľudskom rytme a
+                    neprezradila sa. Sľubovať sekundy by bolo nepravdivé. */}
+                <p className="mt-0.5 text-[13px] font-bold text-white">Human pace ⚡</p>
               </div>
             </div>
           </div>
