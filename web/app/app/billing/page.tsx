@@ -3,6 +3,8 @@ import { BadgeCheck, Coins, MessageSquareText, Percent, QrCode, Send } from "luc
 
 import { BillingPanel, type CurrencyOption } from "@/components/app/billing-panel";
 import { RelativeTime } from "@/components/app/relative-time";
+import { TelegramStarsPanel } from "@/components/app/telegram-stars-panel";
+import { telegramShopConfigured } from "@/lib/env";
 import { Card, CardHeader, PageHeader, StatTile, TableWrap, Th } from "@/components/app/ui";
 import {
   COINS_PER_REPLY,
@@ -177,6 +179,13 @@ export default async function BillingPage() {
         />
       </Card>
 
+      {/* Druhá cesta. Zámerne POD kryptom a menšia — je drahšia (Telegram
+          a app stores si berú ~35 %) a bonusy za objem tu neplatia. */}
+      {telegramShopConfigured() && (
+        <div className="mt-4">
+          <TelegramStarsPanel alreadyLinked={Boolean(account?.telegram_user_id)} />
+        </div>
+      )}
 
       <Card className="mt-4">
         <div className="grid divide-y divide-[var(--app-border)] md:grid-cols-3 md:divide-x md:divide-y-0">

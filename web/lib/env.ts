@@ -113,5 +113,24 @@ export function telegramAdminConfigured(): boolean {
   return Boolean(telegramAdminBotToken() && telegramAdminChatId());
 }
 
+/**
+ * VEREJNÝ obchodný bot — predaj Pipe Coinov za Telegram Stars.
+ *
+ * ZÁMERNE iný bot než admin: adminovi smie písať len Marek (webhook kontroluje
+ * chat id), obchodnému musí vedieť napísať ktokoľvek. Zlúčiť ich by tú kontrolu
+ * zrušilo.
+ */
+export function telegramShopBotToken(): string {
+  return process.env.TELEGRAM_SHOP_BOT_TOKEN ?? "";
+}
+
+export function telegramShopWebhookSecret(): string {
+  return process.env.TELEGRAM_SHOP_WEBHOOK_SECRET ?? "";
+}
+
+export function telegramShopConfigured(): boolean {
+  return Boolean(telegramShopBotToken());
+}
+
 // Feature flagy žijú v `lib/flags.ts` (client-safe) — tu ich len reexportujeme
 export { googleAuthEnabled } from "@/lib/flags";

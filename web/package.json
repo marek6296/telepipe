@@ -13,6 +13,7 @@
     "test:schedule": "node scripts/schedule-draft-test.mts",
     "test:coins": "node scripts/coins-test.mts",
     "test:access": "node scripts/access-test.mts",
+    "test:stars": "node scripts/stars-test.mts",
     "seo:indexnow": "node scripts/submit-indexnow.mjs"
   },
   "dependencies": {

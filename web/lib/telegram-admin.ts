@@ -110,6 +110,19 @@ export async function notifyAdminDirectMessage(input: {
   });
 }
 
+/** Krátka poznámka Marekovi — bez tlačidiel. Používa ju obchodný bot, keď sa
+ *  stane niečo, o čom má vedieť (platba, refund, platba bez payloadu). */
+export async function notifyAdminNote(html: string): Promise<boolean> {
+  const cfg = config();
+  if (!cfg) return false;
+  return call("sendMessage", {
+    chat_id: cfg.chatId,
+    parse_mode: "HTML",
+    text: html,
+    link_preview_options: { is_disabled: true },
+  });
+}
+
 export async function answerCallback(id: string, text: string): Promise<boolean> {
   return call("answerCallbackQuery", { callback_query_id: id, text });
 }

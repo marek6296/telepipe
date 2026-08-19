@@ -74,6 +74,12 @@ export type AccountRow = {
    * admin/superadmin alebo plánom `vip` sú vyňaté a hodnota im nič nehovorí.
    */
   model_slots: number;
+  /**
+   * Kto z Telegramu za tento účet platil (migrácia 20260819200000). Vyplní sa
+   * pri prvej platbe v Stars a slúži na to, aby ďalšia faktúra mohla prísť
+   * rovno do jeho chatu. `null` = ešte cez Telegram neplatil.
+   */
+  telegram_user_id: number | null;
 };
 
 /** Modelka + čísla, ktoré chce klient vidieť na karte. */
@@ -115,7 +121,8 @@ export const getAccount = cache(async function getAccount(): Promise<AccountRow 
   const { data, error } = await supabase
     .from("accounts")
     .select(
-      "id, email, credit_balance_usd, created_at, role, plan, stats_since, model_slots",
+      "id, email, credit_balance_usd, created_at, role, plan, stats_since, model_slots, " +
+        "telegram_user_id",
     )
     .maybeSingle();
 
