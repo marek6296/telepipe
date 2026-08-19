@@ -81,6 +81,35 @@ export async function notifyAccessRequest(input: {
   });
 }
 
+/**
+ * Klient napísal do DM. Marek žije v Telegrame, takže sa to dozvie hneď aj bez
+ * otvoreného webu. Odpisuje sa zatiaľ vo webe — preto tu žiadne tlačidlá.
+ */
+export async function notifyAdminDirectMessage(input: {
+  email: string;
+  body: string;
+  hasPhoto: boolean;
+}): Promise<boolean> {
+  const cfg = config();
+  if (!cfg) return false;
+
+  const lines = [
+    `<b>💬 ${escapeHtml(input.email)}</b>`,
+    "",
+    escapeHtml(input.body.slice(0, 500)),
+  ];
+  if (input.hasPhoto) lines.push("", "<i>+ photo</i>");
+
+  return call("sendMessage", {
+    chat_id: cfg.chatId,
+    parse_mode: "HTML",
+    text: lines.join("\n"),
+    // Bez náhľadu odkazov: klient môže poslať URL a Telegram by z nej spravil
+    // veľkú kartu cez pol obrazovky.
+    link_preview_options: { is_disabled: true },
+  });
+}
+
 export async function answerCallback(id: string, text: string): Promise<boolean> {
   return call("answerCallbackQuery", { callback_query_id: id, text });
 }

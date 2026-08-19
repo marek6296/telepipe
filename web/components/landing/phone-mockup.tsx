@@ -122,7 +122,7 @@ export function PhoneMockup({
             <div className="max-w-[82%] rounded-2xl rounded-br-md bg-[linear-gradient(150deg,#e8c766,#c9a233)] px-3 py-2 text-[11px] leading-snug text-black/90 shadow-[0_6px_18px_rgba(212,175,55,0.28)]">
               everything is here, baby 💋
               <span className="mt-1 block truncate rounded-lg bg-black/15 px-2 py-1 text-[10px] font-semibold underline decoration-black/30">
-                fanvue.com/lena
+                www.lena.com
               </span>
             </div>
           </div>

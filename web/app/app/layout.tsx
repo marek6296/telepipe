@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 
 import { AppShell } from "@/components/app/app-shell";
+import { ChatDockMount } from "@/components/chat/chat-dock-mount";
 import { isUnlocked } from "@/lib/access";
 import { isAdminRole } from "@/lib/admin-ui";
 import { toNumber } from "@/lib/format";
@@ -51,6 +52,7 @@ export default async function AppLayout({ children }: LayoutProps<"/app">) {
       }))}
     >
       {children}
+      <ChatDockMount />
     </AppShell>
   );
 }
