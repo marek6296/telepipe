@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 
 import { ReplicaBadge } from "@/components/app/admin/badges";
+import { StarsBalanceCard } from "@/components/app/admin/stars-balance-card";
+import { starTransactions, starsBalance } from "@/lib/stars-admin";
 import { RelativeTime } from "@/components/app/relative-time";
 import { Card, CardHeader, PageHeader, StatTile } from "@/components/app/ui";
 import {
@@ -23,11 +25,13 @@ const WINDOW_DAYS = 30;
 export default async function AdminOverviewPage() {
   await requireAdmin();
 
-  const [accounts, models, replicas, usage] = await Promise.all([
+  const [accounts, models, replicas, usage, starsBal, starsTx] = await Promise.all([
     listAdminAccounts(),
     listAdminModels(),
     listAdminReplicas(),
     adminUsageSummary(WINDOW_DAYS),
+    starsBalance(),
+    starTransactions(),
   ]);
 
   const activeModels = models.filter((model) => model.status === "active").length;
@@ -91,6 +95,11 @@ export default async function AdminOverviewPage() {
           hint={`${marginPct}% of charged`}
         />
       </div>
+
+      {/* Kde ležia peniaze zo Stars. Čítané priamo z Telegramu, nie z našej DB —
+          naša pravda je, koľko coinov sme pripísali, Telegramova to, koľko
+          Stars nám naozaj leží. Keď sa rozídu, chceme to vidieť. */}
+      <StarsBalanceCard balance={starsBal} transactions={starsTx} />
 
       <div className="mt-4">
         <Card>
