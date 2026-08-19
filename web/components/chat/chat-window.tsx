@@ -13,6 +13,7 @@ import {
 } from "@/app/app/chat-actions";
 import {
   CHAT_MESSAGE_COLUMNS,
+  ROOM_EMPTY_PROMPT,
   ROOM_HINT,
   ROOM_LABEL,
   roomAllowsPhotos,
@@ -260,7 +261,7 @@ export function ChatWindow({
               <p className="pt-10 text-center text-[12.5px] text-[var(--app-text-4)]">
                 {ROOM_HINT[room.kind]}
                 <br />
-                Say hello.
+                {ROOM_EMPTY_PROMPT[room.kind]}
               </p>
             ) : (
               messages.map((message, index) => (

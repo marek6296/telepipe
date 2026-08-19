@@ -65,6 +65,19 @@ export default async function LockedPage() {
         </>
       )}
 
+      {/* Zamknutý človek má Community aj DM na Mareka — nech o tom vie.
+          Jeden text pre všetky tri stavy: nepožiadal / čaká / zamietnutý. */}
+      <div className="mt-6 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] px-4 py-3.5">
+        <p className="text-[13px] font-medium text-[var(--app-text)]">
+          Talk to us while you wait
+        </p>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-[var(--app-text-3)]">
+          Open the chat in the bottom-right corner and message the team directly —
+          someone usually replies within a few minutes. You&apos;re also welcome to
+          say hello in Community; it&apos;s open to everyone.
+        </p>
+      </div>
+
       <p className="mt-8 border-t border-[var(--app-border)] pt-5 text-[12.5px] text-[var(--app-text-4)]">
         Signed in as {account.email}
       </p>

@@ -34,7 +34,14 @@ export const ROOM_LABEL: Record<RoomKind, string> = {
 export const ROOM_HINT: Record<RoomKind, string> = {
   community: "Everyone on TelePipe",
   community_plus: "Approved members only",
-  admin_dm: "Private — just you and the team",
+  admin_dm: "Private — we usually reply within minutes",
+};
+
+/** Výzva v prázdnej miestnosti — v DM ide o pomoc, v komunite o zoznámenie. */
+export const ROOM_EMPTY_PROMPT: Record<RoomKind, string> = {
+  community: "Say hello.",
+  community_plus: "Say hello.",
+  admin_dm: "Ask us anything — including how to get your account opened.",
 };
 
 /** Fotky sú len v DM (spec 2026-08-19). RLS to vynucuje aj v databáze. */
