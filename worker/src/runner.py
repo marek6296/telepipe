@@ -200,9 +200,22 @@ class TenantRunner:
             g.vision_model, g.audio_model,
         )
 
+        # `flood_sleep_threshold=0` je zámerné a dôležité.
+        #
+        # Telethon má default 60: každý FloodWait do minúty si SÁM odspí
+        # a zopakuje. Do našich logov, do flood pauzy ani k majiteľovi sa
+        # nedostane nič — účet dostáva varovania a my o nich nevieme. Pritom
+        # drobné floody sú presne to včasné varovanie pred tým veľkým.
+        #
+        # S nulou vyletí každý FloodWait ako výnimka a prejde `_note_flood`,
+        # ktorý pauzu rešpektuje do sekundy. Podmienkou je, že žiadna cesta
+        # odosielania ho neprehltne — to rieši predchádzajúci commit.
         user_client = TelegramClient(
-            StringSession(cfg.tg_session), cfg.tg_api_id, cfg.tg_api_hash
+            StringSession(cfg.tg_session), cfg.tg_api_id, cfg.tg_api_hash,
+            flood_sleep_threshold=0,
         )
+        # Kontrolný bot píše iba Marekovi, takže tam je auto-sleep neškodný
+        # a naopak žiadaný: nechceme, aby sa menu rozsypalo kvôli sekundovej pauze.
         bot_client = TelegramClient(StringSession(), cfg.tg_api_id, cfg.tg_api_hash)
         self._cleanup.extend((user_client, bot_client))
 

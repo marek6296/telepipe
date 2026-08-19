@@ -1114,6 +1114,31 @@ class TestFloodChybaZastaviPisanie:
         assert not asyncio.run(bot._flood_ok()), \
             "po reštarte sa pauza musí dotiahnuť z DB, nie ignorovať"
 
+    def test_opakovane_floody_varuju_majitela(self):
+        """PeerFlood nepríde z čista jasna — ohlási sa drobnými FloodWaitmi.
+
+        Tie si doteraz Telethon odspal sám (`flood_sleep_threshold=60`) a nikto
+        sa o nich nedozvedel. Odteraz sa počítajú.
+        """
+        from telethon.errors import FloodWaitError
+        import limity
+
+        bot, _db, _llm, _client, notes = self._bot()
+
+        for _ in range(limity.FLOOD_VAROVANIE_ZA_HODINU):
+            asyncio.run(bot._note_flood(FloodWaitError(request=None, capture=5), 555))
+
+        assert any("flood" in n.lower() for n in notes), \
+            "po treťom floode za hodinu sa Marek musí dozvedieť, že je účet na hrane"
+
+    def test_jeden_flood_este_nevaruje(self):
+        """Jeden FloodWait je bežná prevádzka. Kričať naň by bol šum."""
+        from telethon.errors import FloodWaitError
+
+        bot, _db, _llm, _client, notes = self._bot()
+        asyncio.run(bot._note_flood(FloodWaitError(request=None, capture=5), 555))
+        assert not any("na hrane" in n for n in notes)
+
     def test_po_uplynuti_pauzy_pokracuje(self):
         bot, db, _llm, _client, _notes = self._bot()
         bot._flood_until = datetime.now(timezone.utc) - timedelta(seconds=1)

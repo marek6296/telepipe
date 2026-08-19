@@ -132,6 +132,13 @@ PEER_FLOOD_PAUZA_H = 24
 # Nad túto dĺžku čakania sa už oplatí ozvať Marekovi, nie len zapísať do logu.
 HLASIT_NAD_S = 300
 
+# Koľko flood chýb za hodinu znamená „účet je na hrane". Jeden FloodWait je
+# bežná prevádzka, tri za hodinu už nie — a keďže Telethon má auto-sleep
+# vypnutý (`flood_sleep_threshold=0` v runner.py), vidíme aj tie sekundové,
+# ktoré boli doteraz neviditeľné. To je práve tá informácia, ktorá chýbala:
+# PeerFlood nepríde z čista jasna, ohlási sa drobnými.
+FLOOD_VAROVANIE_ZA_HODINU = 3
+
 
 # Triedy sa berú priamo z Telethonu, nie podľa názvu. Porovnávanie mien by
 # ticho minulo podtriedu aj premenovanie — a chyba, ktorá sa takto stratí,

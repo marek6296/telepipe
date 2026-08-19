@@ -136,6 +136,10 @@ class UserBot:
         self._last_text_react: Dict[int, datetime] = {}
         # Dokedy mlčíme, lebo si to vypýtal sám Telegram (FloodWait).
         self._flood_until: Optional[datetime] = None
+        # Kĺzavé okno flood chýb za hodinu + kedy sme naposledy varovali, nech
+        # sa Marekovi neposiela tá istá správa každú minútu.
+        self._flood_events: Deque[datetime] = deque(maxlen=64)
+        self._flood_warned_at: Optional[datetime] = None
         # Id správ, ktoré sme už spracovali. Telegram po reconnecte doručí
         # neodkvitované updaty ZNOVA — bez tohto sa tá istá otázka uloží
         # druhýkrát a modelka na ňu odpovie druhýkrát, iným textom.
@@ -1228,7 +1232,28 @@ class UserBot:
         sekund = limity.flood_pauza_s(exc)
         if sekund is None:
             return False
-        self._flood_until = datetime.now(timezone.utc) + timedelta(seconds=sekund)
+        teraz = datetime.now(timezone.utc)
+        self._flood_until = teraz + timedelta(seconds=sekund)
+
+        # Drobné floody sú včasné varovanie. Jeden nič neznamená, tri za hodinu
+        # znamenajú, že účet je na hrane a ďalej ho tlačiť je hazard. Doteraz
+        # ich Telethon odspal sám a nikto sa o nich nedozvedel.
+        self._flood_events.append(teraz)
+        hodina_dozadu = teraz - timedelta(hours=1)
+        while self._flood_events and self._flood_events[0] < hodina_dozadu:
+            self._flood_events.popleft()
+        if len(self._flood_events) >= limity.FLOOD_VAROVANIE_ZA_HODINU:
+            log.error(
+                "%s: %d flood chýb za poslednú hodinu — účet je na hrane",
+                tg_id, len(self._flood_events),
+            )
+            if self._flood_warned_at is None or self._flood_warned_at < hodina_dozadu:
+                self._flood_warned_at = teraz
+                await self._notify(
+                    f"⚠️ *{len(self._flood_events)} flood chýb za hodinu.* Telegram "
+                    "účet pribrzďuje. Zváž zníženie stropu odpovedí za hodinu — "
+                    "ďalší krok býva PeerFlood, a ten už stojí 24 h ticha."
+                )
 
         # Do DB, nie do pamäte: reštart ani presun tenanta pauzu nesmie zrušiť.
         # Zapisuje sa pri KAŽDEJ flood chybe, nielen pri spam príznaku —
