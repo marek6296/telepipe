@@ -1,7 +1,7 @@
 import "server-only";
 
 import { telegramShopBotToken, telegramShopConfigured } from "@/lib/env";
-import { buildPayload, starsCoinsForUsd, starsForUsd } from "@/lib/stars";
+import { buildPayload, type StarPack } from "@/lib/stars";
 
 /**
  * Obchodný bot — predaj Pipe Coinov za Telegram Stars.
@@ -39,21 +39,25 @@ async function call<T>(method: string, body: unknown): Promise<T | null> {
   }
 }
 
-function invoiceBody(accountId: string, usd: number) {
-  const stars = starsForUsd(usd);
-  const coins = starsCoinsForUsd(usd);
+/**
+ * Faktúra sa stavia z BALÍKA, nie zo sumy. Počet hviezd aj coinov je tým pádom
+ * z jedného zdroja (`STAR_PACKS`) a nedá sa dostať do stavu, kde faktúra pýta
+ * iný počet hviezd, než na aký je vyrátaná odmena.
+ */
+function invoiceBody(accountId: string, pack: StarPack) {
+  const coins = pack.coins.toLocaleString("en-US");
   return {
-    title: `${coins.toLocaleString("en-US")} Pipe Coins`,
+    title: `${coins} Pipe Coins`,
     description:
-      `Tops up your TelePipe balance by $${usd}. Coins are added the moment ` +
+      `Tops up your TelePipe balance by $${pack.usd}. Coins are added the moment ` +
       `the payment goes through.`,
-    payload: buildPayload(accountId, usd),
+    payload: buildPayload(accountId, pack.usd),
     // Prázdny provider_token = platba v Stars. Pri digitálnom tovare je to
     // jediná povolená možnosť.
     provider_token: "",
     currency: "XTR",
     // Pre Stars musí `prices` obsahovať PRESNE jednu položku.
-    prices: [{ label: `${coins.toLocaleString("en-US")} Pipe Coins`, amount: stars }],
+    prices: [{ label: `${coins} Pipe Coins`, amount: pack.stars }],
   };
 }
 
@@ -61,9 +65,9 @@ function invoiceBody(accountId: string, usd: number) {
  *  nemusí nikdy spustiť. */
 export async function createInvoiceLink(
   accountId: string,
-  usd: number,
+  pack: StarPack,
 ): Promise<string | null> {
-  return call<string>("createInvoiceLink", invoiceBody(accountId, usd));
+  return call<string>("createInvoiceLink", invoiceBody(accountId, pack));
 }
 
 /** Faktúra rovno do chatu. Použiteľné až keď poznáme `telegram_user_id`, čiže
@@ -71,11 +75,11 @@ export async function createInvoiceLink(
 export async function sendInvoiceToChat(
   chatId: number,
   accountId: string,
-  usd: number,
+  pack: StarPack,
 ): Promise<boolean> {
   const result = await call<unknown>("sendInvoice", {
     chat_id: chatId,
-    ...invoiceBody(accountId, usd),
+    ...invoiceBody(accountId, pack),
   });
   return result !== null;
 }

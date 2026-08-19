@@ -5,13 +5,7 @@ import { motion } from "framer-motion";
 import { ExternalLink, Loader2 } from "lucide-react";
 
 import { createStarInvoiceAction } from "@/app/app/billing/stars-actions";
-import {
-  STARS_MAX_USD,
-  STARS_MIN_USD,
-  STAR_OPTIONS,
-  starsCoinsForUsd,
-  starsForUsd,
-} from "@/lib/stars";
+import { PLATFORM_FEE_PCT, STAR_PACKS, type StarPack } from "@/lib/stars";
 import { cn } from "@/lib/utils";
 
 /**
@@ -19,6 +13,11 @@ import { cn } from "@/lib/utils";
  *
  * Bez vlastnej hlavičky a rámu — sedí vnútri karty s prepínačom metód
  * (`billing-methods.tsx`), ktorá hlavičku aj postup rieši za neho.
+ *
+ * PREČO LEN PEVNÉ BALÍKY: hviezdy sa nedajú kúpiť po kuse. Keby si klient
+ * navolil vlastnú sumu, faktúra by pýtala napríklad 410 ⭐, on by musel kúpiť
+ * balík za 500 a 90 ⭐ by mu ostalo visieť. Balíky sú preto zhodné s tými,
+ * ktoré predáva sám Telegram — kúpi presne toľko, koľko minie.
  */
 export function TelegramStarsForm({
   alreadyLinked,
@@ -29,23 +28,19 @@ export function TelegramStarsForm({
    *  jasné, kam klik vedie. */
   brand?: string;
 }) {
-  const [usd, setUsd] = useState(10);
-  const [custom, setCustom] = useState("");
+  const [pack, setPack] = useState<StarPack>(
+    STAR_PACKS.find((p) => p.featured) ?? STAR_PACKS[0],
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sentToChat, setSentToChat] = useState(false);
-
-  const amount = custom ? Math.round(Number(custom) || 0) : usd;
-  const valid = amount >= STARS_MIN_USD && amount <= STARS_MAX_USD;
-  const stars = valid ? starsForUsd(amount) : 0;
-  const coins = valid ? starsCoinsForUsd(amount) : 0;
 
   async function pay() {
     setBusy(true);
     setError("");
     setSentToChat(false);
 
-    const result = await createStarInvoiceAction(amount);
+    const result = await createStarInvoiceAction(pack.stars);
     setBusy(false);
 
     if (result.error) {
@@ -60,20 +55,18 @@ export function TelegramStarsForm({
   return (
     <div>
       <p className="text-[11px] tracking-[0.12em] text-[var(--app-text-4)] uppercase">
-        How much to top up
+        Choose a pack
       </p>
 
       <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
-        {STAR_OPTIONS.map((option) => {
-          const selected = !custom && usd === option.usd;
+        {STAR_PACKS.map((option) => {
+          const selected = pack.stars === option.stars;
           return (
             <button
-              key={option.usd}
+              key={option.stars}
               type="button"
-              onClick={() => {
-                setUsd(option.usd);
-                setCustom("");
-              }}
+              onClick={() => setPack(option)}
+              aria-pressed={selected}
               className={cn(
                 "app-tap rounded-xl border px-3 py-3 text-left transition-colors",
                 selected
@@ -83,31 +76,26 @@ export function TelegramStarsForm({
               style={selected ? { borderColor: brand } : undefined}
             >
               <div className="text-[15px] text-[var(--app-text)] tabular-nums">
-                {option.coins.toLocaleString("en-US")}
-              </div>
-              <div className="mt-0.5 text-[12px] text-[var(--app-text-4)] tabular-nums">
                 {option.stars.toLocaleString("en-US")} ⭐
+              </div>
+              <div className="mt-0.5 text-[12px] text-[var(--app-text-3)] tabular-nums">
+                ≈ ${option.approxUsd.toFixed(2)}
+              </div>
+              <div className="mt-1.5 text-[12px] text-[var(--app-text-4)] tabular-nums">
+                {option.coins.toLocaleString("en-US")} coins
               </div>
             </button>
           );
         })}
       </div>
 
-      <label className="mt-4 block">
-        <span className="text-[12.5px] text-[var(--app-text-3)]">
-          Or your own amount (${STARS_MIN_USD}–${STARS_MAX_USD})
-        </span>
-        <input
-          type="number"
-          inputMode="numeric"
-          min={STARS_MIN_USD}
-          max={STARS_MAX_USD}
-          value={custom}
-          onChange={(event) => setCustom(event.target.value)}
-          placeholder={String(usd)}
-          className="app-input mt-1.5 w-full"
-        />
-      </label>
+      {/* Klient inak nemá ako zistiť, že tá istá suma cez krypto kúpi viac —
+          poplatok je celý mimo nás, ale mlčať o ňom by bolo neférové. */}
+      <p className="mt-3 rounded-xl border border-[var(--app-border)] px-3 py-2.5 text-[12.5px] leading-relaxed text-[var(--app-text-3)]">
+        <span className="text-[var(--app-text)]">≈ {PLATFORM_FEE_PCT} % goes to Apple, Google
+        and Telegram</span> — that is their cut on every Stars purchase, not ours. Paying with
+        crypto has no such fee: there, $1 always buys 1,000 coins.
+      </p>
 
       {error && (
         <p className="mt-3 text-[13px] text-[#fca5a5]" role="alert">
@@ -123,26 +111,32 @@ export function TelegramStarsForm({
       <button
         type="button"
         onClick={() => void pay()}
-        disabled={busy || !valid}
+        disabled={busy}
         className="app-btn mt-4 w-full justify-center font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-40"
         style={{ background: brand, borderColor: brand }}
       >
         {busy ? (
           <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />
-        ) : valid ? (
-          <motion.span key={stars} initial={{ opacity: 0.6 }} animate={{ opacity: 1 }} className="inline-flex items-center">
-            Pay {stars.toLocaleString("en-US")} ⭐ for {coins.toLocaleString("en-US")} coins
+        ) : (
+          <motion.span
+            key={pack.stars}
+            initial={{ opacity: 0.6 }}
+            animate={{ opacity: 1 }}
+            className="inline-flex items-center"
+          >
+            Pay {pack.stars.toLocaleString("en-US")} ⭐ for{" "}
+            {pack.coins.toLocaleString("en-US")} coins
             <ExternalLink className="ml-1.5 h-3.5 w-3.5" strokeWidth={1.75} />
           </motion.span>
-        ) : (
-          <>Choose an amount</>
         )}
       </button>
 
-      <p className="mt-2 text-center text-[11.5px] text-[var(--app-text-4)]">
+      <p className="mt-2 text-center text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
         {alreadyLinked
           ? "Opens Telegram — the invoice also lands in your chat."
-          : "Opens Telegram — you don't need to start the bot first."}
+          : "Opens Telegram — you don't need to start the bot first."}{" "}
+        Packs match the Stars bundles Telegram sells, so nothing is left over. VAT in your country
+        may be added on top.
       </p>
     </div>
   );

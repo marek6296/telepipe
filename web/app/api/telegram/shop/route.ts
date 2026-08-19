@@ -4,7 +4,7 @@ import { telegramShopWebhookSecret } from "@/lib/env";
 import { createServiceClient } from "@/lib/supabase/server";
 import { answerPreCheckout, sendShopMessage } from "@/lib/telegram-shop";
 import { notifyAdminNote } from "@/lib/telegram-admin";
-import { parsePayload, starsCoinsForUsd } from "@/lib/stars";
+import { COINS_PER_STAR, coinsForUsd, parsePayload } from "@/lib/stars";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +72,20 @@ async function handlePreCheckout(query: PreCheckoutQuery): Promise<void> {
     return;
   }
 
+  // Hviezdy na faktúre musia sedieť na sumu v payloade. Payload nesie, KOĽKO
+  // pripíšeme, `total_amount` to, ČO klient platí — a keby sa raz rozišli
+  // (chyba v cenníku, stará faktúra po zmene kurzu), pripísali by sme viac,
+  // než sme dostali. Odmietnuť sa to dá len tu; po platbe už peniaze máme.
+  if (coinsForUsd(parsed.usd) !== query.total_amount * COINS_PER_STAR) {
+    console.error(
+      "stars: faktúra nesedí na kurz",
+      query.invoice_payload,
+      `${query.total_amount} ⭐`,
+    );
+    await answerPreCheckout(query.id, false, "This invoice is out of date. Start again.");
+    return;
+  }
+
   const supabase = createServiceClient();
   const { data: account } = await supabase
     .from("accounts")
@@ -101,7 +115,7 @@ async function handlePaid(message: TelegramMessage): Promise<void> {
     return;
   }
 
-  const coins = starsCoinsForUsd(parsed.usd);
+  const coins = coinsForUsd(parsed.usd);
   const supabase = createServiceClient();
   const { data, error } = await supabase.rpc("settle_star_payment", {
     p_charge_id: payment.telegram_payment_charge_id,

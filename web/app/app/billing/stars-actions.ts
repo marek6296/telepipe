@@ -2,7 +2,7 @@
 
 import { isUnlocked } from "@/lib/access";
 import { getAccount, requireUser } from "@/lib/models";
-import { STARS_MAX_USD, STARS_MIN_USD } from "@/lib/stars";
+import { starPack } from "@/lib/stars";
 import { createInvoiceLink, sendInvoiceToChat } from "@/lib/telegram-shop";
 import { telegramShopConfigured } from "@/lib/env";
 
@@ -17,11 +17,12 @@ export type StarInvoiceResult = {
 /**
  * Vyrobí faktúru na Pipe Coiny v Telegram Stars.
  *
- * Suma sa NEBERIE z klienta naslepo — kontroluje sa rozsah, a počet Stars aj
- * coinov dopočíta server. Keby si klient poslal vlastné číslo Stars, kúpil by
- * si coiny za korunu.
+ * Z klienta príde IBA počet hviezd a ten musí sedieť na existujúci balík —
+ * cenu aj počet coinov si server vyberie z `STAR_PACKS`. Keby sa dalo poslať
+ * ľubovoľné číslo, klient by si vypýtal faktúru na jednu hviezdu a dostal
+ * coiny za celý balík.
  */
-export async function createStarInvoiceAction(usd: number): Promise<StarInvoiceResult> {
+export async function createStarInvoiceAction(stars: number): Promise<StarInvoiceResult> {
   await requireUser();
   const account = await getAccount();
 
@@ -32,12 +33,10 @@ export async function createStarInvoiceAction(usd: number): Promise<StarInvoiceR
     return { error: "Telegram payments are not available right now." };
   }
 
-  const amount = Math.round(Number(usd));
-  if (!Number.isFinite(amount) || amount < STARS_MIN_USD || amount > STARS_MAX_USD) {
-    return { error: `Choose an amount between $${STARS_MIN_USD} and $${STARS_MAX_USD}.` };
-  }
+  const pack = starPack(Math.round(Number(stars)));
+  if (!pack) return { error: "Pick one of the packs." };
 
-  const url = await createInvoiceLink(account!.id, amount);
+  const url = await createInvoiceLink(account!.id, pack);
   if (!url) return { error: "Could not start the payment. Try again." };
 
   // Kto už raz platil, tomu faktúru pošleme aj priamo do chatu — vtedy mu
@@ -46,7 +45,7 @@ export async function createStarInvoiceAction(usd: number): Promise<StarInvoiceR
   let sentToChat = false;
   const chatId = (account as { telegram_user_id?: number | null }).telegram_user_id;
   if (chatId) {
-    sentToChat = await sendInvoiceToChat(Number(chatId), account!.id, amount);
+    sentToChat = await sendInvoiceToChat(Number(chatId), account!.id, pack);
   }
 
   return { url, sentToChat };

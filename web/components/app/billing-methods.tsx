@@ -6,6 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { BillingPanel, type CurrencyOption } from "@/components/app/billing-panel";
 import { TelegramStarsForm } from "@/components/app/telegram-stars-panel";
 import type { CryptoRates } from "@/lib/crypto-meta";
+import { PLATFORM_FEE_PCT } from "@/lib/stars";
 import { cn } from "@/lib/utils";
 
 type Method = "crypto" | "telegram";
@@ -53,7 +54,7 @@ export function BillingMethods({
               brand={CRYPTO_BRAND}
               icon={<BitcoinGlyph />}
               title="Crypto"
-              hint="Best rate · volume bonuses"
+              hint="No fees · volume bonuses"
             />
             <MethodCard
               active={active === "telegram"}
@@ -61,7 +62,9 @@ export function BillingMethods({
               brand={TELEGRAM_BRAND}
               icon={<TelegramGlyph />}
               title="Telegram"
-              hint="No wallet · pay in two taps"
+              // Poplatok patrí SEM, na kartu voľby — nie až dnu. Človek sa
+              // rozhoduje tu a musí vidieť, čím za pohodlie platí.
+              hint={`No wallet · ~${PLATFORM_FEE_PCT}% fee`}
             />
           </div>
         </div>
@@ -197,7 +200,7 @@ function Steps({ method, supportEmail }: { method: Method; supportEmail: string 
   const steps =
     method === "crypto"
       ? ["Pick an amount and a coin", "Send to your permanent address", "Coins land after confirmations"]
-      : ["Pick an amount", "Pay inside Telegram", "Coins land instantly"];
+      : ["Pick a pack", "Pay inside Telegram", "Coins land instantly"];
 
   const accent = method === "crypto" ? CRYPTO_BRAND : TELEGRAM_BRAND;
 
@@ -232,7 +235,10 @@ function Steps({ method, supportEmail }: { method: Method; supportEmail: string 
             )}
           </>
         ) : (
-          <>Costs more than crypto — the app stores take a cut. No volume bonuses.</>
+          <>
+            About {PLATFORM_FEE_PCT}% of what you pay goes to Apple, Google and Telegram, so the
+            same money buys fewer coins than crypto. No volume bonuses either.
+          </>
         )}
       </p>
     </div>

@@ -10,16 +10,18 @@ import assert from "node:assert/strict";
 
 import {
   APPROX_USD_PER_STAR_FOR_USER,
+  COINS_PER_STAR,
+  PLATFORM_FEE_PCT,
   STARS_MAX_USD,
-  STARS_MIN_USD,
-  STAR_OPTIONS,
+  STAR_PACKS,
   SAFETY_MARGIN,
   USD_PER_STAR,
   approxUserCostUsd,
   assertStarsProfitable,
   buildPayload,
+  coinsForUsd,
   parsePayload,
-  starsForUsd,
+  starPack,
 } from "../lib/stars.ts";
 import { COINS_PER_USD } from "../lib/coins.ts";
 
@@ -38,43 +40,71 @@ console.log("  ok — kurz sedí s oficiálnou tabuľkou");
 assertStarsProfitable();
 console.log("  ok — žiadna ponuka nie je pod cenou");
 
-// Zaokrúhľuje sa NAHOR, nikdy nadol.
-for (const usd of [5, 7, 10, 13, 20, 50, 137]) {
-  const stars = starsForUsd(usd);
-  const net = stars * USD_PER_STAR;
-  assert.ok(net >= usd, `$${usd} → ${stars} ⭐ je pod cenou`);
+// Každý balík musí ostať nad cenou aj s rezervou.
+for (const pack of STAR_PACKS) {
+  const net = pack.stars * USD_PER_STAR;
+  assert.ok(net >= pack.usd, `${pack.stars} ⭐ → $${pack.usd} je pod cenou`);
   // A ešte s rezervou — samotné „aspoň na svoje" je pri 0,1 % rozdiele ilúzia.
   assert.ok(
-    net >= usd / (1 - SAFETY_MARGIN),
-    `$${usd} → ${stars} ⭐ nemá ${SAFETY_MARGIN * 100} % rezervu (vynesie $${net.toFixed(2)})`,
+    net >= pack.usd / (1 - SAFETY_MARGIN),
+    `${pack.stars} ⭐ nemá ${SAFETY_MARGIN * 100} % rezervu (vynesie $${net.toFixed(2)}, ` +
+      `pripíšeme $${pack.usd})`,
   );
-  assert.equal(stars % 10, 0, "počet Stars má byť zaokrúhlený na desiatku");
+  assert.equal(pack.coins, coinsForUsd(pack.usd), "coiny a suma si musia odpovedať");
+  assert.equal(pack.coins, pack.stars * COINS_PER_STAR, "kurz musí sedieť na COINS_PER_STAR");
 }
-console.log(`  ok — zaokrúhľovanie nahor + ${SAFETY_MARGIN * 100} % rezerva`);
+console.log(`  ok — každý balík má ${SAFETY_MARGIN * 100} % rezervu`);
+
+// VEĽKOSTI BALÍKOV. Toto je celý dôvod prechodu z vlastnej sumy na balíky:
+// hviezdy sa nedajú kúpiť po kuse, takže faktúra musí pýtať presne toľko,
+// koľko Telegram v jednom balíku predáva — inak klientovi ostanú zvyšky.
+for (const pack of STAR_PACKS) {
+  assert.ok(
+    [500, 1000, 2500, 5000, 10_000].includes(pack.stars),
+    `${pack.stars} ⭐ nie je veľkosť balíka, ktorý Telegram predáva`,
+  );
+}
+assert.equal(STAR_PACKS[0].stars, 500, "najmenší balík je 500 ⭐");
+console.log("  ok — veľkosti sedia na balíky Telegramu");
 
 // Bonusy za objem pri Stars NEPLATIA — inak by veľký nákup cez Telegram
-// prerobil, lebo poplatok je 35 %, nie 1 %.
-for (const option of STAR_OPTIONS) {
-  assert.equal(option.coins, option.usd * COINS_PER_USD, "žiadny bonus pri Stars");
-}
-console.log("  ok — bez bonusov za objem");
+// prerobil, lebo poplatok je 35 %, nie 1 %. Kurz teda musí byť lineárny.
+const kurzy = new Set(STAR_PACKS.map((p) => p.coins / p.stars));
+assert.equal(kurzy.size, 1, `balíky majú rôzny kurz: ${[...kurzy].join(", ")}`);
+console.log("  ok — lineárny kurz, bez bonusov za objem");
 
-// Ponuka začína na malej sume: cez Telegram ľudia kupujú $10-20, nie $250.
-assert.equal(STAR_OPTIONS[0].usd, STARS_MIN_USD);
-assert.ok(STAR_OPTIONS.some((o) => o.usd === 10), "musí byť možnosť za $10");
-assert.ok(STAR_OPTIONS.some((o) => o.usd === 20), "musí byť možnosť za $20");
-console.log("  ok — ťažisko na malých sumách");
+// Whitelist — čokoľvek mimo ponuky musí spadnúť, inak by si klient vypýtal
+// faktúru na jednu hviezdu a dostal coiny za balík.
+for (const zle of [0, -500, 1, 499, 501, 999, 7500, 1e9, Number.NaN]) {
+  assert.equal(starPack(zle), null, `${zle} ⭐ nemal prejsť ako balík`);
+}
+assert.equal(starPack(500)?.coins, 6000);
+console.log("  ok — mimo ponuky sa faktúra nevystaví");
 
 // Odhad ceny pre používateľa je len orientačný, ale musí byť VYŠŠÍ než náš net —
 // inak by sme klientovi ukazovali nezmysel.
-for (const option of STAR_OPTIONS) {
+for (const pack of STAR_PACKS) {
   assert.ok(
-    approxUserCostUsd(option.stars) > option.stars * USD_PER_STAR,
+    approxUserCostUsd(pack.stars) > pack.stars * USD_PER_STAR,
     "cena pre používateľa musí byť vyššia než náš výnos",
   );
+  assert.equal(pack.approxUsd, approxUserCostUsd(pack.stars));
 }
 assert.ok(APPROX_USD_PER_STAR_FOR_USER > USD_PER_STAR);
 console.log("  ok — odhad ceny pre klienta dáva zmysel");
+
+// Poplatok, ktorý klientovi UKAZUJEME. Keby raz vyšiel nula alebo záporný,
+// tvrdili by sme mu, že Telegram je rovnako dobrý ako krypto — a to nie je.
+{
+  assert.ok(PLATFORM_FEE_PCT > 0 && PLATFORM_FEE_PCT < 100, "poplatok musí dávať zmysel");
+  const pack = STAR_PACKS[0];
+  const skutocny = (1 - pack.usd / pack.approxUsd) * 100;
+  assert.ok(
+    Math.abs(skutocny - PLATFORM_FEE_PCT) < 1,
+    `ukazujeme ${PLATFORM_FEE_PCT} %, ale z balíka vychádza ${skutocny.toFixed(1)} %`,
+  );
+  console.log(`  ok — klientovi ukazujeme ${PLATFORM_FEE_PCT} % poplatok a sedí`);
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Payload — na ňom stojí, na čí účet pôjdu peniaze                           */
@@ -115,12 +145,13 @@ console.log("  ok — podvrhnutý payload sa odmietne");
 }
 
 console.log("\nPrehľad ponuky:");
-for (const o of STAR_OPTIONS) {
+for (const p of STAR_PACKS) {
+  const krypto = p.approxUsd * COINS_PER_USD;
   console.log(
-    `  $${String(o.usd).padStart(3)} → ${String(o.stars).padStart(5)} ⭐ ` +
-      `(klient zaplatí ~$${approxUserCostUsd(o.stars).toFixed(2)}, ` +
-      `nám ostane $${(o.stars * USD_PER_STAR).toFixed(2)}, ` +
-      `dostane ${o.coins.toLocaleString("en-US")} coinov)`,
+    `  ${String(p.stars).padStart(5)} ⭐ ≈ $${p.approxUsd.toFixed(2).padStart(6)} → ` +
+      `${p.coins.toLocaleString("en-US").padStart(7)} coinov ` +
+      `(nám ostane $${(p.stars * USD_PER_STAR).toFixed(2).padStart(6)}; ` +
+      `za tie isté peniaze dá krypto ${krypto.toLocaleString("en-US")})`,
   );
 }
 

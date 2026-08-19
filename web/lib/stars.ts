@@ -35,9 +35,6 @@ export const USD_PER_STAR = 0.013;
  */
 export const SAFETY_MARGIN = 0.05;
 
-/** Kurz, s ktorým naozaj počítame — kurz Telegramu znížený o rezervu. */
-export const USD_PER_STAR_SAFE = USD_PER_STAR * (1 - SAFETY_MARGIN);
-
 /**
  * Koľko používateľa stojí jeden Star v obchode. Slúži LEN na to, aby sme mu
  * vedeli ukázať približnú cenu v dolároch — účtuje Telegram, nie my, a
@@ -45,36 +42,37 @@ export const USD_PER_STAR_SAFE = USD_PER_STAR * (1 - SAFETY_MARGIN);
  */
 export const APPROX_USD_PER_STAR_FOR_USER = 0.02;
 
-/** Najmenší a najväčší nákup cez Stars. */
-export const STARS_MIN_USD = 5;
+/** Horná zábrana pre payload. Najväčší balík je hlboko pod ňou. */
 export const STARS_MAX_USD = 500;
 
 /**
- * Koľko Stars musí faktúra pýtať, aby nám ostalo `usd`.
+ * Koľko Pipe Coinov dostane klient za jednu hviezdu.
  *
- * Zaokrúhľuje sa NAHOR na desiatku — nadol by znamenalo predávať pod cenu, a
- * pri stovkách nákupov je to reálna strata. Desiatka je kvôli tomu, aby
- * v Telegrame nesvietili čísla ako „771 ⭐".
+ * Z jednej ⭐ nám príde $0,013, čiže 13 coinov. Pripisujeme 12. Tá jedna coina
+ * je rezerva na to, čo Telegram sám priznáva: sumy sa vraj môžu líšiť „kvôli
+ * DPH a ďalším poplatkom mimo kontroly Telegramu". Bez rezervy by stačil
+ * percentuálny výkyv a pri KAŽDOM nákupe by sme pripisovali viac, než sme
+ * dostali.
+ *
+ * Kurz je LINEÁRNY — 500 ⭐ aj 5 000 ⭐ dávajú rovnako coinov na hviezdu.
+ * Objemové bonusy pri Stars zámerne neplatia: sú to peniaze navyše, ktoré si
+ * vieme dovoliť pri ~1 % poplatku (krypto), nie pri 35 %. Krypto tak ostáva
+ * zjavne výhodnejšie, čo je zámer.
+ *
+ * POZOR pri budúcich úpravách: sem NEPRIDÁVAJ odhad počtu správ („≈166
+ * replies"). Verejné tvrdenia typu „koľko správ za $10" stoja na KRYPTO cene,
+ * kde $1 = 1 000 coinov. Cez Stars je dolár slabší (Apple a Telegram si berú
+ * svoje), takže rovnaké číslo by pri tejto metóde klamalo. Prepočet
+ * coiny → správy je spoločný a ten pokojne ukazuj — mení sa len doláre → coiny.
  */
-export function starsForUsd(usd: number): number {
-  const raw = usd / USD_PER_STAR_SAFE;
-  return Math.ceil(raw / 10) * 10;
-}
+export const COINS_PER_STAR = 12;
 
-/** Koľko coinov klient dostane. Bonusy za objem pri Stars ZÁMERNE neplatia —
- *  sú to peniaze navyše, ktoré si vieme dovoliť pri 1 % poplatku, nie pri 35 %.
- *  Krypto tak ostáva zjavne výhodnejšie, čo je zámer.
- *
- *  POZOR pri budúcich úpravách: sem NEPRIDÁVAJ odhad počtu správ („≈166
- *  replies"). Verejné tvrdenia typu „koľko správ za $10" stoja na KRYPTO cene,
- *  kde $1 = 1 000 coinov. Cez Stars je dolár slabší (Apple a Telegram si berú
- *  svoje), takže rovnaké číslo by pri tejto metóde klamalo. Prepočet
- *  coiny → správy je spoločný a ten pokojne ukazuj — mení sa len doláre → coiny. */
-export function starsCoinsForUsd(usd: number): number {
+/** Suma zostatku → coiny. Používa to webhook pri pripísaní platby. */
+export function coinsForUsd(usd: number): number {
   return Math.round(usd * COINS_PER_USD);
 }
 
-/** Približná cena pre používateľa — na zobrazenie „≈ $15", nič viac. */
+/** Približná cena pre používateľa — na zobrazenie „≈ $20", nič viac. */
 export function approxUserCostUsd(stars: number): number {
   return stars * APPROX_USD_PER_STAR_FOR_USER;
 }
@@ -108,24 +106,60 @@ export function parsePayload(payload: string): ParsedPayload {
   return { accountId: m[1], usd };
 }
 
-export type StarOption = {
-  usd: number;
+export type StarPack = {
+  /** Koľko hviezd pýta faktúra. Musí to byť veľkosť, akú Telegram naozaj
+   *  predáva — inak klientovi ostanú nevyužité hviezdy. */
   stars: number;
   coins: number;
+  /** O koľko sa zdvihne zostatok. Ide do payloadu aj do `star_payments`. */
+  usd: number;
+  /** Čo za balík zaplatí v Telegrame, bez DPH jeho krajiny. */
+  approxUsd: number;
   featured?: boolean;
 };
 
 /**
- * Ponuka pre Stars. ZÁMERNE začína na $5 a ťažisko je na $10–20: cez Telegram
- * ľudia kupujú malé sumy, nie balíky za $250. Kto chce veľa, má krypto, kde
- * dostane aj bonus.
+ * Ponuka pre Stars — PEVNÉ BALÍKY, žiadna vlastná suma.
+ *
+ * Veľkosti sú zhodné s balíkmi, ktoré predáva sám Telegram. To je celý dôvod,
+ * prečo tu nie je voľné pole na sumu: hviezdy sa nedajú kúpiť po kuse, takže
+ * faktúra na 410 ⭐ znamená, že klient kúpi balík za 500 a 90 ⭐ mu ostane
+ * visieť na účte. Pri zhodných veľkostiach kúpi presne toľko, koľko minie.
+ *
+ * Keby Telegram veľkosti balíkov zmenil, mení sa TENTO riadok.
  */
-export const STAR_OPTIONS: StarOption[] = [5, 10, 20, 50].map((usd) => ({
-  usd,
-  stars: starsForUsd(usd),
-  coins: starsCoinsForUsd(usd),
-  featured: usd === 10,
+const PACK_STARS = [500, 1000, 2500, 5000] as const;
+
+export const STAR_PACKS: StarPack[] = PACK_STARS.map((stars) => ({
+  stars,
+  coins: stars * COINS_PER_STAR,
+  usd: (stars * COINS_PER_STAR) / COINS_PER_USD,
+  approxUsd: approxUserCostUsd(stars),
+  featured: stars === 1000,
 }));
+
+/**
+ * Whitelist balíkov.
+ *
+ * Počet hviezd chodí z prehliadača, takže sa NIKDY nesmie použiť priamo — bez
+ * tejto kontroly by si klient vypýtal faktúru na 1 ⭐ a dostal coiny za balík.
+ */
+export function starPack(stars: number): StarPack | null {
+  return STAR_PACKS.find((p) => p.stars === stars) ?? null;
+}
+
+/**
+ * Koľko z klientovej platby zhltnú Apple/Google a Telegram, v percentách.
+ *
+ * Klient zaplatí ~$0,02 za hviezdu a na zostatku sa mu z nej objaví $0,012 —
+ * čiže 40 %. Pri kryptu je poplatok nula a $1 je vždy 1 000 coinov.
+ *
+ * Toto číslo sa klientovi UKAZUJE. Nie je to naša marža: leví podiel berie
+ * obchod s aplikáciami, nie my.
+ */
+export const PLATFORM_FEE_PCT = Math.round(
+  (1 - COINS_PER_STAR / COINS_PER_USD / APPROX_USD_PER_STAR_FOR_USER) * 100,
+);
 
 /**
  * Kontrola, že cez Stars nikdy nepredávame pod cenu.
@@ -133,21 +167,29 @@ export const STAR_OPTIONS: StarOption[] = [5, 10, 20, 50].map((usd) => ({
  * Volá ju `npm run test:stars`. Bez nej by stačilo raz zle zaokrúhliť a každý
  * nákup by nás stál peniaze — potichu a pri každom klientovi.
  */
-export function assertStarsProfitable(options: StarOption[] = STAR_OPTIONS): void {
-  for (const option of options) {
-    const net = option.stars * USD_PER_STAR;
+export function assertStarsProfitable(packs: StarPack[] = STAR_PACKS): void {
+  for (const pack of packs) {
+    const net = pack.stars * USD_PER_STAR;
     // Nestačí „aspoň na svoje". Musí ostať aj rezerva — inak by pohyb kurzu
     // o percento robil z každého nákupu stratu.
-    const potrebne = option.usd / (1 - SAFETY_MARGIN);
+    const potrebne = pack.usd / (1 - SAFETY_MARGIN);
     if (net < potrebne) {
       throw new Error(
-        `Stars: ${option.stars} ⭐ vynesie $${net.toFixed(2)}, ale pri pripísaných ` +
-          `$${option.usd.toFixed(2)} potrebujeme aspoň $${potrebne.toFixed(2)} ` +
+        `Stars: ${pack.stars} ⭐ vynesie $${net.toFixed(2)}, ale pri pripísaných ` +
+          `$${pack.usd.toFixed(2)} potrebujeme aspoň $${potrebne.toFixed(2)} ` +
           `(rezerva ${SAFETY_MARGIN * 100} %)`,
       );
     }
-    if (option.coins !== Math.round(option.usd * COINS_PER_USD)) {
-      throw new Error(`Stars: ${option.usd} USD → nesedí počet coinov`);
+    if (pack.coins !== coinsForUsd(pack.usd)) {
+      throw new Error(`Stars: ${pack.stars} ⭐ → coiny a suma si neodpovedajú`);
     }
+  }
+
+  // Kurz musí byť rovnaký pri každom balíku. Keby väčší balík dával menej
+  // coinov na hviezdu, je to chyba v cenníku — a keby dával viac, prestal by
+  // platiť výpočet ziskovosti vyššie pre malé balíky.
+  const kurzy = new Set(packs.map((p) => p.coins / p.stars));
+  if (kurzy.size > 1) {
+    throw new Error(`Stars: balíky nemajú rovnaký kurz (${[...kurzy].join(", ")} coinov/⭐)`);
   }
 }
