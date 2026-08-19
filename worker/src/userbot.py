@@ -469,6 +469,10 @@ class UserBot:
             log.warning("Odkladám %s: hodinový strop odpovedí", tg_id)
             await self._db.update_user(tg_id, {"pending_reply": True})
             return
+        if not testing and not semi and not await self._denny_strop_ok(behavior):
+            log.warning("Odkladám %s: denný strop správ", tg_id)
+            await self._db.update_user(tg_id, {"pending_reply": True})
+            return
         # Koľko rozhovorov vedie naraz. Skutočný človek nevedie dvadsať — vedie
         # pár, tie dopíše, a keď utíchnu, pustí sa do ďalších. Kto sa nezmestí,
         # počká vo fronte a dobehne ho sweeper, len čo sa miesto uvoľní.
@@ -2077,6 +2081,33 @@ class UserBot:
     async def _rate_ok(self, max_per_hour: int) -> bool:
         return await self._rate_left(max_per_hour) > 0
 
+    async def _denny_strop_ok(self, behavior: Behavior) -> bool:
+        """Zmestí sa ešte dnes ďalšia správa?
+
+        Hodinový strop sám nestačí: pri 40/hod a 14-hodinovom okne prejde za deň
+        až 560 správ, lebo kĺzavé okno sa stále obnovuje. Telegram ale nesleduje
+        hodinu, sleduje účet. Preto druhý strop na 24 hodín.
+
+        Počítajú sa ODOSLANÉ SPRÁVY, nie odpovede — jedna odpoveď sa delí až na
+        tri bubliny a Telegram vidí každú zvlášť.
+        """
+        if behavior.max_messages_per_day <= 0:
+            return True  # 0 = strop vypnutý
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        try:
+            odoslanych = await self._db.replies_since(cutoff)
+        except Exception as exc:  # noqa: BLE001 - rovnako ako hodinový: radšej brzdi
+            log.warning("Denný strop sa nedá overiť (%s) — brzdím", exc)
+            await self._varuj_o_slepote(exc)
+            return False
+        if odoslanych >= behavior.max_messages_per_day:
+            log.warning(
+                "Denný strop vyčerpaný: %s/%s správ za 24 h",
+                odoslanych, behavior.max_messages_per_day,
+            )
+            return False
+        return True
+
     async def _varuj_o_slepote(self, exc: Exception) -> None:
         """Keď limity nevedia čítať z DB, modelka mlčí — a to musí byť vidieť.
 
@@ -2097,6 +2128,15 @@ class UserBot:
             "sa spojenie obnoví."
         )
 
+    async def _oslovenych_za_obdobie(self, hodin: int) -> Optional[set]:
+        """Komu za posledných `hodin` odišla správa. `None` = nevieme."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hodin)).isoformat()
+        try:
+            return limity.uz_oslovenych(await self._db.people_since(cutoff))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Nepodarilo sa zistiť, komu sa písalo za %s h: %s", hodin, exc)
+            return None
+
     async def _oslovenych_za_hodinu(self) -> Optional[set]:
         """Komu za poslednú hodinu odišla správa. Počíta sa z archívu.
 
@@ -2108,14 +2148,7 @@ class UserBot:
         typicky nastane počas deployu, teda vtedy, keď je pohybu najviac.
         Volajúci má z `None` spraviť „nesmie", nie „smie".
         """
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
-        try:
-            return limity.uz_oslovenych(await self._db.people_since(cutoff))
-        except Exception as exc:  # noqa: BLE001
-            log.warning(
-                "Nepodarilo sa zistiť, komu sa písalo (%s) — oslovovanie stojí", exc
-            )
-            return None
+        return await self._oslovenych_za_obdobie(hodin=1)
 
     async def _aktivne_rozhovory(self, behavior: Behavior) -> Optional[set]:
         """Kto práve drží miesto. Počíta sa z DB, takže to prežije restart.
@@ -2206,6 +2239,21 @@ class UserBot:
         # Ranné oslovenie je nevyžiadaná prvá správa, čiže presne to, čo vyzerá
         # ako rozposielanie. Strop na počet rôznych ľudí za hodinu preto platí
         # aj tu — ba práve tu najviac.
+        # Denný strop na nových ľudí. Hodinový sám nestačí: šesť za hodinu počas
+        # 2,5-hodinového okna je pätnásť, ale keby sa okno raz predĺžilo, rástlo
+        # by to s ním. Nevyžiadaná prvá správa je pritom presne to, čo vyzerá
+        # ako rozposielanie — tu má strop najväčší zmysel.
+        oslovenych_dnes = await self._oslovenych_za_obdobie(hodin=24)
+        if oslovenych_dnes is None:
+            log.warning("Pozdrav na druhý deň preskočený: nemám denné čísla")
+            return
+        if not limity.smie_oslovit(0, oslovenych_dnes, behavior.max_new_people_per_day):
+            log.info(
+                "Pozdrav na druhý deň: denný strop %s nových ľudí je vyčerpaný",
+                behavior.max_new_people_per_day,
+            )
+            return
+
         oslovenych = await self._oslovenych_za_hodinu()
         if oslovenych is None:
             # Bez čísel sa neoslovuje. Ranné „hey" je nevyžiadaná prvá správa —

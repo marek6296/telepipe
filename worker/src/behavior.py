@@ -46,8 +46,10 @@ FIELD_LABELS = {
     "photos_enabled": "posielať fotky",
     "summary_every": "summary every N messages",
     "max_replies_per_hour": "max replies/h",
+    "max_messages_per_day": "max messages/day",
     "max_links_per_hour": "max links/h",
     "max_outreach_per_hour": "max first-messages/h",
+    "max_new_people_per_day": "max new people/day",
     "max_active_chats": "conversations at once",
     "chat_slot_min": "slot frees up after (min)",
     "activity_waves": "activity waves",
@@ -96,7 +98,9 @@ SAFETY_FIELDS = (
     "max_active_chats",
     "chat_slot_min",
     "max_replies_per_hour",
+    "max_messages_per_day",
     "max_outreach_per_hour",
+    "max_new_people_per_day",
     "morning_max_per_day",
     "max_links_per_hour",
 )
@@ -151,6 +155,13 @@ class Behavior:
     voice_source: str = "own"
     summary_every: int = 10
     max_replies_per_hour: int = 25
+    # Denný strop na ODOSLANÉ SPRÁVY, nie na odpovede — jedna odpoveď sa delí
+    # až na tri bubliny a Telegram vidí každú zvlášť. Bez neho dovolil hodinový
+    # strop pri 14-hodinovom okne až 560 správ denne; nameraná reálna špička je
+    # 96. 0 = bez limitu.
+    max_messages_per_day: int = 300
+    # Koľkým NOVÝM ľuďom sa smie za 24 h ozvať sama. 0 = bez limitu.
+    max_new_people_per_day: int = 20
     max_links_per_hour: int = 2
     # Koľkým ľuďom sa smie za hodinu ozvať SAMA. Odpovedí sa to netýka —
     # odpovedať tomu, kto napísal prvý, nie je vzor, ktorý by komukoľvek vadil.

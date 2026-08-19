@@ -1196,6 +1196,64 @@ class TestFloodChybaZastaviPisanie:
         assert poslane == [], "po floode sa NESMIE hneď skúšať text"
 
 
+class TestDennyStrop:
+    """Hodinový strop sám nestačí — pri 14-hodinovom okne prejde 560 správ."""
+
+    @staticmethod
+    def _bot(odoslanych_dnes, strop=300):
+        bot, db, _llm, client, _notes = build(
+            user_row(msg_count=10),
+            [{"role": "user", "content": "hey"}],
+            "hey you",
+            behavior={"active_start_min": 0, "active_end_min": 0,
+                      "max_messages_per_day": strop},
+        )
+
+        async def replies_since(since_iso):
+            # Hodinové okno je prázdne, denné plné — presne ten prípad, ktorý
+            # hodinový strop prepustí a denný má zachytiť.
+            from datetime import datetime as _dt
+            hodin = (datetime.now(timezone.utc) - _dt.fromisoformat(since_iso)).total_seconds() / 3600
+            return odoslanych_dnes if hodin > 2 else 0
+
+        db.replies_since = replies_since
+        return bot, db, client
+
+    def test_pri_vycerpanom_dennom_strope_neodpisuje(self):
+        bot, db, client = self._bot(odoslanych_dnes=300)
+        poslane = []
+
+        async def zapis(tg_id, text):
+            poslane.append(text)
+
+        client.send_message = zapis
+        asyncio.run(bot.reply_to(555))
+        assert poslane == [], "denný strop musí zastaviť aj keď hodinový pustí"
+        assert db.users[555]["pending_reply"] is True, "správa sa nesmie stratiť"
+
+    def test_pod_stropom_odpisuje(self):
+        bot, _db, client = self._bot(odoslanych_dnes=10)
+        poslane = []
+
+        async def zapis(tg_id, text):
+            poslane.append(text)
+
+        client.send_message = zapis
+        asyncio.run(bot.reply_to(555))
+        assert poslane, "pod stropom sa má odpisovať normálne"
+
+    def test_nula_znamena_bez_limitu(self):
+        bot, _db, client = self._bot(odoslanych_dnes=99999, strop=0)
+        poslane = []
+
+        async def zapis(tg_id, text):
+            poslane.append(text)
+
+        client.send_message = zapis
+        asyncio.run(bot.reply_to(555))
+        assert poslane, "0 = strop vypnutý (rovnako ako pri ostatných stropoch)"
+
+
 class TestLimityZlyhavajuZatvorene:
     """Pri výpadku DB sa limity musia VYPNÚŤ smerom „nesmie", nie „smie".
 
