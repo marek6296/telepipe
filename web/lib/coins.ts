@@ -99,21 +99,33 @@ export function formatCoins(coinCount: number): string {
  * Správny základ je preto CELÝ náklad delený počtom skutočne odoslaných
  * odpovedí (`dm_messages.role='assistant'`).
  *
- * Zdroj (2026-08-18, Simona, posledných 7 dní živej prevádzky):
+ * Zdroj (2026-08-19, Simona, 6 hodín ustálenej prevádzky):
  *
- *     258 odpovedí, atlas spolu $1.9983  →  $0.00775 na odpoveď
- *     (all-in: chat + summary + audio, teda aj pamäť a prepis hlasoviek)
- *     × multiplier 2.0  =  $0.0155  =  15.5 coinov
+ *     53 odoslaných odpovedí, atlas spolu $1.5909  →  $0.0300 na odpoveď
+ *     (all-in: chat + assist + summary + audio)
+ *     × multiplier 2.0  =  $0.060  =  60 coinov
  *
- * Tých 15.5 platilo pri kontextovom okne 12 správ. Okno je od 2026-08-18
- * dvojnásobné (worker `config.py`, CONTEXT_MESSAGES 24) — dlhšia pamäť je
- * viac vstupných tokenov na každé volanie, odhadom +10–15 % na odpoveď,
- * teda ~17–18 coinov. Inzerujeme 18: zaokrúhlené NAHOR, nech odhad počtu
- * odpovedí radšej podstrelíme než nafúkneme. Pri $50 = 50 000 coinov to je
- * ~2 700 odpovedí. Keď sa cenník modelov alebo okno pohne, prepočítaj znova
- * a uprav toto číslo aj komentár; marketing sa drží jeho, nie naopak.
+ * PREČO SKOK Z 18 NA 60
+ * ---------------------
+ * Predošlé meranie (15.5 coinov) je z obdobia PRED zdvojnásobením kontextového
+ * okna z 12 na 24 správ. `xai/grok-4.5` stojí $2.19 za milión vstupných tokenov,
+ * ale len $0.027 za výstupné — cenu teda robí výhradne to, čo do modelu ide,
+ * nie to, čo z neho vyjde. Priemerný vstup je dnes 3 310 tokenov (maximum 8 900)
+ * a na jednu prichádzajúcu správu bežia ~4 volania (písanie, sudca, fakty,
+ * sľuby a tvrdenia), pričom prompt caching zapnutý nie je — tá istá persona,
+ * pravidlá a ukážky štýlu sa teda posielajú a platia znova pri každom volaní.
+ *
+ * Staré meranie bolo skreslené aj v druhom smere: vtedy pripadalo 5–8 `chat`
+ * volaní na jednu odoslanú správu (opakované generovanie, ktoré sa zahodilo).
+ * Dnes je ten pomer 1.0–1.3, takže plytvanie je preč — ale cena za jedno
+ * volanie stúpla zhruba päťnásobne. Čistý efekt je drahšie.
+ *
+ * Pri $50 = 50 000 coinov to je ~830 odpovedí. Keď sa cenník modelov, kontextové
+ * okno alebo počet volaní na správu pohne, prepočítaj ZNOVA z produkčných dát
+ * (`usage_events` proti `dm_messages.role='assistant'` za rovnaké obdobie) a uprav
+ * toto číslo aj komentár; marketing sa drží jeho, nie naopak.
  */
-export const COINS_PER_REPLY = 18;
+export const COINS_PER_REPLY = 60;
 
 /** Koľko odpovedí sa dá za daný počet coinov očakávať (zaokrúhlené nadol). */
 export function estimatedReplies(coinCount: number): number {
