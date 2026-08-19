@@ -73,6 +73,9 @@ class FakeDb:
         self.users = {user["tg_id"]: dict(user)}
         self.messages = list(messages or [])
         self.paused = paused
+        # Flood pauza je ZÁMERNE iné pole než `paused`: ručnú pauzu smie zhodiť
+        # prepnutie režimu, túto nie.
+        self.flood_pauza = None
         self.patches = []
 
     async def get_user(self, tg_id):
@@ -180,6 +183,12 @@ class FakeDb:
 
     async def set_paused(self, paused):
         self.paused = paused
+
+    async def flood_until(self):
+        return self.flood_pauza
+
+    async def set_flood_until(self, until_iso):
+        self.flood_pauza = until_iso
 
     async def tg_reply_mode(self):
         return {
@@ -1059,7 +1068,7 @@ class TestFloodChybaZastaviPisanie:
         assert bot._flood_until is not None, "musí si zapamätať, dokedy mlčí"
         assert not asyncio.run(bot._flood_ok()), "počas pauzy sa nesmie posielať"
 
-    def test_peerflood_zapne_globalnu_pauzu_a_ozve_sa(self):
+    def test_peerflood_zapne_flood_pauzu_a_ozve_sa(self):
         from telethon.errors import PeerFloodError
 
         bot, db, _llm, client, notes = self._bot()
@@ -1069,15 +1078,87 @@ class TestFloodChybaZastaviPisanie:
 
         client.send_message = padni
         asyncio.run(bot.reply_to(555))
-        assert db.paused is True, "účet označený za spam → globálna pauza"
+        assert db.flood_pauza is not None, "účet označený za spam → flood pauza v DB"
         assert any("PeerFlood" in n or "rozposielanie" in n for n in notes), \
             "Marek sa o tomto musí dozvedieť hneď"
 
+    def test_flood_pauza_nie_je_rucna_pauza(self):
+        """Toto je celá pointa oddelenia.
+
+        `ai_paused` smie zhodiť prepnutie režimu odpovedania — je to pauza
+        majiteľa. Keby v nej sedela aj flood pauza, klik v menu by ticho zrušil
+        24-hodinovú ochranu a účet by sa rozbehol priamo do spam-flagu.
+        """
+        from telethon.errors import PeerFloodError
+
+        bot, db, _llm, client, _notes = self._bot()
+
+        async def padni(tg_id, text):
+            raise PeerFloodError(request=None)
+
+        client.send_message = padni
+        asyncio.run(bot.reply_to(555))
+
+        assert db.flood_pauza is not None
+        assert db.paused is False, \
+            "flood pauza NESMIE sedieť v ai_paused — tú zhadzuje prepnutie režimu"
+
+    def test_flood_pauza_prezije_restart(self):
+        """Pamäťové pole zmaže deploy. Pauza musí prísť z DB."""
+        bot, db, _llm, _client, _notes = self._bot()
+        db.flood_pauza = (
+            datetime.now(timezone.utc) + timedelta(hours=5)
+        ).isoformat()
+
+        bot._flood_until = None  # ako po reštarte
+        assert not asyncio.run(bot._flood_ok()), \
+            "po reštarte sa pauza musí dotiahnuť z DB, nie ignorovať"
+
     def test_po_uplynuti_pauzy_pokracuje(self):
-        bot, _db, _llm, _client, _notes = self._bot()
+        bot, db, _llm, _client, _notes = self._bot()
         bot._flood_until = datetime.now(timezone.utc) - timedelta(seconds=1)
+        db.flood_pauza = bot._flood_until.isoformat()
         assert asyncio.run(bot._flood_ok())
         assert bot._flood_until is None
+        assert db.flood_pauza is None, "vypršaná pauza sa má z DB zmazať"
+
+    def test_flood_pri_fotke_zastavi_pisanie(self, monkeypatch):
+        """Fotka do floodu ochranu doteraz nespustila vôbec."""
+        from telethon.errors import PeerFloodError
+
+        bot, db, _llm, client, _notes = self._bot()
+
+        async def stiahni(url):
+            return b"fake-jpeg"
+
+        monkeypatch.setattr(userbot, "_download", stiahni)
+
+        async def padni(*a, **k):
+            raise PeerFloodError(request=None)
+
+        client.send_file = padni
+        asyncio.run(bot._send_photo(555, {"id": 1, "url": "http://x/a.jpg", "caption": "x"}))
+        assert db.flood_pauza is not None, "aj fotka musí spustiť flood pauzu"
+
+    def test_generovana_hlasovka_po_floode_neskusa_text(self):
+        """Okamžitý opakovaný pokus na ten istý účet je presne to, čo pauzu predlžuje."""
+        from telethon.errors import PeerFloodError
+
+        bot, db, _llm, client, _notes = self._bot()
+        poslane = []
+
+        async def padni(*a, **k):
+            raise PeerFloodError(request=None)
+
+        async def zapis(tg_id, text):
+            poslane.append(text)
+
+        client.send_file = padni
+        client.send_message = zapis
+        asyncio.run(bot._send_generated_voice(555, b"x", "ahoj"))
+
+        assert db.flood_pauza is not None, "flood musí spustiť pauzu"
+        assert poslane == [], "po floode sa NESMIE hneď skúšať text"
 
 
 class TestRozhovoryNaraz:

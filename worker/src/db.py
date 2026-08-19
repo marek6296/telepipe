@@ -483,6 +483,23 @@ class TenantDb:
     async def set_paused(self, paused: bool) -> None:
         await self._patch(SETTINGS, {"model_id": self._mine}, {"ai_paused": paused})
 
+    # ---------- flood pauza (oddelená od ručnej!) ----------
+
+    async def flood_until(self) -> Optional[str]:
+        """Do kedy si Telegram vypýtal ticho. None = neplatí žiadna pauza.
+
+        ZÁMERNE to NIE JE `ai_paused`. Tá je ručná pauza majiteľa a prepnutie
+        režimu odpovedania ju právom zhadzuje — lenže do nej doteraz padala aj
+        24-hodinová ochrana po `PeerFloodError`. Klik v menu tak ticho rušil to
+        najvážnejšie varovanie, aké Telegram dá.
+        """
+        rows = await self._get(SETTINGS, {"model_id": self._mine, "select": "flood_until"})
+        return (rows[0].get("flood_until") if rows else None) or None
+
+    async def set_flood_until(self, until_iso: Optional[str]) -> None:
+        """Zapíše (alebo zruší) flood pauzu. Prežije reštart aj presun repliky."""
+        await self._patch(SETTINGS, {"model_id": self._mine}, {"flood_until": until_iso})
+
     # ---------- režim odpovedania (Telegram) ----------
 
     async def tg_reply_mode(self) -> Dict[str, Any]:
@@ -500,9 +517,13 @@ class TenantDb:
         }
 
     async def set_tg_reply_mode(self, mode: str) -> None:
-        """Nastaví Telegram režim. Pri auto/semi zároveň zhodí núdzovú pauzu
-        (`ai_paused`) — majiteľ vedome zapína, takže flood-pauza z minulosti
-        nesmie ticho blokovať."""
+        """Nastaví Telegram režim. Pri auto/semi zároveň zhodí RUČNÚ pauzu
+        (`ai_paused`) — majiteľ vedome zapína, takže jeho vlastná pauza
+        z minulosti nesmie ticho blokovať.
+
+        `flood_until` sa NEDOTÝKA a nikdy nesmie. To nie je pauza majiteľa, ale
+        varovanie od Telegramu; zrušiť ho klikom v menu je najrýchlejšia cesta
+        k zablokovaniu účtu."""
         body: Dict[str, Any] = {"tg_reply_mode": mode}
         if mode in ("auto", "semi"):
             body["ai_paused"] = False

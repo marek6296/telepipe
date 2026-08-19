@@ -1189,11 +1189,30 @@ class UserBot:
         return user, rows, history, last_user_text
 
     async def _flood_ok(self) -> bool:
-        """Smieme teraz vôbec niečo poslať?"""
+        """Smieme teraz vôbec niečo poslať?
+
+        Pamäťové pole je len cache. Zdroj pravdy je `settings.flood_until`,
+        lebo pauza musí prežiť deploy aj presun tenanta na inú repliku — inak
+        by ju každý reštart zrušil a účet by sa rozbehol priamo do toho, pred
+        čím ho pauza chránila. Na Railway sa deployuje často, takže to nie je
+        teoretický prípad.
+        """
         if self._flood_until is None:
-            return True
+            try:
+                ulozene = _parse_ts(await self._db.flood_until())
+            except Exception:  # noqa: BLE001 - výpadok DB nesmie umlčať odpovedanie
+                log.warning("Flood pauzu sa nepodarilo načítať, beriem to ako bez pauzy")
+                return True
+            if ulozene is None:
+                return True
+            self._flood_until = ulozene
+
         if datetime.now(timezone.utc) >= self._flood_until:
             self._flood_until = None
+            try:
+                await self._db.set_flood_until(None)
+            except Exception:  # noqa: BLE001
+                log.warning("Vypršanú flood pauzu sa nepodarilo zmazať z DB")
             return True
         return False
 
@@ -1210,18 +1229,24 @@ class UserBot:
         if sekund is None:
             return False
         self._flood_until = datetime.now(timezone.utc) + timedelta(seconds=sekund)
+
+        # Do DB, nie do pamäte: reštart ani presun tenanta pauzu nesmie zrušiť.
+        # Zapisuje sa pri KAŽDEJ flood chybe, nielen pri spam príznaku —
+        # päťsekundový FloodWait tesne pred deployom je inak stratený.
+        try:
+            await self._db.set_flood_until(self._flood_until.isoformat())
+        except Exception:  # noqa: BLE001
+            log.exception("Flood pauzu sa nepodarilo zapísať do DB")
+
         if limity.je_spam_priznak(exc):
             # Toto je najvážnejšia odpoveď, akú Telegram dá: účet je označený
             # za rozposielača. Písať ďalej znamená prísť oň.
             log.error("%s: PeerFloodError — účet je označený za spam, zastavujem", tg_id)
-            try:
-                await self._db.set_paused(True)
-            except Exception:  # noqa: BLE001
-                log.exception("Nepodarilo sa zapnúť globálnu pauzu")
             await self._notify(
                 "🚨 *Telegram označil účet za rozposielanie* (PeerFloodError).\n"
-                "Odpovedanie som zastavil a zapol globálnu pauzu. Nezapínaj ju "
-                "hneď späť — píš z účtu chvíľu ručne a len ľuďom, ktorí napísali prví."
+                "Zastavil som odpovedanie na 24 hodín. Túto pauzu nezruší ani "
+                "prepnutie režimu — píš z účtu chvíľu ručne a len ľuďom, ktorí "
+                "napísali prví."
             )
             return True
         log.warning("%s: FloodWait %s s — do %s nič neposielam",
@@ -1448,6 +1473,9 @@ class UserBot:
             # najhorsi druh polozky na fakture.
             await self._llm.charge_unit("photo", "photo_usd", 0.10)
         except Exception as exc:  # noqa: BLE001 - fotka nesmie zhodiť odpoveď
+            # Flood MUSÍ prejsť cez `_note_flood`, inak by fotka do spam-flagu
+            # ochranu vôbec nespustila a sweeper by to o tri minúty skúsil znova.
+            await self._note_flood(exc, tg_id)
             log.warning("Fotku sa nepodarilo poslať %s: %s", tg_id, exc)
 
     async def _defer(self, tg_id: int, seconds: float) -> None:
@@ -1626,6 +1654,13 @@ class UserBot:
             )
         except Exception as exc:  # noqa: BLE001 - odpoveď nesmie zapadnúť
             log.warning("Hlasovku na mieru sa nepodarilo poslať %s: %s", tg_id, exc)
+            # Náhrada textom má zmysel pri pokazenom súbore či prevode. Pri
+            # floode je to ale okamžitý opakovaný pokus na ten istý účet —
+            # presne ten pohyb, ktorým sa z dočasného obmedzenia stane trvalé.
+            # Text sa nestratí: človeku ostane `pending_reply` a dobehne, keď
+            # pauza vyprší.
+            if await self._note_flood(exc, tg_id):
+                return
             await self._client.send_message(tg_id, text)
             await self._db.add_message(tg_id, "assistant", text)
 
@@ -1815,6 +1850,7 @@ class UserBot:
             )
             return True
         except Exception as exc:  # noqa: BLE001 - hlasovka nesmie zhodiť odpoveď
+            await self._note_flood(exc, tg_id)
             log.warning("Hlasovku sa nepodarilo poslať %s: %s", tg_id, exc)
         return False
 

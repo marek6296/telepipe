@@ -72,6 +72,8 @@ CALLS = {
     "pair_control_bot": (("TP-4F9K2X", 777), {}),
     "is_paused": ((), {}),
     "set_paused": ((True,), {}),
+    "flood_until": ((), {}),
+    "set_flood_until": ((None,), {}),
     "get_user": ((42,), {}),
     "ensure_user": ((42, "user", "Eva", "sk"), {}),
     "update_user": ((42, {"msg_count": 3}), {}),
