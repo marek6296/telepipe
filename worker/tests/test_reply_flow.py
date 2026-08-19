@@ -124,6 +124,16 @@ class FakeDb:
         """Strop sa počíta aj z archívu, aby ho restart nevynuloval."""
         return sum(1 for m in self.messages if m.get("role") == "assistant")
 
+    async def active_chats(self, since_iso, limit=200):
+        """Kto práve drží miesto. Testy si to prepíšu, keď na tom záleží.
+
+        Dovtedy tu chýbal a `_aktivne_rozhovory` chybu prehltol návratom
+        prázdnej množiny — takže testy bežali cez cestu, ktorá v produkcii
+        znamenala vypnutý strop. Odkedy sa zlyháva zatvorene, musí byť fake
+        úplný.
+        """
+        return list(getattr(self, "aktivne", []))
+
     async def facts_for(self, tg_id):
         return list(getattr(self, 'facts_rows', []))
 
@@ -1184,6 +1194,63 @@ class TestFloodChybaZastaviPisanie:
 
         assert db.flood_pauza is not None, "flood musí spustiť pauzu"
         assert poslane == [], "po floode sa NESMIE hneď skúšať text"
+
+
+class TestLimityZlyhavajuZatvorene:
+    """Pri výpadku DB sa limity musia VYPNÚŤ smerom „nesmie", nie „smie".
+
+    Doteraz vracali prázdnu množinu, čo znamená „nikomu sa nepísalo" — čiže sa
+    strop ticho vypol. A to práve počas deployu, keď je pohybu najviac.
+    """
+
+    @staticmethod
+    def _bot():
+        return build(
+            user_row(msg_count=10),
+            [{"role": "user", "content": "hey"}],
+            "hey you",
+            behavior={"active_start_min": 0, "active_end_min": 0,
+                      "max_active_chats": 5},
+        )
+
+    def test_vypadok_db_nezacne_novy_rozhovor(self):
+        bot, db, _llm, client, _notes = self._bot()
+        poslane = []
+
+        async def padni(since_iso, limit=200):
+            raise RuntimeError("supabase down")
+
+        async def zapis(tg_id, text):
+            poslane.append(text)
+
+        db.active_chats = padni
+        client.send_message = zapis
+        asyncio.run(bot.reply_to(555))
+
+        assert poslane == [], "bez čísel sa nový rozhovor nezačína"
+        assert db.users[555]["pending_reply"] is True, "odpoveď sa nesmie stratiť"
+
+    def test_vypadok_db_zastavi_hodinovy_strop(self):
+        bot, db, _llm, _client, _notes = self._bot()
+
+        async def padni(since_iso):
+            raise RuntimeError("supabase down")
+
+        db.replies_since = padni
+        assert asyncio.run(bot._rate_left(40)) == 0, \
+            "bez overenia z archívu sa nesmie pustiť plný hodinový strop"
+
+    def test_vypadok_db_zastavi_oslovovanie(self):
+        bot, db, _llm, _client, _notes = self._bot()
+
+        async def padni(since_iso, limit=500):
+            raise RuntimeError("supabase down")
+
+        db.people_since = padni
+        assert asyncio.run(bot._oslovenych_za_hodinu()) is None
+        behavior = asyncio.run(bot._behavior())
+        assert asyncio.run(bot._smie_oslovit(999, behavior)) is False, \
+            "nevyžiadanú prvú správu naslepo neposielame"
 
 
 class TestRozhovoryNaraz:

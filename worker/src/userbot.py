@@ -140,6 +140,8 @@ class UserBot:
         # sa Marekovi neposiela tá istá správa každú minútu.
         self._flood_events: Deque[datetime] = deque(maxlen=64)
         self._flood_warned_at: Optional[datetime] = None
+        # Kedy sme naposledy hlásili, že limity nevidia do DB (a preto mlčíme).
+        self._slepota_warned_at: Optional[datetime] = None
         # Id správ, ktoré sme už spracovali. Telegram po reconnecte doručí
         # neodkvitované updaty ZNOVA — bez tohto sa tá istá otázka uloží
         # druhýkrát a modelka na ňu odpovie druhýkrát, iným textom.
@@ -473,6 +475,14 @@ class UserBot:
         # V Semi to neplatí — schvaľuje človek, nie automat.
         if not testing and not semi:
             aktivni = await self._aktivne_rozhovory(behavior)
+            if aktivni is None:
+                # Výpadok DB. Rozhovor, ktorý už beží, dopíšeme — prerušiť ho
+                # v polovici je horšie než pokračovať. Nový ale nezačíname:
+                # bez čísel nevieme, koľko ich beží, a hádať smerom „smie" je
+                # presne ten druh tichého vypnutia brzdy, ktorý stojí účet.
+                log.warning("Odkladám %s: neviem, koľko rozhovorov beží", tg_id)
+                await self._db.update_user(tg_id, {"pending_reply": True})
+                return
             if not limity.ma_miesto(tg_id, aktivni, behavior.max_active_chats):
                 log.info(
                     "Odkladám %s: práve vedie %s rozhovorov z %s",
@@ -2052,30 +2062,67 @@ class UserBot:
             return 0
         try:
             odoslanych = await self._db.replies_since(cutoff.isoformat())
-        except Exception as exc:  # noqa: BLE001 - pri chybe sa drž pamäte
-            log.warning("Počet odoslaných správ za hodinu sa nezistil: %s", exc)
-            return volno
+        except Exception as exc:  # noqa: BLE001
+            # Pamäť je po deployi prázdna, takže „drž sa pamäte" znamenalo
+            # pustiť plný hodinový strop bez overenia — a to práve vtedy, keď
+            # je DB v problémoch, čiže typicky počas deployu. Radšej chvíľu
+            # neodpisovať: `pending_reply` ostáva a sweeper to o tri minúty
+            # skúsi znova. Aj tak by sa odpoveď nemala kam zapísať.
+            log.warning("Počet odoslaných správ za hodinu sa nezistil (%s) — brzdím", exc)
+            await self._varuj_o_slepote(exc)
+            return 0
         z_archivu = max_per_hour * _MAX_CHUNKS - odoslanych
         return max(min(volno, z_archivu), 0)
 
     async def _rate_ok(self, max_per_hour: int) -> bool:
         return await self._rate_left(max_per_hour) > 0
 
-    async def _oslovenych_za_hodinu(self) -> set:
+    async def _varuj_o_slepote(self, exc: Exception) -> None:
+        """Keď limity nevedia čítať z DB, modelka mlčí — a to musí byť vidieť.
+
+        Zlyhávať zatvorene je správne, ale bez tohto by dlhší výpadok znamenal
+        ticho, ktoré sa prejaví až tým, že nikto neodpisuje. Ozveme sa najviac
+        raz za hodinu, nech z toho nie je vodopád správ.
+        """
+        teraz = datetime.now(timezone.utc)
+        if (
+            self._slepota_warned_at is not None
+            and teraz - self._slepota_warned_at < timedelta(hours=1)
+        ):
+            return
+        self._slepota_warned_at = teraz
+        await self._notify(
+            "⚠️ *Nedostanem sa k limitom v databáze*, takže radšej neodpisujem "
+            f"(`{type(exc).__name__}`). Správy sa nestrácajú a dobehnú, len čo "
+            "sa spojenie obnoví."
+        )
+
+    async def _oslovenych_za_hodinu(self) -> Optional[set]:
         """Komu za poslednú hodinu odišla správa. Počíta sa z archívu.
 
         Nie z pamäte procesu: po deployi je prázdna, a práve vtedy by sa strop
         dal obísť reštartom.
+
+        `None` = nevieme. Prázdna množina by znamenala „nikomu sa nepísalo",
+        čiže by strop ticho VYPLA — a to práve v momente výpadku DB, ktorý
+        typicky nastane počas deployu, teda vtedy, keď je pohybu najviac.
+        Volajúci má z `None` spraviť „nesmie", nie „smie".
         """
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
         try:
             return limity.uz_oslovenych(await self._db.people_since(cutoff))
-        except Exception as exc:  # noqa: BLE001 - pri chybe radšej nebrzdi
-            log.warning("Nepodarilo sa zistiť, komu sa písalo: %s", exc)
-            return set()
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "Nepodarilo sa zistiť, komu sa písalo (%s) — oslovovanie stojí", exc
+            )
+            return None
 
-    async def _aktivne_rozhovory(self, behavior: Behavior) -> set:
-        """Kto práve drží miesto. Počíta sa z DB, takže to prežije restart."""
+    async def _aktivne_rozhovory(self, behavior: Behavior) -> Optional[set]:
+        """Kto práve drží miesto. Počíta sa z DB, takže to prežije restart.
+
+        `None` = nevieme (výpadok DB). Volajúci má vtedy nový rozhovor
+        nezačínať — pozri komentár pri `_oslovenych_za_hodinu`.
+        """
         if behavior.max_active_chats <= 0:
             return set()
         cutoff = (
@@ -2083,12 +2130,16 @@ class UserBot:
         ).isoformat()
         try:
             return {int(t) for t in await self._db.active_chats(cutoff)}
-        except Exception as exc:  # noqa: BLE001 - pri chybe radšej nebrzdi
-            log.warning("Nepodarilo sa zistiť otvorené rozhovory: %s", exc)
-            return set()
+        except Exception as exc:  # noqa: BLE001
+            log.warning(
+                "Nepodarilo sa zistiť otvorené rozhovory (%s) — nové nezačínam", exc
+            )
+            return None
 
     async def _smie_oslovit(self, tg_id: int, behavior: Behavior) -> bool:
         oslovenych = await self._oslovenych_za_hodinu()
+        if oslovenych is None:
+            return False
         return limity.smie_oslovit(tg_id, oslovenych, behavior.max_outreach_per_hour)
 
     async def _reply_batch(
@@ -2156,6 +2207,13 @@ class UserBot:
         # ako rozposielanie. Strop na počet rôznych ľudí za hodinu preto platí
         # aj tu — ba práve tu najviac.
         oslovenych = await self._oslovenych_za_hodinu()
+        if oslovenych is None:
+            # Bez čísel sa neoslovuje. Ranné „hey" je nevyžiadaná prvá správa —
+            # to je presne tá riziková vec, a poslať ju naslepo je horšie než
+            # ju vynechať. Nikto o nič nepríde: `last_outreach_at` sa nezapíše,
+            # takže ju dostane v ďalšom cykle.
+            log.warning("Pozdrav na druhý deň preskočený: nemám čísla o oslovených")
+            return
 
         vybrati: List[int] = []
         for user in outreach_mod.due(kandidati, now_local, limit=behavior.morning_max_per_day):
@@ -2289,6 +2347,11 @@ class UserBot:
         # dvanásť rozhovorov.
         volno = await self._rate_left(behavior.max_replies_per_hour)
         aktivni = await self._aktivne_rozhovory(behavior)
+        if aktivni is None:
+            # Výpadok DB — sweeper tento cyklus vynechá. Nikto o odpoveď
+            # nepríde, `pending_reply` ostáva a o tri minúty to skúsi znova.
+            log.warning("Sweeper stojí: neviem, koľko rozhovorov beží")
+            return
         pusteni = limity.kto_ide_na_rad(
             caka, aktivni, behavior.max_active_chats, volno
         )
