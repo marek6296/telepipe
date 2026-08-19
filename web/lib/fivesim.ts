@@ -2,6 +2,7 @@ import "server-only";
 
 import { coinPriceFromUsdCost } from "@/lib/coins";
 import { fiveSimApiToken, fiveSimPriceMultiplier } from "@/lib/env";
+import { OTP_COUNTRIES, isKnownOtpCountry, isKnownOtpService, otpCountry } from "@/lib/otp-services";
 import type { ProviderTelegramOrder, TelegramOtpCountry } from "@/lib/vrnum";
 
 /**
@@ -108,12 +109,16 @@ type GuestPrices = Record<string, Record<string, Record<string, { cost: number; 
  * Katalóg krajín. Cenník je VEREJNÝ (bez tokenu), takže sa dá čítať aj keď je
  * účet prázdny — a hlavne sa dá overiť nezávisle.
  */
-export async function listTelegramCountries(): Promise<TelegramOtpCountry[]> {
-  const body = await request<GuestPrices>("/guest/prices?product=telegram", false);
-  const countries = body.telegram ?? {};
+export async function listCountries(service: string): Promise<TelegramOtpCountry[]> {
+  const product = safeService(service);
+  const body = await request<GuestPrices>(`/guest/prices?product=${product}`, false);
+  const countries = body[product] ?? {};
 
   const out: TelegramOtpCountry[] = [];
   for (const [country, operators] of Object.entries(countries)) {
+    // Len kurátorované krajiny. 5sim ich vracia 140+, ale číslo z Kamerunu si
+    // nikto neobjedná a v zozname by len prekážalo.
+    if (!isKnownOtpCountry(country)) continue;
     // Najlacnejší operátor, ktorý má čísla. Bez zásoby nemá zmysel ponúkať.
     let best: { cost: number; count: number } | null = null;
     for (const info of Object.values(operators)) {
@@ -127,27 +132,33 @@ export async function listTelegramCountries(): Promise<TelegramOtpCountry[]> {
     const priceCredits = telegramPriceCoins(best.cost) / 1000;
     if (priceCredits <= 0) continue;
 
+    const meta = otpCountry(country);
     out.push({
       code: country,
-      name: prettyName(country),
-      flag: "",
+      name: meta?.name ?? prettyName(country),
+      flag: meta?.flag ?? "",
       available: best.count,
       priceCredits,
     });
   }
 
-  return out.sort((a, b) => a.priceCredits - b.priceCredits || a.name.localeCompare(b.name));
+  // Poradie ako v kurátorovanom zozname — cena tam nemá rozhodovať, USA má byť
+  // prvá aj keď je drahšia.
+  const poradie = new Map(OTP_COUNTRIES.map((c, i) => [c.id, i]));
+  return out.sort((a, b) => (poradie.get(a.code) ?? 99) - (poradie.get(b.code) ?? 99));
 }
 
-export async function telegramQuote(
+export async function quote(
+  service: string,
   countryCode: string,
 ): Promise<{ country: TelegramOtpCountry; providerPriceUsd: number } | null> {
-  const code = countryCode.trim().toLowerCase();
+  const product = safeService(service);
+  const code = safeCountry(countryCode);
   const body = await request<GuestPrices>(
-    `/guest/prices?country=${encodeURIComponent(code)}&product=telegram`,
+    `/guest/prices?country=${encodeURIComponent(code)}&product=${product}`,
     false,
   );
-  const operators = body[code]?.telegram ?? {};
+  const operators = body[code]?.[product] ?? {};
 
   let best: number | null = null;
   let count = 0;
@@ -162,12 +173,13 @@ export async function telegramQuote(
   }
   if (best === null) return null;
 
+  const meta = otpCountry(code);
   return {
     providerPriceUsd: best,
     country: {
       code,
-      name: prettyName(code),
-      flag: "",
+      name: meta?.name ?? prettyName(code),
+      flag: meta?.flag ?? "",
       available: count,
       priceCredits: telegramPriceCoins(best) / 1000,
     },
@@ -196,10 +208,35 @@ type BuyResponse = {
  * pri neistote radšej porovnať zostatok cez `accountHealth()` a objednávku
  * dohľadať ručne.
  */
-export async function buyActivation(countryCode: string): Promise<ProviderTelegramOrder> {
-  const country = encodeURIComponent(countryCode.trim().toLowerCase());
-  const body = await request<BuyResponse>(`/user/buy/activation/${country}/any/telegram`);
+export async function buyActivation(
+  service: string,
+  countryCode: string,
+): Promise<ProviderTelegramOrder> {
+  const product = safeService(service);
+  const country = encodeURIComponent(safeCountry(countryCode));
+  const body = await request<BuyResponse>(`/user/buy/activation/${country}/any/${product}`);
   return toProviderOrder(body);
+}
+
+/**
+ * Do URL na providera nesmie ísť nič, čo nie je v našom zozname. Bez tejto
+ * kontroly by parameter z prehliadača určoval, čo sa nakupuje — a klient by si
+ * mohol objednať službu, ktorú sme nikdy neocenili.
+ */
+function safeCountry(country: string): string {
+  const id = (country || "").trim().toLowerCase();
+  if (!isKnownOtpCountry(id)) {
+    throw new FiveSimError(`Unsupported country: ${country}`);
+  }
+  return id;
+}
+
+function safeService(service: string): string {
+  const id = (service || "").trim().toLowerCase();
+  if (!isKnownOtpService(id)) {
+    throw new FiveSimError(`Unsupported service: ${service}`);
+  }
+  return id;
 }
 
 export async function checkOrder(id: string): Promise<ProviderTelegramOrder> {

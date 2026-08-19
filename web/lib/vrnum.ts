@@ -59,6 +59,13 @@ export type TelegramOtpDbOrder = {
   id: string;
   account_id: string | null;
   idempotency_key: string;
+  /** Kto objednávku vybavil (migrácia 20260819210000). Staré riadky majú
+   *  `vrnum`, nové `5sim` — identifikátory krajín aj objednávok sa líšia. */
+  provider: string;
+  /** Ktorá platforma sa overuje: telegram, whatsapp, instagram… */
+  service: string;
+  attempts_used: number;
+  attempts_allowed: number;
   country_code: string;
   country_name: string;
   country_flag: string;
@@ -221,7 +228,7 @@ export async function listTelegramOtpOrders(accountId: string): Promise<Telegram
   const { data, error } = await supabase
     .from("telegram_otp_orders")
     .select(
-      "id, account_id, idempotency_key, country_code, country_name, country_flag, phone_number, status, provider_status, provider_order_id, client_reference, otp_code, charged_credits, refunded_credits, expires_at, code_received_at, cancelled_at, refunded_at, created_at, updated_at",
+      "id, account_id, idempotency_key, provider, service, attempts_used, attempts_allowed, country_code, country_name, country_flag, phone_number, status, provider_status, provider_order_id, client_reference, otp_code, charged_credits, refunded_credits, expires_at, code_received_at, cancelled_at, refunded_at, created_at, updated_at",
     )
     .eq("account_id", accountId)
     .order("created_at", { ascending: false })

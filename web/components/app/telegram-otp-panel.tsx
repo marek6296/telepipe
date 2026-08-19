@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from "react";
 import { useRouter } from "next/navigation";
 import {
   Check,
@@ -28,7 +35,11 @@ import {
 import { Callout, Card, CardHeader, PageHeader } from "@/components/app/ui";
 import { COIN_NAME_PLURAL, coins } from "@/lib/coins";
 import { dateTime } from "@/lib/format";
-import type { TelegramOtpCountry, TelegramOtpOrder, TelegramOtpStatus } from "@/lib/vrnum";
+import type {
+  TelegramOtpCountry,
+  TelegramOtpOrder,
+  TelegramOtpStatus,
+} from "@/lib/vrnum";
 import { cn } from "@/lib/utils";
 
 const ACTIVE = new Set<TelegramOtpStatus>([
@@ -54,48 +65,75 @@ export function TelegramOtpPanel({
   initialOrders,
   initialBalance,
   catalogError,
+  service = "telegram",
+  serviceName = "Telegram",
 }: {
   countries: TelegramOtpCountry[];
   initialOrders: TelegramOtpOrder[];
   initialBalance: number;
   catalogError: string;
+  /** Ktorú platformu klient overuje. Ide do nákupu a musí sedieť s katalógom. */
+  service?: string;
+  serviceName?: string;
 }) {
-  const firstAvailable = countries.find((country) => country.code === "usa" && country.available > 0)
-    ?? countries.find((country) => country.available > 0)
-    ?? null;
+  // Tri pokusy sú v cene (viď `OTP_ATTEMPTS_INCLUDED`). Klient to musí vidieť
+  // PRED nákupom, nie až keď mu SMS nepríde.
+  const attemptsLabel = "3 numbers included";
+
+  const firstAvailable =
+    countries.find(
+      (country) => country.code === "usa" && country.available > 0,
+    ) ??
+    countries.find((country) => country.available > 0) ??
+    null;
   const [selectedCode, setSelectedCode] = useState(firstAvailable?.code ?? "");
   const [query, setQuery] = useState("");
   const [orders, setOrders] = useState(initialOrders);
   const [balance, setBalance] = useState(initialBalance);
   const [confirming, setConfirming] = useState(false);
-  const [notice, setNotice] = useState<{ tone: "success" | "danger" | "neutral"; text: string } | null>(
+  const [notice, setNotice] = useState<{
+    tone: "success" | "danger" | "neutral";
+    text: string;
+  } | null>(null);
+  const [pendingPurchaseKey, setPendingPurchaseKey] = useState<string | null>(
     null,
   );
-  const [pendingPurchaseKey, setPendingPurchaseKey] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const polling = useRef(false);
   const router = useRouter();
 
-  const selected = countries.find((country) => country.code === selectedCode) ?? firstAvailable;
+  const selected =
+    countries.find((country) => country.code === selectedCode) ??
+    firstAvailable;
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return countries;
     return countries.filter(
-      (country) => country.name.toLowerCase().includes(needle) || country.code.includes(needle),
+      (country) =>
+        country.name.toLowerCase().includes(needle) ||
+        country.code.includes(needle),
     );
   }, [countries, query]);
   const activeOrder = orders.find((order) => ACTIVE.has(order.status)) ?? null;
-  const canBuy = Boolean(selected && selected.available > 0 && balance >= selected.priceCredits);
+  const canBuy = Boolean(
+    selected && selected.available > 0 && balance >= selected.priceCredits,
+  );
   const activeOrderId = activeOrder?.id ?? null;
-  const shouldPoll = Boolean(activeOrder && activeOrder.status !== "code_received");
+  const shouldPoll = Boolean(
+    activeOrder && activeOrder.status !== "code_received",
+  );
 
   const applyResult = useCallback((result: OtpActionResult, silent = false) => {
     if (result.order) {
-      setOrders((current) => [result.order!, ...current.filter((item) => item.id !== result.order!.id)]);
+      setOrders((current) => [
+        result.order!,
+        ...current.filter((item) => item.id !== result.order!.id),
+      ]);
     }
     if (result.ok) {
       if (result.balance !== null) setBalance(result.balance);
-      if (!silent && result.message) setNotice({ tone: "success", text: result.message });
+      if (!silent && result.message)
+        setNotice({ tone: "success", text: result.message });
       return;
     }
     if (!silent) setNotice({ tone: "danger", text: result.error });
@@ -125,6 +163,7 @@ export function TelegramOtpPanel({
       const result = await purchaseTelegramOtpAction({
         countryCode: selected.code,
         idempotencyKey,
+        service,
       });
       applyResult(result);
       if (result.ok) router.refresh();
@@ -149,10 +188,14 @@ export function TelegramOtpPanel({
         description="A one-time Telegram number, delivered inside Telepipe. Choose a country, receive the SMS code, and finish registration before the activation window closes."
         actions={
           <div className="rounded-md border border-[var(--app-border)] px-3.5 py-2 text-right">
-            <p className="text-[10px] uppercase tracking-[0.12em] text-[var(--app-text-4)]">Your balance</p>
+            <p className="text-[10px] uppercase tracking-[0.12em] text-[var(--app-text-4)]">
+              Your balance
+            </p>
             <p className="mt-1 text-[14px] font-medium tabular-nums text-[var(--app-text)]">
               {coins(balance)}{" "}
-              <span className="text-[11px] font-normal text-[var(--app-text-4)]">{COIN_NAME_PLURAL}</span>
+              <span className="text-[11px] font-normal text-[var(--app-text-4)]">
+                {COIN_NAME_PLURAL}
+              </span>
             </p>
           </div>
         }
@@ -169,10 +212,16 @@ export function TelegramOtpPanel({
           <ActiveOrder
             order={activeOrder}
             busy={isPending}
-            onRefresh={() => run(() => refreshTelegramOtpAction(activeOrder.id))}
+            onRefresh={() =>
+              run(() => refreshTelegramOtpAction(activeOrder.id))
+            }
             onResend={() => run(() => resendTelegramOtpAction(activeOrder.id))}
-            onComplete={() => run(() => completeTelegramOtpAction(activeOrder.id))}
-            onCancel={() => run(() => cancelTelegramOtpAction(activeOrder.id), true)}
+            onComplete={() =>
+              run(() => completeTelegramOtpAction(activeOrder.id))
+            }
+            onCancel={() =>
+              run(() => cancelTelegramOtpAction(activeOrder.id), true)
+            }
           />
         </div>
       )}
@@ -214,30 +263,42 @@ export function TelegramOtpPanel({
                         onClick={() => setSelectedCode(country.code)}
                         className={cn(
                           "flex w-full items-center gap-3 border-b border-[var(--app-border)] px-3.5 py-3 text-left transition-colors last:border-b-0",
-                          active ? "bg-[var(--app-active)]" : "hover:bg-[var(--app-surface-hover)]",
+                          active
+                            ? "bg-[var(--app-active)]"
+                            : "hover:bg-[var(--app-surface-hover)]",
                           soldOut && "cursor-not-allowed opacity-40",
                         )}
                       >
-                        <span className="w-7 text-center text-[20px]" aria-hidden="true">{country.flag || "🌐"}</span>
+                        <span
+                          className="w-7 text-center text-[20px]"
+                          aria-hidden="true"
+                        >
+                          {country.flag || "🌐"}
+                        </span>
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-[13px] font-medium text-[var(--app-text)]">
                             {country.name}
                           </span>
                           <span className="mt-0.5 block text-[11px] text-[var(--app-text-4)]">
-                            {soldOut ? "Temporarily sold out" : `${country.available.toLocaleString("en-US")} available`}
+                            {soldOut
+                              ? "Temporarily sold out"
+                              : `${country.available.toLocaleString("en-US")} available`}
                           </span>
                         </span>
                         <span className="text-right">
                           <span className="block text-[13px] font-medium tabular-nums text-[var(--app-text)]">
                             {coins(country.priceCredits)}
                           </span>
-                          <span className="block text-[10px] text-[var(--app-text-4)]">coins</span>
+                          <span className="block text-[10px] text-[var(--app-text-4)]">
+                            coins
+                          </span>
                         </span>
-                        {!soldOut && (
-                          active
-                            ? <Check className="h-4 w-4 text-[var(--app-text-2)]" />
-                            : <ChevronRight className="h-4 w-4 text-[var(--app-text-4)]" />
-                        )}
+                        {!soldOut &&
+                          (active ? (
+                            <Check className="h-4 w-4 text-[var(--app-text-2)]" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-[var(--app-text-4)]" />
+                          ))}
                       </button>
                     );
                   })}
@@ -254,8 +315,8 @@ export function TelegramOtpPanel({
 
         <Card className="h-fit xl:sticky xl:top-[76px]">
           <CardHeader
-            title="Telegram OTP number"
-            description="One number · one activation · 20-minute window"
+            title={`${serviceName} number`}
+            description={`${attemptsLabel} · one activation · 20-minute window`}
             icon={<MessageSquareText className="h-4 w-4" strokeWidth={1.6} />}
           />
           <div className="p-5">
@@ -264,23 +325,35 @@ export function TelegramOtpPanel({
                 <MessageSquareText className="h-5 w-5" strokeWidth={1.8} />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-[13.5px] font-medium text-[var(--app-text)]">Telegram</p>
+                <p className="text-[13.5px] font-medium text-[var(--app-text)]">
+                  Telegram
+                </p>
                 <p className="mt-0.5 truncate text-[12px] text-[var(--app-text-3)]">
-                  {selected ? `${selected.flag} ${selected.name}` : "Choose a country"}
+                  {selected
+                    ? `${selected.flag} ${selected.name}`
+                    : "Choose a country"}
                 </p>
               </div>
               <p className="text-right">
                 <span className="block text-[17px] font-semibold tabular-nums text-[var(--app-text)]">
                   {selected ? coins(selected.priceCredits) : "—"}
                 </span>
-                <span className="text-[10px] text-[var(--app-text-4)]">{COIN_NAME_PLURAL}</span>
+                <span className="text-[10px] text-[var(--app-text-4)]">
+                  {COIN_NAME_PLURAL}
+                </span>
               </p>
             </div>
 
             <ol className="my-5 space-y-3">
               <Step number="1" text="We reserve the displayed Pipe Coins." />
-              <Step number="2" text="Your Telegram phone number appears here." />
-              <Step number="3" text="The incoming OTP code is shown automatically." />
+              <Step
+                number="2"
+                text="Your Telegram phone number appears here."
+              />
+              <Step
+                number="3"
+                text="The incoming OTP code is shown automatically."
+              />
             </ol>
 
             <button
@@ -294,16 +367,20 @@ export function TelegramOtpPanel({
                 ? "Finish your active number first"
                 : pendingPurchaseKey
                   ? "Retry safe purchase"
-                  : "Buy Telegram number"}
+                  : `Buy ${serviceName} number`}
             </button>
             {selected && balance < selected.priceCredits && (
               <p className="mt-2.5 text-center text-[11.5px] text-[#fca5a5]">
-                You need {coins(selected.priceCredits - balance)} more {COIN_NAME_PLURAL} to continue.
+                You need {coins(selected.priceCredits - balance)} more{" "}
+                {COIN_NAME_PLURAL} to continue.
               </p>
             )}
             <div className="mt-4 flex items-start gap-2 text-[11px] leading-relaxed text-[var(--app-text-4)]">
               <ShieldCheck className="mt-px h-3.5 w-3.5 shrink-0" />
-              <p>Prices are locked server-side. A confirmed cancellation returns the full displayed coin charge exactly once.</p>
+              <p>
+                Prices are locked server-side. A confirmed cancellation returns
+                the full displayed coin charge exactly once.
+              </p>
             </div>
           </div>
         </Card>
@@ -313,6 +390,7 @@ export function TelegramOtpPanel({
 
       {confirming && selected && (
         <ConfirmPurchase
+          serviceName={serviceName}
           country={selected}
           balance={balance}
           onClose={() => setConfirming(false)}
@@ -348,9 +426,10 @@ function ActiveOrder({
       window.clearInterval(timer);
     };
   }, []);
-  const remaining = order.expiresAt && now
-    ? Math.max(0, new Date(order.expiresAt).getTime() - now)
-    : 0;
+  const remaining =
+    order.expiresAt && now
+      ? Math.max(0, new Date(order.expiresAt).getTime() - now)
+      : 0;
 
   function copy(value: string, kind: "phone" | "code") {
     void navigator.clipboard.writeText(value).then(() => {
@@ -369,7 +448,8 @@ function ActiveOrder({
           <div className="min-w-0">
             <StatusLine status={order.status} />
             <p className="mt-1 text-[11.5px] text-[var(--app-text-4)]">
-              Telegram · {order.countryName} · {coins(order.chargedCredits)} coins
+              Telegram · {order.countryName} · {coins(order.chargedCredits)}{" "}
+              coins
             </p>
           </div>
         </div>
@@ -377,19 +457,27 @@ function ActiveOrder({
         <ValueBlock
           label="Phone number"
           value={order.phoneNumber ?? "Assigning…"}
-          onCopy={order.phoneNumber ? () => copy(order.phoneNumber!, "phone") : undefined}
+          onCopy={
+            order.phoneNumber
+              ? () => copy(order.phoneNumber!, "phone")
+              : undefined
+          }
           copied={copied === "phone"}
         />
         <ValueBlock
           label="Telegram code"
           value={order.otpCode ?? "Waiting for SMS"}
           strong={Boolean(order.otpCode)}
-          onCopy={order.otpCode ? () => copy(order.otpCode!, "code") : undefined}
+          onCopy={
+            order.otpCode ? () => copy(order.otpCode!, "code") : undefined
+          }
           copied={copied === "code"}
         />
 
         <div className="min-w-[116px] text-left lg:text-right">
-          <p className="text-[10px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">Time remaining</p>
+          <p className="text-[10px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
+            Time remaining
+          </p>
           <p className="mt-1.5 flex items-center gap-1.5 text-[13px] tabular-nums text-[var(--app-text-2)] lg:justify-end">
             <Clock3 className="h-3.5 w-3.5" />
             {formatRemaining(remaining)}
@@ -397,18 +485,39 @@ function ActiveOrder({
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2 border-t border-[var(--app-border)] bg-[#090909] px-5 py-3">
-        <button type="button" disabled={busy} onClick={onRefresh} className="app-btn app-btn-ghost h-8 px-3">
-          <RefreshCw className={cn("h-3.5 w-3.5", busy && "animate-spin")} /> Refresh
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onRefresh}
+          className="app-btn app-btn-ghost h-8 px-3"
+        >
+          <RefreshCw className={cn("h-3.5 w-3.5", busy && "animate-spin")} />{" "}
+          Refresh
         </button>
-        <button type="button" disabled={busy || !order.phoneNumber} onClick={onResend} className="app-btn app-btn-ghost h-8 px-3 disabled:opacity-40">
+        <button
+          type="button"
+          disabled={busy || !order.phoneNumber}
+          onClick={onResend}
+          className="app-btn app-btn-ghost h-8 px-3 disabled:opacity-40"
+        >
           <RotateCcw className="h-3.5 w-3.5" /> Resend SMS
         </button>
         {order.otpCode && (
-          <button type="button" disabled={busy} onClick={onComplete} className="app-btn app-btn-primary h-8 px-3">
+          <button
+            type="button"
+            disabled={busy}
+            onClick={onComplete}
+            className="app-btn app-btn-primary h-8 px-3"
+          >
             <Check className="h-3.5 w-3.5" /> Done
           </button>
         )}
-        <button type="button" disabled={busy || !order.phoneNumber} onClick={onCancel} className="app-btn app-btn-ghost ml-auto h-8 px-3 text-[#fca5a5] disabled:opacity-40">
+        <button
+          type="button"
+          disabled={busy || !order.phoneNumber}
+          onClick={onCancel}
+          className="app-btn app-btn-ghost ml-auto h-8 px-3 text-[#fca5a5] disabled:opacity-40"
+        >
           Cancel & refund
         </button>
       </div>
@@ -431,14 +540,31 @@ function ValueBlock({
 }) {
   return (
     <div className="min-w-[190px] rounded-md border border-[var(--app-border)] bg-[#080808] px-3 py-2.5">
-      <p className="text-[9.5px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">{label}</p>
+      <p className="text-[9.5px] uppercase tracking-[0.1em] text-[var(--app-text-4)]">
+        {label}
+      </p>
       <div className="mt-1.5 flex items-center gap-2">
-        <p className={cn("min-w-0 flex-1 truncate text-[13px] tabular-nums text-[var(--app-text-2)]", strong && "text-[17px] font-semibold tracking-[0.08em] text-[var(--app-text)]")}>
+        <p
+          className={cn(
+            "min-w-0 flex-1 truncate text-[13px] tabular-nums text-[var(--app-text-2)]",
+            strong &&
+              "text-[17px] font-semibold tracking-[0.08em] text-[var(--app-text)]",
+          )}
+        >
           {value}
         </p>
         {onCopy && (
-          <button type="button" onClick={onCopy} aria-label={`Copy ${label}`} className="text-[var(--app-text-4)] transition-colors hover:text-[var(--app-text)]">
-            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          <button
+            type="button"
+            onClick={onCopy}
+            aria-label={`Copy ${label}`}
+            className="text-[var(--app-text-4)] transition-colors hover:text-[var(--app-text)]"
+          >
+            {copied ? (
+              <Check className="h-3.5 w-3.5" />
+            ) : (
+              <Copy className="h-3.5 w-3.5" />
+            )}
           </button>
         )}
       </div>
@@ -449,7 +575,10 @@ function ValueBlock({
 function OrderHistory({ orders }: { orders: TelegramOtpOrder[] }) {
   return (
     <Card className="mt-8 overflow-hidden">
-      <CardHeader title="Recent numbers" description="Your last 30 Telegram OTP purchases and refunds." />
+      <CardHeader
+        title="Recent numbers"
+        description="Your last 30 Telegram OTP purchases and refunds."
+      />
       <div className="overflow-x-auto">
         <table className="w-full min-w-[680px] text-left text-[12.5px]">
           <thead>
@@ -463,16 +592,27 @@ function OrderHistory({ orders }: { orders: TelegramOtpOrder[] }) {
           </thead>
           <tbody>
             {orders.map((order) => (
-              <tr key={order.id} className="border-b border-[var(--app-border)] last:border-b-0">
-                <td className="px-5 py-3.5 text-[var(--app-text-2)]">{order.countryFlag} {order.countryName}</td>
-                <td className="px-5 py-3.5 tabular-nums text-[var(--app-text-3)]">{order.phoneNumber ?? "—"}</td>
-                <td className="px-5 py-3.5"><StatusLine status={order.status} /></td>
+              <tr
+                key={order.id}
+                className="border-b border-[var(--app-border)] last:border-b-0"
+              >
+                <td className="px-5 py-3.5 text-[var(--app-text-2)]">
+                  {order.countryFlag} {order.countryName}
+                </td>
+                <td className="px-5 py-3.5 tabular-nums text-[var(--app-text-3)]">
+                  {order.phoneNumber ?? "—"}
+                </td>
+                <td className="px-5 py-3.5">
+                  <StatusLine status={order.status} />
+                </td>
                 <td className="px-5 py-3.5 text-right tabular-nums text-[var(--app-text-2)]">
                   {order.refundedCredits > 0
                     ? `${coins(order.refundedCredits)} refunded`
                     : coins(order.chargedCredits)}
                 </td>
-                <td className="px-5 py-3.5 text-right text-[var(--app-text-4)]">{dateTime(order.createdAt)}</td>
+                <td className="px-5 py-3.5 text-right text-[var(--app-text-4)]">
+                  {dateTime(order.createdAt)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -483,33 +623,54 @@ function OrderHistory({ orders }: { orders: TelegramOtpOrder[] }) {
 }
 
 function ConfirmPurchase({
+  serviceName,
   country,
   balance,
   onClose,
   onConfirm,
 }: {
+  serviceName: string;
   country: TelegramOtpCountry;
   balance: number;
   onClose: () => void;
   onConfirm: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-[80] flex items-end justify-center bg-black/75 p-0 backdrop-blur-sm sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-labelledby="otp-confirm-title">
+    <div
+      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/75 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="otp-confirm-title"
+    >
       <div className="w-full max-w-md rounded-t-xl border border-[var(--app-border-strong)] bg-[var(--app-bg)] p-5 shadow-2xl sm:rounded-xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="app-group-label">Confirm purchase</p>
-            <h2 id="otp-confirm-title" className="mt-2 text-[18px] font-semibold text-[var(--app-text)]">
-              {country.flag} Telegram number · {country.name}
+            <h2
+              id="otp-confirm-title"
+              className="mt-2 text-[18px] font-semibold text-[var(--app-text)]"
+            >
+              {country.flag} {serviceName} number · {country.name}
             </h2>
           </div>
-          <button type="button" onClick={onClose} aria-label="Close confirmation" className="rounded-md p-1.5 text-[var(--app-text-4)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close confirmation"
+            className="rounded-md p-1.5 text-[var(--app-text-4)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]"
+          >
             <X className="h-4 w-4" />
           </button>
         </div>
         <div className="my-5 divide-y divide-[var(--app-border)] rounded-lg border border-[var(--app-border)] bg-[#090909] px-4">
-          <SummaryRow label="Telegram OTP number" value={`${coins(country.priceCredits)} coins`} />
-          <SummaryRow label="Current balance" value={`${coins(balance)} coins`} />
+          <SummaryRow
+            label={`${serviceName} number`}
+            value={`${coins(country.priceCredits)} coins`}
+          />
+          <SummaryRow
+            label="Current balance"
+            value={`${coins(balance)} coins`}
+          />
           <SummaryRow
             label="Balance after purchase"
             value={`${coins(balance - country.priceCredits)} coins`}
@@ -517,22 +678,50 @@ function ConfirmPurchase({
           />
         </div>
         <Callout icon={<Clock3 className="h-4 w-4" />}>
-          Start Telegram registration immediately. The activation is intended for one SMS and expires after roughly 20 minutes.
+          Start Telegram registration immediately. The activation is intended
+          for one SMS and expires after roughly 20 minutes.
         </Callout>
         <div className="mt-5 flex gap-2">
-          <button type="button" onClick={onClose} className="app-btn app-btn-ghost h-10 flex-1 justify-center">Back</button>
-          <button type="button" onClick={onConfirm} className="app-btn app-btn-primary h-10 flex-1 justify-center">Confirm & buy</button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="app-btn app-btn-ghost h-10 flex-1 justify-center"
+          >
+            Back
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            className="app-btn app-btn-primary h-10 flex-1 justify-center"
+          >
+            Confirm & buy
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-function SummaryRow({ label, value, strong }: { label: string; value: string; strong?: boolean }) {
+function SummaryRow({
+  label,
+  value,
+  strong,
+}: {
+  label: string;
+  value: string;
+  strong?: boolean;
+}) {
   return (
     <div className="flex items-center justify-between gap-4 py-3 text-[12.5px]">
       <span className="text-[var(--app-text-3)]">{label}</span>
-      <span className={cn("tabular-nums text-[var(--app-text-2)]", strong && "font-medium text-[var(--app-text)]")}>{value}</span>
+      <span
+        className={cn(
+          "tabular-nums text-[var(--app-text-2)]",
+          strong && "font-medium text-[var(--app-text)]",
+        )}
+      >
+        {value}
+      </span>
     </div>
   );
 }
@@ -540,7 +729,9 @@ function SummaryRow({ label, value, strong }: { label: string; value: string; st
 function Step({ number, text }: { number: string; text: string }) {
   return (
     <li className="flex items-start gap-3 text-[12px] leading-relaxed text-[var(--app-text-3)]">
-      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[var(--app-border)] text-[9px] tabular-nums text-[var(--app-text-4)]">{number}</span>
+      <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full border border-[var(--app-border)] text-[9px] tabular-nums text-[var(--app-text-4)]">
+        {number}
+      </span>
       {text}
     </li>
   );

@@ -3,22 +3,32 @@
 import { randomUUID } from "node:crypto";
 
 import { createServiceClient, getUser } from "@/lib/supabase/server";
+// DB pomocníci (`applyProviderOrder`, `getDbOrder`, `publicOrder`…) sú na
+// providerovi nezávislé a ostávajú tam, kde vznikli. Volania na providera už
+// idú výhradne cez 5sim — VRNUM sa neodstraňuje, len sa nepoužíva, aby sa dali
+// dokončiť objednávky, ktoré cezeň vznikli (`orders.provider = 'vrnum'`).
 import {
-  VrnumError,
   applyProviderOrder,
-  cancelProviderTelegramOrder,
-  findProviderOrder,
   getDbOrder,
   getDbOrderByIdempotency,
-  getProviderTelegramOrder,
-  mapProviderStatus,
   publicOrder,
-  purchaseTelegramNumber,
-  resendProviderTelegramCode,
-  telegramCountryQuote,
   type TelegramOtpDbOrder,
   type TelegramOtpOrder,
 } from "@/lib/vrnum";
+import {
+  FiveSimError,
+  buyActivation,
+  cancelOrder,
+  checkOrder,
+  mapStatus,
+  quote,
+} from "@/lib/fivesim";
+import {
+  DEFAULT_OTP_SERVICE,
+  isKnownOtpCountry,
+  isKnownOtpService,
+} from "@/lib/otp-services";
+import { OTP_ATTEMPTS_INCLUDED } from "@/lib/env";
 
 export type OtpActionResult =
   | { ok: true; order: TelegramOtpOrder; balance: number | null; message?: string }
@@ -29,13 +39,21 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 export async function purchaseTelegramOtpAction(input: {
   countryCode: string;
   idempotencyKey: string;
+  service?: string;
 }): Promise<OtpActionResult> {
   const account = await accountId();
   if (!account) return { ok: false, error: "Please sign in again." };
 
   const countryCode = input.countryCode.trim().toLowerCase();
+  const service = (input.service ?? DEFAULT_OTP_SERVICE).trim().toLowerCase();
   if (!countryCode || !UUID.test(input.idempotencyKey)) {
     return { ok: false, error: "Choose a country and try again." };
+  }
+  // Whitelist na oboch stranách. Hodnoty prichádzajú z prehliadača a idú do URL
+  // na providera — bez tejto kontroly by si klient objednal službu, ktorú sme
+  // nikdy neocenili.
+  if (!isKnownOtpService(service) || !isKnownOtpCountry(countryCode)) {
+    return { ok: false, error: "That combination is not available." };
   }
 
   try {
@@ -50,10 +68,10 @@ export async function purchaseTelegramOtpAction(input: {
       return await provisionReservedOrder(existing);
     }
 
-    const quote = await telegramCountryQuote(countryCode);
-    if (!quote) return { ok: false, error: "That Telegram destination is no longer offered." };
-    if (quote.country.available <= 0) {
-      return { ok: false, error: `${quote.country.name} is temporarily sold out.` };
+    const priced = await quote(service, countryCode);
+    if (!priced) return { ok: false, error: "That destination is no longer offered." };
+    if (priced.country.available <= 0) {
+      return { ok: false, error: `${priced.country.name} is temporarily sold out.` };
     }
 
     const orderId = randomUUID();
@@ -64,11 +82,11 @@ export async function purchaseTelegramOtpAction(input: {
         p_order: orderId,
         p_account: account,
         p_idempotency: input.idempotencyKey,
-        p_country_code: quote.country.code,
-        p_country_name: quote.country.name,
-        p_country_flag: quote.country.flag,
-        p_provider_price: quote.providerPriceUsd,
-        p_charged_credits: quote.country.priceCredits,
+        p_country_code: priced.country.code,
+        p_country_name: priced.country.name,
+        p_country_flag: priced.country.flag,
+        p_provider_price: priced.providerPriceUsd,
+        p_charged_credits: priced.country.priceCredits,
       },
     );
     if (error) {
@@ -80,7 +98,16 @@ export async function purchaseTelegramOtpAction(input: {
 
     await supabase
       .from("telegram_otp_orders")
-      .update({ status: "provisioning", updated_at: new Date().toISOString() })
+      .update({
+        status: "provisioning",
+        provider: "5sim",
+        service,
+        // Uložené NA OBJEDNÁVKE, nie čítané z env pri každom pokuse: zmena
+        // cenníka nesmie ovplyvniť to, za čo klient už zaplatil.
+        attempts_allowed: OTP_ATTEMPTS_INCLUDED,
+        attempts_used: 1,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", orderId);
 
     const reserved = await getDbOrder(account, orderId);
@@ -100,22 +127,16 @@ export async function refreshTelegramOtpAction(orderId: string): Promise<OtpActi
     const row = await getDbOrder(account, orderId);
     if (!row) return { ok: false, error: "Order not found." };
     if (!row.provider_order_id) {
-      const reconciled = await findProviderOrder(row.client_reference);
-      if (!reconciled) {
-        return {
-          ok: true,
-          order: publicOrder(row),
-          balance: await balance(account),
-          message: "Still confirming the number with the network.",
-        };
-      }
-      await applyProviderOrder(row.id, reconciled);
-      await refundIfProviderFailed(row, reconciled.status);
-    } else {
-      const provider = await getProviderTelegramOrder(row.provider_order_id);
-      await applyProviderOrder(row.id, provider);
-      await refundIfProviderFailed(row, provider.status);
+      // 5sim nepozná našu referenciu, takže objednávku bez ich id nemáme ako
+      // dohľadať. Zopakovať nákup NESMIEME — kúpil by druhé číslo a zaplatil
+      // ho. Necháme klienta skúsiť znova cez `provisionReservedOrder`, ktorá
+      // beží pod tým istým `idempotency_key`.
+      return await provisionReservedOrder(row);
     }
+
+    const provider = await checkOrder(row.provider_order_id);
+    await applyProviderOrder(row.id, provider);
+    await refundIfProviderFailed(row, provider.status);
     return success(await requireDbOrder(account, orderId), await balance(account));
   } catch (error) {
     console.error("Telegram OTP refresh failed", safeError(error));
@@ -128,15 +149,24 @@ export async function resendTelegramOtpAction(orderId: string): Promise<OtpActio
   if (!account || !UUID.test(orderId)) return { ok: false, error: "Order not found." };
   try {
     const row = await requireDbOrder(account, orderId);
+    // 5sim opätovné poslanie SMS NEPONÚKA — má len „re-buy", čo je nový nákup
+    // za ďalšie peniaze. Tváriť sa, že tlačidlo niečo spraví, by klienta len
+    // klamalo; namiesto toho ho pošleme na ďalší pokus, ktorý má v cene.
+    if (row.provider === "5sim") {
+      return {
+        ok: false,
+        error:
+          "This network cannot resend an SMS. Cancel the number and use one of " +
+          "your remaining attempts instead — they are included in the price.",
+      };
+    }
     if (!row.provider_order_id || !["waiting", "code_received"].includes(row.status)) {
       return { ok: false, error: "This number cannot request another SMS." };
     }
-    const provider = await resendProviderTelegramCode(row.provider_order_id);
-    await applyProviderOrder(row.id, provider);
-    return success(await requireDbOrder(account, row.id), await balance(account), "Resend requested.");
+    return { ok: false, error: "This number cannot request another SMS." };
   } catch (error) {
     console.error("Telegram OTP resend failed", safeError(error));
-    const message = error instanceof VrnumError && error.isDefinitiveRejection
+    const message = error instanceof FiveSimError
       ? "The network does not support resending for this number."
       : "Could not request another SMS yet.";
     return { ok: false, error: message };
@@ -156,7 +186,7 @@ export async function cancelTelegramOtpAction(orderId: string): Promise<OtpActio
         retryable: true,
       };
     }
-    const provider = await cancelProviderTelegramOrder(row.provider_order_id);
+    const provider = await cancelOrder(row.provider_order_id);
     await applyProviderOrder(row.id, provider);
     const refundedBalance = await refund(row, "cancelled", "customer_cancelled");
     return success(
@@ -196,30 +226,24 @@ export async function completeTelegramOtpAction(orderId: string): Promise<OtpAct
 async function provisionReservedOrder(row: TelegramOtpDbOrder): Promise<OtpActionResult> {
   try {
     const provider = row.provider_order_id
-      ? await getProviderTelegramOrder(row.provider_order_id)
-      : await purchaseTelegramNumber({
-          countryCode: row.country_code,
-          clientReference: row.client_reference,
-          idempotencyKey: row.idempotency_key,
-        });
+      ? await checkOrder(row.provider_order_id)
+      : await buyActivation(row.service || DEFAULT_OTP_SERVICE, row.country_code);
     await applyProviderOrder(row.id, provider);
     await refundIfProviderFailed(row, provider.status);
     return success(await requireDbOrder(row.account_id!, row.id), await balance(row.account_id!));
   } catch (error) {
-    let reconciled = null;
-    try {
-      reconciled = await findProviderOrder(row.client_reference);
-    } catch {
-      // Ponechat povodnu chybu. Retry s rovnakym idempotency key je bezpecny.
-    }
-    if (reconciled) {
-      await applyProviderOrder(row.id, reconciled);
-      await refundIfProviderFailed(row, reconciled.status);
-      return success(await requireDbOrder(row.account_id!, row.id), await balance(row.account_id!));
-    }
-
-    if (error instanceof VrnumError && error.isDefinitiveRejection) {
-      await refund(row, "failed", error.code);
+    // POZOR: tu sa ZÁMERNE nič nedohľadáva ani neopakuje.
+    //
+    // Pri VRNUM sa dala objednávka nájsť podľa našej referencie. 5sim pozná len
+    // svoje číselné id, ktoré sa dozvieme až z odpovede — keď odpoveď nedorazí,
+    // NEVIEME, či číslo vzniklo. Zopakovaný nákup by v takom prípade kúpil
+    // druhé číslo a zaplatil ho.
+    //
+    // Klientovi preto vraciame coiny (nedostal nič) a Marekovi ide správa, nech
+    // to na 5sime skontroluje. Radšej raz za čas stratiť desať centov než tie
+    // isté peniaze minúť dvakrát a nevedieť o tom.
+    if (error instanceof FiveSimError) {
+      await refund(row, "failed", error.message.slice(0, 120));
       return {
         ok: false,
         error: "The network rejected this purchase. Your Pipe Coins were returned.",
@@ -242,7 +266,7 @@ async function provisionReservedOrder(row: TelegramOtpDbOrder): Promise<OtpActio
 }
 
 async function refundIfProviderFailed(row: TelegramOtpDbOrder, providerStatus: string): Promise<void> {
-  const mapped = mapProviderStatus(providerStatus, false);
+  const mapped = mapStatus(providerStatus, false);
   if (mapped === "cancelled" || mapped === "failed") {
     await refund(row, mapped, `provider_${mapped}`);
   }
@@ -296,6 +320,6 @@ function numeric(value: unknown): number | null {
 }
 
 function safeError(error: unknown): string {
-  if (error instanceof VrnumError) return `${error.code}:${error.status ?? "network"}`;
+  if (error instanceof FiveSimError) return `5sim:${error.status ?? "network"}`;
   return error instanceof Error ? error.message : "unknown";
 }
