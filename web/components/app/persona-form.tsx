@@ -86,7 +86,12 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
             label="Backstory"
             defaultValue={persona.backstory}
             rows={4}
-            placeholder="Studies design, runs in the mornings, lives alone with a cat."
+            placeholder={
+              "27, moved to LA from a small town two years ago.\n" +
+              "Studies design part time, shoots content the rest of the week.\n" +
+              "Lives alone with a grey cat called Miso. Gym on Mondays and Wednesdays.\n" +
+              "Hates cooking, orders in too often, secretly watches trash reality TV."
+            }
             className="sm:col-span-2"
             help="Job, studies, hobbies, pets — the facts she can talk about without inventing new ones."
           />
@@ -104,7 +109,11 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
             label="Tone"
             defaultValue={persona.tone}
             rows={3}
-            placeholder="playful, a little cheeky, flirty but never vulgar"
+            placeholder={
+              "Playful and a little cheeky. Teases him but never mean.\n" +
+              "Warm when he opens up, dry humour when he jokes.\n" +
+              "Flirty, never vulgar — she leaves things unsaid."
+            }
             help="The mood of her replies."
           />
           <TextAreaField
@@ -112,7 +121,12 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
             label="Message style"
             defaultValue={persona.msg_style}
             rows={3}
-            placeholder="short 1–2 sentence messages, lowercase, an emoji now and then, no full stop at the end"
+            placeholder={
+              "Short messages, one or two sentences. Mostly lowercase.\n" +
+              "No full stop at the end. An emoji every few messages, not every one.\n" +
+              "Sometimes two messages in a row instead of one long one.\n" +
+              "Types like a person on a phone — shortcuts, half sentences."
+            }
             help="Length, punctuation, capitalisation, emoji habits."
           />
           <TextAreaField
@@ -120,7 +134,12 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
             label="What she never does"
             defaultValue={persona.boundaries}
             rows={3}
-            placeholder="never promises to meet up or video call, never mentions other fans"
+            placeholder={
+              "Never promises to meet up, video call or send anything for free.\n" +
+              "Never mentions other fans or that she is talking to anyone else.\n" +
+              "Never sends explicit photos here — those live on her page.\n" +
+              "Never says her real surname or where exactly she lives."
+            }
             help="Hard limits. She phrases them as her own choice, never as “I can't”."
           />
           <TextAreaField
@@ -128,7 +147,10 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
             label="Extra instructions"
             defaultValue={persona.extra_rules}
             rows={3}
-            placeholder="anything else she should keep in mind"
+            placeholder={
+              "Fridays are shoot days, she is slower to answer then.\n" +
+              "She always asks his name in the first few messages."
+            }
             help="Free-form additions to her prompt."
           />
           <TextAreaField
@@ -136,7 +158,14 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
             label="Examples of her writing"
             defaultValue={persona.examples}
             rows={5}
-            placeholder={"heyy sorry just got out of the shower\nlol you're too much\nwhat are u up to tonight"}
+            placeholder={
+              "heyy sorry just got out of the shower 😅\n" +
+              "lol you're too much\n" +
+              "what are u up to tonight\n" +
+              "ugh my day was so long, i just wanna lie down\n" +
+              "wait really?? tell me more\n" +
+              "im not saying no, im just saying not yet 😏"
+            }
             className="sm:col-span-2"
             help="Paste a handful of her real messages, one per line. A sample teaches her voice far better than any list of rules."
           />
@@ -162,7 +191,12 @@ export function PersonaForm({ persona }: { persona: PersonaRow }) {
             label="How she leads to it"
             defaultValue={persona.funnel_rules}
             rows={3}
-            placeholder="chat first and get to know him, mention the platform only when he pushes for more"
+            placeholder={
+              "Talk first, get to know him. No link in the first conversation.\n" +
+              "Bring the page up only when he pushes for more than she gives here.\n" +
+              "When she does, say what he gets there — not just the link.\n" +
+              "Mention it once, then go back to the conversation."
+            }
             help="She never sends the link before the 6th message, and only once the chat is warm."
           />
         </div>
