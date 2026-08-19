@@ -155,6 +155,12 @@ class Config:
     # NAS ElevenLabs kluc pre managed hlasy (behavior.voice_source = "managed").
     # Prazdne = managed hlasy su vypnute a padne sa spat na klientov kluc.
     platform_eleven_key: str = ""
+    # Adresa webu a tajomstvo pre interné volania (`/api/internal/*`). Slúži
+    # výhradne na to, aby si control bot vypýtal faktúru na Pipe Coiny — tú
+    # RAZÍ NÁŠ shop bot, nikdy nie klientov bot, inak by hviezdy pristáli
+    # klientovi a coiny by sme mu pripísali zadarmo.
+    web_api_url: str = ""
+    internal_api_secret: str = ""
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -178,6 +184,8 @@ class Config:
             voice_api_key=os.getenv("VOICE_API_KEY", ""),
             voice_ambience=os.getenv("VOICE_AMBIENCE", ""),
             platform_eleven_key=os.getenv("PLATFORM_ELEVEN_KEY", "").strip(),
+            web_api_url=os.getenv("WEB_API_URL", "https://telepipe.me").strip().rstrip("/"),
+            internal_api_secret=os.getenv("INTERNAL_API_SECRET", "").strip(),
             # 24, nie 12: dvanásť správ je šesť výmen — téma spred desiatich
             # minút už z okna vypadla a vracala sa len cez archívne FTS, keď
             # sadli kľúčové slová. Odmerané na živej prevádzke: priemerný vstup
@@ -266,6 +274,8 @@ class TenantConfig:
     link_min_messages: int = 6
     link_cooldown_hours: int = 48
     link_max_pushes: int = 3
+    web_api_url: str = ""
+    internal_api_secret: str = ""
 
     @classmethod
     def from_row(cls, row: dict, g: Config) -> "TenantConfig":
@@ -336,6 +346,8 @@ class TenantConfig:
             voice_api_url=g.voice_api_url,
             voice_api_key=g.voice_api_key,
             voice_ambience=g.voice_ambience,
+            web_api_url=g.web_api_url,
+            internal_api_secret=g.internal_api_secret,
             context_messages=g.context_messages,
             summary_every=g.summary_every,
             # Kontaktový filter je PER MODELKA (migrácia 023b), nie per replika.

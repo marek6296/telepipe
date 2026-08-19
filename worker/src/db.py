@@ -320,6 +320,9 @@ class TenantDb:
         # Prázdne `account_id` = cache mlčí a platí per-model kľúč. Staré
         # volania (testy) tak fungujú presne ako pred 017.
         self._account_key = AccountKeyCache(transport, account_id)
+        # Účet, pod ktorý modelka patrí. Coiny sú spoločné pre všetky modelky
+        # jedného klienta, takže zostatok sa číta odtiaľto, nie z modelky.
+        self._account_id = account_id or ""
         self._schedule = ScheduleCache(transport, model_id)
 
     @property
@@ -341,6 +344,32 @@ class TenantDb:
 
     async def _post(self, path: str, body: Any, upsert: bool = False) -> List[Dict[str, Any]]:
         return await self._t._post(path, body, upsert=upsert)
+
+    # ---------- účet ----------
+
+    async def account_balance_usd(self) -> float:
+        """Zostatok kreditu účtu v dolároch. Pri chybe vracia 0.
+
+        Používa to control bot pri dobíjaní — je to informácia pre klienta, nie
+        podklad na účtovanie, takže výpadok tu nesmie nič zhodiť. Skutočná
+        kreditová brána je `credits.py` a tá si zostatok číta sama.
+        """
+        if not self._account_id:
+            return 0.0
+        try:
+            rows = await self._get(
+                ACCOUNTS,
+                {"id": f"eq.{self._account_id}", "select": "credit_balance_usd"},
+            )
+        except Exception:  # noqa: BLE001
+            log.exception("zostatok účtu sa nepodarilo načítať")
+            return 0.0
+        if not rows:
+            return 0.0
+        try:
+            return float(rows[0].get("credit_balance_usd") or 0)
+        except (TypeError, ValueError):
+            return 0.0
 
     # ---------- persona ----------
 

@@ -179,3 +179,15 @@ export const OTP_ATTEMPTS_INCLUDED = 1;
 
 // Feature flagy žijú v `lib/flags.ts` (client-safe) — tu ich len reexportujeme
 export { googleAuthEnabled } from "@/lib/flags";
+
+/**
+ * Tajomstvo pre interné volania z workera (`/api/internal/*`).
+ *
+ * Na rozdiel od ostatných voliteľných integrácií tu NIE JE fallback na „vypnuté
+ * ale prejde". Endpoint, ktorý razí platobné odkazy viazané na konkrétny účet,
+ * musí pri chýbajúcom tajomstve odmietať VŠETKO — inak by stačilo zabudnúť env
+ * premennú a ktokoľvek by si vypýtal faktúru na cudzí účet.
+ */
+export function internalApiSecret(): string {
+  return process.env.INTERNAL_API_SECRET ?? "";
+}

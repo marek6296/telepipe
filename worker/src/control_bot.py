@@ -35,6 +35,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from telethon import Button, TelegramClient, events
 
 import behavior as bhv
+import coiny
 from behavior import Behavior
 from config import TenantConfig as Config
 from db import TenantDb as Db
@@ -415,6 +416,13 @@ class ControlBot:
             await self._db.set_paused(not paused)
             await event.answer("AI on" if paused else "AI off")
             await self._send_main(event, edit=True)
+        elif head == "tu":
+            # Dobitie Pipe Coinov. `arg` prázdny = ponuka balíkov, inak počet
+            # hviezd vybraného balíka.
+            if arg:
+                await self._send_topup_invoice(event, arg)
+            else:
+                await self._send_topup(event, edit=True)
         elif head == "pm":
             await self._send_persona(event, edit=True)
         elif head == "p":
@@ -1071,7 +1079,7 @@ class ControlBot:
             [Button.inline("▶️ Turn AI on" if paused else "⏸ Turn AI off", b"pz")],
             [Button.inline("👤 Persona", b"pm"), Button.inline("🎭 Behaviour", b"bm")],
             [Button.inline("⏰ Times", b"tm"), Button.inline("📊 Stats", b"st")],
-            [Button.inline("💬 Conversations", b"cv")],
+            [Button.inline("💬 Conversations", b"cv"), Button.inline("💰 Top up", b"tu")],
             [
                 Button.inline(
                     "🧹 Wipe my test chat",
@@ -1080,6 +1088,67 @@ class ControlBot:
             ],
         ]
         await self._render(event, text, buttons, edit)
+
+    # ---------- dobitie Pipe Coinov ----------
+
+    async def _send_topup(self, event, edit: bool = False) -> None:
+        """Ponuka balíkov.
+
+        Zostatok sa číta z účtu, nie z modelky — coiny sú spoločné pre všetky
+        modelky jedného klienta.
+        """
+        zostatok = await self._db.account_balance_usd()
+        text = (
+            "*Top up Pipe Coins*\n\n"
+            f"{coiny.popis(zostatok * 1000)}\n\n"
+            "Paid with Telegram Stars. Coins land on your account the moment "
+            "the payment goes through and work for every model you have.\n\n"
+            "_Crypto on the website is cheaper — the app stores take a cut here._"
+        )
+        buttons = [
+            [Button.inline(f"⭐ {stars:,}".replace(",", " "), f"tu:{stars}".encode())]
+            for stars in coiny.tlacidla_balikov()
+        ]
+        buttons.append([Button.inline("« Back", b"m")])
+        await self._render(event, text, buttons, edit)
+
+    async def _send_topup_invoice(self, event, arg: str) -> None:
+        """Vypýta faktúru od webu a pošle ju ako odkaz.
+
+        Faktúru razí NÁŠ shop bot — viď `coiny.py`. Tento bot je klientov a keby
+        ju vystavil on, hviezdy by pristáli jemu.
+        """
+        try:
+            stars = int(arg)
+        except ValueError:
+            await event.answer("Unknown pack", alert=True)
+            return
+
+        await event.answer("Preparing…")
+        data = await coiny.faktura(self._cfg, stars)
+        if not data:
+            # Nezhadzujeme menu ani nestrašíme — klient má vždy funkčnú náhradu.
+            await self._render(
+                event,
+                "*Top up Pipe Coins*\n\n"
+                "Could not open the payment right now. Top up on the website "
+                "instead — it also has the cheaper crypto option.",
+                [[Button.inline("« Back", b"tu")]],
+                True,
+            )
+            return
+
+        coins = data["coins"]
+        text = (
+            f"*{coins:,}".replace(",", " ") + " Pipe Coins*\n\n"
+            f"Tap below to pay {data['stars']:,} ⭐ in Telegram.".replace(",", " ")
+            + "\n\nCoins are added the moment the payment goes through."
+        )
+        buttons = [
+            [Button.url(f"Pay {data['stars']:,} ⭐".replace(",", " "), data["url"])],
+            [Button.inline("« Back", b"tu")],
+        ]
+        await self._render(event, text, buttons, True)
 
     async def _send_persona(self, event, edit: bool = False) -> None:
         persona = await self._db.get_persona()

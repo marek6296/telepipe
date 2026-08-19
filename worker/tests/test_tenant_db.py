@@ -62,7 +62,10 @@ async def test_two_tenants_never_share_transport_state():
 SINCE = "2026-01-01T00:00:00+00:00"
 
 # metóda -> (args, kwargs)
+ACCOUNT = "9c0ffee0-0000-4000-8000-000000000001"
+
 CALLS = {
+    "account_balance_usd": ((), {}),
     "get_persona": ((), {}),
     "set_persona_field": (("name", "Eva"), {}),
     "get_behavior": ((), {}),
@@ -153,6 +156,15 @@ def _assert_scoped(call, method_name):
     url, verb, body = call["url"], call["method"], call["body"]
     where = f"{method_name} -> {verb} {url} body={body}"
 
+    if "/accounts" in url:
+        # Zostatok kreditu patrí ÚČTU, nie modelke — coiny sú spoločné pre
+        # všetky modelky jedného klienta, takže filtrovať podľa `model_id` sa
+        # tu ani nedá. Zato musí byť scoped na account_id, inak by control bot
+        # jednej modelky ukázal zostatok cudzieho klienta.
+        assert "id=eq." in url, where
+        assert verb == "GET", where
+        return
+
     if "/managed_voices" in url:
         # Globálny číselník NAŠICH hlasov — nie sú v ňom tenantské dáta a
         # filtruje sa podľa id hlasu, nie podľa modelky.
@@ -203,7 +215,9 @@ async def test_all_table_methods_scoped(name, monkeypatch):
     _stub_helper_modules(monkeypatch)
     args, kwargs = CALLS[name]
     seen = []
-    db = TenantDb(_capture(seen), MODEL)
+    # `account_id` je tu zámerne: `account_balance_usd` bez neho korektne mlčí
+    # (vracia 0 a nič nevolá), takže by test nemal čo overiť.
+    db = TenantDb(_capture(seen), MODEL, account_id=ACCOUNT)
 
     await getattr(db, name)(*args, **kwargs)
 
