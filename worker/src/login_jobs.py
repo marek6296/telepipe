@@ -133,6 +133,12 @@ async def _finish(transport, key: str, job: Dict[str, Any], client, api_hash: st
         # na úrovni session) — šifrovaný je len v jobe, kým ide cez klientský zápis.
         "tg_api_hash": api_hash,
         "updated_at": _now().isoformat(),
+        # Odtiaľto sa počíta rozbeh stropov. Čerstvé číslo jazdí prvý deň na
+        # štvrtine, do týždňa sa dostane na plný výkon — pre Telegram je nový
+        # účet na plnom strope oveľa podozrivejší než zabehnutý s tým istým
+        # objemom. Zapisuje sa pri KAŽDOM prihlásení: po výmene čísla alebo
+        # po odvolanej session ide účet na Telegrame znova ako nový.
+        "tg_connected_at": _now().isoformat(),
     }
     api_id = job.get("api_id")
     if api_id and int(api_id) != (row.get("tg_api_id") or 0):

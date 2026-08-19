@@ -231,6 +231,7 @@ class TenantConfig:
     # Telegram — kontrolný bot
     control_bot_token: str
     owner_chat_id: int
+    tg_connected_at: str = ""
     owner_as_client: bool = False
 
     # Účty, ktorým sa odpovedá výhradne hlasovkou — na testovanie hlasu.
@@ -315,6 +316,10 @@ class TenantConfig:
             # nula nie je) a `notify()` ju len zaloguje.
             owner_chat_id=int(row.get("owner_chat_id") or 0),
             owner_as_client=bool(row.get("owner_as_client") or False),
+            # Kedy sa Telegram účet pripojil — riadi rozbehovú krivku stropov.
+            # Prázdne = neznáme, a vtedy sa berie ako dávno zabehnutý: brzdiť
+            # účet len preto, že mu chýba stĺpec, by bolo horšie než nebrzdiť.
+            tg_connected_at=str(row.get("tg_connected_at") or ""),
             voice_only_ids=frozenset(row.get("voice_only_ids") or ()),
             # Seed pre denný rozvrh/aktivitu + prefix storage ciest (viď
             # komentár pri poli vyššie) — NIE názov DB schémy.

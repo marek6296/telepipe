@@ -1257,6 +1257,58 @@ class TestDennyStrop:
         assert poslane, "0 = strop vypnutý (rovnako ako pri ostatných stropoch)"
 
 
+class TestRozbehNovehoUctu:
+    """Deň staré číslo na plnom strope je pre Telegram podozrivejšie než ten
+    istý objem na účte, ktorý beží mesiace. Doteraz sa nerozlišovalo vôbec."""
+
+    def test_krivka(self):
+        import limity
+
+        assert limity.rozbeh_podiel(1) == 0.25, "prvý deň štvrtina"
+        assert limity.rozbeh_podiel(48) == 0.50, "do troch dní polovica"
+        assert limity.rozbeh_podiel(100) == 0.75, "do týždňa tri štvrtiny"
+        assert limity.rozbeh_podiel(300) == 1.0, "po týždni plný strop"
+        assert limity.rozbeh_podiel(None) == 1.0, "neznámy vek = nebrzdi"
+
+    def test_vypnuty_strop_ostava_vypnuty(self):
+        import limity
+
+        assert limity.s_rozbehom(0, 0.25) == 0, \
+            "0 = bez limitu, rozbeh z toho nesmie spraviť limit"
+
+    def test_rozbeh_nikdy_neumlci(self):
+        import limity
+
+        # Štvrtina z troch je nula, a nula dnes znamená „bez limitu" — čiže by
+        # rozbeh spôsobil pravý opak toho, čo má.
+        assert limity.s_rozbehom(3, 0.25) == 1
+
+    def test_cerstvy_ucet_ma_nizsi_strop(self):
+        bot, db, _llm, client, _notes = build(
+            user_row(msg_count=10),
+            [{"role": "user", "content": "hey"}],
+            "hey you",
+            behavior={"active_start_min": 0, "active_end_min": 0,
+                      "max_replies_per_hour": 4},
+        )
+        # Účet pripojený pred hodinou → štvrtina zo 4 = 1 odpoveď za hodinu.
+        object.__setattr__(
+            bot._cfg, "tg_connected_at",
+            (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
+        )
+        bot._reply_times.append(datetime.now(timezone.utc))
+
+        poslane = []
+
+        async def zapis(tg_id, text):
+            poslane.append(text)
+
+        client.send_message = zapis
+        asyncio.run(bot.reply_to(555))
+        assert poslane == [], "čerstvý účet má jazdiť na zlomku stropu"
+        assert db.users[555]["pending_reply"] is True
+
+
 class TestNulaZnamenaVsadeToIste:
     """Nula bola pri jednom strope „bez limitu" a pri druhom „ticho navždy".
 

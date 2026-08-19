@@ -140,6 +140,46 @@ HLASIT_NAD_S = 300
 FLOOD_VAROVANIE_ZA_HODINU = 3
 
 
+# ---------- rozbeh nového účtu ----------
+
+# Čerstvý účet s novým číslom, ktorý od prvej sekundy píše na plný strop, je pre
+# Telegram oveľa podozrivejší než ten istý objem na účte starom rok. Doteraz sa
+# nerozlišovalo vôbec.
+#
+# Krivka je zámerne hrubá — ide o rád veličiny, nie o presnosť. Prvý deň štvrtina,
+# do troch dní polovica, do týždňa tri štvrtiny, potom plný strop.
+_ROZBEH = (
+    (24, 0.25),    # prvý deň
+    (72, 0.50),    # do troch dní
+    (168, 0.75),   # do týždňa
+)
+
+
+def rozbeh_podiel(hodin_od_pripojenia: Optional[float]) -> float:
+    """Akú časť stropov smie čerstvý účet využiť. 1.0 = plný strop.
+
+    `None` (neznámy čas pripojenia) = plný strop. Brzdiť účet len preto, že
+    nevieme, kedy vznikol, by bolo horšie než nebrzdiť.
+    """
+    if hodin_od_pripojenia is None or hodin_od_pripojenia < 0:
+        return 1.0
+    for hranica, podiel in _ROZBEH:
+        if hodin_od_pripojenia < hranica:
+            return podiel
+    return 1.0
+
+
+def s_rozbehom(strop: int, podiel: float) -> int:
+    """Strop zmenšený rozbehom. Vypnutý strop (0) ostáva vypnutý.
+
+    Nikdy nespadne na nulu: štvrtina z troch je nula, a nulový strop dnes
+    znamená „bez limitu" — čiže by rozbeh spôsobil pravý opak toho, čo má.
+    """
+    if strop <= 0:
+        return strop
+    return max(int(strop * podiel), 1)
+
+
 # Triedy sa berú priamo z Telethonu, nie podľa názvu. Porovnávanie mien by
 # ticho minulo podtriedu aj premenovanie — a chyba, ktorá sa takto stratí,
 # skončí opakovaným pokusom, čiže presne tým, čo nemá nastať.

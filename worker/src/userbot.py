@@ -470,11 +470,18 @@ class UserBot:
             log.warning("Odkladám %s: Telegram si vypýtal pauzu", tg_id)
             await self._db.update_user(tg_id, {"pending_reply": True})
             return
-        if not testing and not semi and not await self._rate_ok(behavior.max_replies_per_hour):
-            log.warning("Odkladám %s: hodinový strop odpovedí", tg_id)
+        # Rozbeh: čerstvé Telegram číslo jazdí na zlomku stropov. Pre Telegram
+        # je deň starý účet na plnom výkone oveľa podozrivejší než ten istý
+        # objem na účte, ktorý beží mesiace.
+        podiel = self._rozbeh()
+        if not testing and not semi and not await self._rate_ok(
+            limity.s_rozbehom(behavior.max_replies_per_hour, podiel)
+        ):
+            log.warning("Odkladám %s: hodinový strop odpovedí (rozbeh %.0f %%)",
+                        tg_id, podiel * 100)
             await self._db.update_user(tg_id, {"pending_reply": True})
             return
-        if not testing and not semi and not await self._denny_strop_ok(behavior):
+        if not testing and not semi and not await self._denny_strop_ok(behavior, podiel):
             log.warning("Odkladám %s: denný strop správ", tg_id)
             await self._db.update_user(tg_id, {"pending_reply": True})
             return
@@ -2094,7 +2101,15 @@ class UserBot:
     async def _rate_ok(self, max_per_hour: int) -> bool:
         return await self._rate_left(max_per_hour) > 0
 
-    async def _denny_strop_ok(self, behavior: Behavior) -> bool:
+    def _rozbeh(self) -> float:
+        """Akú časť stropov smie tento účet dnes využiť (rozbeh nového čísla)."""
+        pripojene = _parse_ts(self._cfg.tg_connected_at or None)
+        if pripojene is None:
+            return 1.0
+        hodin = (datetime.now(timezone.utc) - pripojene).total_seconds() / 3600
+        return limity.rozbeh_podiel(hodin)
+
+    async def _denny_strop_ok(self, behavior: Behavior, podiel: float = 1.0) -> bool:
         """Zmestí sa ešte dnes ďalšia správa?
 
         Hodinový strop sám nestačí: pri 40/hod a 14-hodinovom okne prejde za deň
@@ -2104,7 +2119,8 @@ class UserBot:
         Počítajú sa ODOSLANÉ SPRÁVY, nie odpovede — jedna odpoveď sa delí až na
         tri bubliny a Telegram vidí každú zvlášť.
         """
-        if behavior.max_messages_per_day <= 0:
+        strop = limity.s_rozbehom(behavior.max_messages_per_day, podiel)
+        if strop <= 0:
             return True  # 0 = strop vypnutý
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         try:
@@ -2113,11 +2129,8 @@ class UserBot:
             log.warning("Denný strop sa nedá overiť (%s) — brzdím", exc)
             await self._varuj_o_slepote(exc)
             return False
-        if odoslanych >= behavior.max_messages_per_day:
-            log.warning(
-                "Denný strop vyčerpaný: %s/%s správ za 24 h",
-                odoslanych, behavior.max_messages_per_day,
-            )
+        if odoslanych >= strop:
+            log.warning("Denný strop vyčerpaný: %s/%s správ za 24 h", odoslanych, strop)
             return False
         return True
 
@@ -2260,10 +2273,13 @@ class UserBot:
         if oslovenych_dnes is None:
             log.warning("Pozdrav na druhý deň preskočený: nemám denné čísla")
             return
-        if not limity.smie_oslovit(0, oslovenych_dnes, behavior.max_new_people_per_day):
+        denny_strop_ludi = limity.s_rozbehom(
+            behavior.max_new_people_per_day, self._rozbeh()
+        )
+        if not limity.smie_oslovit(0, oslovenych_dnes, denny_strop_ludi):
             log.info(
                 "Pozdrav na druhý deň: denný strop %s nových ľudí je vyčerpaný",
-                behavior.max_new_people_per_day,
+                denny_strop_ludi,
             )
             return
 
@@ -2497,8 +2513,12 @@ class Reconciler:
 
     async def run(self) -> Dict[str, int]:
         stats = {"dialogov": 0, "dotiahnutych": 0, "na_odpoved": 0, "prestarnutych": 0}
+        # Čerstvý účet nemá čo dobiehať — históriu nemá. Sťahovať mu hneď po
+        # pripojení šesťdesiat dialógov je zbytočný náraz na API práve vtedy,
+        # keď je účet najzraniteľnejší.
+        limit = max(int(RECONCILE_DIALOGS * self._bot._rozbeh()), 10)
         try:
-            async for dialog in self._client.iter_dialogs(limit=RECONCILE_DIALOGS):
+            async for dialog in self._client.iter_dialogs(limit=limit):
                 entity = dialog.entity
                 if not isinstance(entity, User) or entity.bot or entity.is_self:
                     continue
