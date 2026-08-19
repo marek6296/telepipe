@@ -6,6 +6,7 @@ import { isUnlocked } from "@/lib/access";
 import { isAdminRole } from "@/lib/admin-ui";
 import { toNumber } from "@/lib/format";
 import { getAccount, listModels } from "@/lib/models";
+import { unreadNotificationCount } from "@/lib/notifications";
 import { getUser } from "@/lib/supabase/server";
 
 export const metadata: Metadata = {
@@ -25,7 +26,12 @@ export const metadata: Metadata = {
 export default async function AppLayout({ children }: LayoutProps<"/app">) {
   // Auth, účet aj sidebar sú od seba nezávislé a RLS chráni oba dátové dotazy.
   // Spustíme ich naraz, aby layout nevytváral sekvenčný waterfall.
-  const [user, account, models] = await Promise.all([getUser(), getAccount(), listModels()]);
+  const [user, account, models, unread] = await Promise.all([
+    getUser(),
+    getAccount(),
+    listModels(),
+    unreadNotificationCount(),
+  ]);
   if (!user) redirect("/login");
 
   // Zamknutý účet nemá v `/app` čo hľadať. Skutočný zámok je v RLS — toto je
@@ -37,6 +43,7 @@ export default async function AppLayout({ children }: LayoutProps<"/app">) {
       email={account?.email ?? user.email ?? "your account"}
       creditBalance={toNumber(account?.credit_balance_usd)}
       isAdmin={isAdminRole(account?.role)}
+      unreadNotifications={unread}
       models={models.map((model) => ({
         id: model.id,
         name: model.name,

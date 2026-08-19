@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { LiveUnlock } from "@/components/app/live-unlock";
 import { RequestAccessForm } from "@/components/app/request-access-form";
 import { isUnlocked } from "@/lib/access";
 import { getAccount } from "@/lib/models";
@@ -31,6 +32,8 @@ export default async function LockedPage() {
 
   return (
     <div className="app-panel p-7">
+      {/* Keď Marek schváli, stránka sa prepne sama — bez refreshu. */}
+      <LiveUnlock />
       <p className="text-[11px] tracking-[0.14em] text-[var(--app-text-4)] uppercase">
         TelePipe
       </p>

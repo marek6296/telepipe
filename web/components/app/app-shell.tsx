@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 
 import { signOutAction } from "@/app/(auth)/actions";
+import { NotificationBell } from "@/components/app/notification-bell";
 import { useBackgroundPrefetch } from "@/components/app/use-background-prefetch";
 import { coins } from "@/lib/coins";
 import { asStatus, STATUS_DOT } from "@/lib/status";
@@ -109,6 +110,7 @@ export function AppShell({
   models,
   creditBalance,
   isAdmin = false,
+  unreadNotifications = 0,
   children,
 }: {
   email: string;
@@ -116,6 +118,8 @@ export function AppShell({
   creditBalance: number;
   /** Rozhodnuté v serverovom layoute z `accounts.role` — klient sa nepýta. */
   isAdmin?: boolean;
+  /** Zo servera, aby bodka na zvončeku svietila hneď a neblikla až po dotaze. */
+  unreadNotifications?: number;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -229,14 +233,18 @@ export function AppShell({
             <p className="app-group-label hidden sm:block">Workspace</p>
           </div>
 
-          {/* Klik na zostatok = kúpiť coiny — presne to človek s nízkym zostatkom hľadá. */}
-          <Link
-            href="/app/billing"
-            className="flex shrink-0 items-center gap-2 rounded-md border border-[var(--app-border)] px-2.5 py-1.5 text-[12px] text-[var(--app-text-2)] transition-colors hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"
-          >
-            <span className="tabular-nums">{coins(creditBalance)}</span>
-            <span className="hidden text-[var(--app-text-4)] sm:inline">Pipe Coins</span>
-          </Link>
+          <div className="flex shrink-0 items-center gap-1.5">
+            <NotificationBell initialUnread={unreadNotifications} />
+
+            {/* Klik na zostatok = kúpiť coiny — presne to človek s nízkym zostatkom hľadá. */}
+            <Link
+              href="/app/billing"
+              className="flex shrink-0 items-center gap-2 rounded-md border border-[var(--app-border)] px-2.5 py-1.5 text-[12px] text-[var(--app-text-2)] transition-colors hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"
+            >
+              <span className="tabular-nums">{coins(creditBalance)}</span>
+              <span className="hidden text-[var(--app-text-4)] sm:inline">Pipe Coins</span>
+            </Link>
+          </div>
         </header>
 
         <main className="relative flex-1 px-4 pb-16 pt-8 sm:px-6 lg:px-8">
