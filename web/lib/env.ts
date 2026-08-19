@@ -145,17 +145,21 @@ export function fiveSimConfigured(): boolean {
 }
 
 /**
- * Násobok ceny voči nákupke. Default 5 a je to zámerne viac než pri VRNUM (1,5).
+ * Násobok ceny voči nákupke. Default 4 a je zámerne vyšší než pri VRNUM (1,5),
+ * lebo v cene sú **tri pokusy**: keď na prvé číslo SMS nepríde, klient dostane
+ * druhé a tretie bez doplatku.
  *
- * Dôvod nie je chamtivosť, ale to, že v cene sú **tri pokusy**: keď na prvé
- * číslo SMS nepríde, klient dostane druhé a tretie zadarmo. V najhoršom prípade
- * teda míňame 3× nákupku pri tržbe 5× — stále v pluse, aj keby 5sim nevrátil
- * ani cent. Znižovať tento násobok bez zníženia počtu pokusov znamená predávať
- * so stratou v chvoste.
+ * PREČO PRÁVE 4 (merané na celom katalógu, 108 porovnateľných krajín):
+ *   ×3   → lacnejšie všade, ale v najhoršom prípade sme na NULE
+ *   ×4   → lacnejšie v 93/108 krajín, najhorší prípad stále v pluse
+ *   ×5   → lacnejšie len v 66/108 — tretina krajín by u nás ZDRAŽELA
+ *
+ * Spodná hranica 3 je tvrdá: pod ňou by tri pokusy stáli viac, než koľko
+ * klient zaplatil, a chvost objednávok by sa predával so stratou.
  */
 export function fiveSimPriceMultiplier(): number {
-  const value = Number(process.env.FIVESIM_PRICE_MULTIPLIER ?? "5");
-  return Number.isFinite(value) ? Math.max(value, 2) : 5;
+  const value = Number(process.env.FIVESIM_PRICE_MULTIPLIER ?? "4");
+  return Number.isFinite(value) ? Math.max(value, 3) : 4;
 }
 
 /** Koľko čísel dostane klient za jednu platbu, kým sa vzdáme. */
