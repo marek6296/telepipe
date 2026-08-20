@@ -179,6 +179,21 @@ export async function cancelTelegramOtpAction(orderId: string): Promise<OtpActio
   try {
     const row = await requireDbOrder(account, orderId);
     if (row.refunded_at) return success(row, await balance(account));
+
+    // Kód dorazil = tovar bol doručený. Refund by znamenal číslo zadarmo:
+    // klient si kód opíše, zaregistruje sa a potom klikne Cancel. Skutočná
+    // hranica je v RPC `refund_telegram_otp_purchase` (tá je jediná, ktorú sa
+    // nedá obísť); toto je len to, aby človek dostal vetu namiesto chyby
+    // z databázy.
+    if (row.otp_code || row.code_received_at) {
+      return {
+        ok: false,
+        error:
+          "The SMS code already arrived, so this number cannot be refunded. " +
+          "Finish the activation instead.",
+      };
+    }
+
     if (!row.provider_order_id) {
       return {
         ok: false,

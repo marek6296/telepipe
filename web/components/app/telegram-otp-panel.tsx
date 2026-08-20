@@ -533,14 +533,25 @@ function ActiveOrder({
             <Check className="h-3.5 w-3.5" /> Done
           </button>
         )}
-        <button
-          type="button"
-          disabled={busy || !order.phoneNumber}
-          onClick={onCancel}
-          className="app-btn app-btn-ghost ml-auto h-8 px-3 text-[#fca5a5] disabled:opacity-40"
-        >
-          Cancel & refund
-        </button>
+        {/* Keď kód dorazil, refund už nie je na stole — tovar bol doručený.
+            Nechať to tlačidlo svietiť znamená ponúkať číslo zadarmo: kód si
+            človek opíše, zaregistruje sa a potom klikne Cancel. Skutočná
+            hranica je v RPC `refund_telegram_otp_purchase`; toto je len to,
+            aby tá možnosť ani nevyzerala ako ponuka. */}
+        {order.otpCode ? (
+          <span className="ml-auto text-[11.5px] text-[var(--app-text-4)]">
+            Code delivered — no refund
+          </span>
+        ) : (
+          <button
+            type="button"
+            disabled={busy || !order.phoneNumber}
+            onClick={onCancel}
+            className="app-btn app-btn-ghost ml-auto h-8 px-3 text-[#fca5a5] disabled:opacity-40"
+          >
+            Cancel &amp; refund
+          </button>
+        )}
       </div>
     </Card>
   );
