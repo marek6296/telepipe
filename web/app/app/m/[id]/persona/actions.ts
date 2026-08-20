@@ -61,6 +61,17 @@ export async function savePersonaAction(
       update.lang_extra = normalizeExtra(value, primary);
       continue;
     }
+    // Platforma mení LEN to, ako stránku pomenuje. Whitelist je tu preto, aby
+    // sa do stĺpca nedostala hodnota, ktorú prompt nevie preložiť na názov —
+    // vtedy by o stránke mlčala, hoci klient si myslí, že ju menuje.
+    if (key === "platform") {
+      const platform = String(value);
+      if (!["fanvue", "onlyfans", "other"].includes(platform)) {
+        return { error: "Unknown platform." };
+      }
+      update.platform = platform;
+      continue;
+    }
     if (key === "age") {
       if (value === null || value === "") {
         update.age = null;

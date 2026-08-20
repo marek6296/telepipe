@@ -4,7 +4,12 @@ import { Quote } from "lucide-react";
 
 import { savePersonaAction } from "@/app/app/m/[id]/persona/actions";
 import { AutoSaveForm } from "@/components/app/forms/auto-save";
-import { NumberField, TextAreaField, TextField } from "@/components/app/forms/fields";
+import {
+  NumberField,
+  SelectField,
+  TextAreaField,
+  TextField,
+} from "@/components/app/forms/fields";
 import { LanguagePicker } from "@/components/app/forms/language-picker";
 import { normalizeExtra, normalizePrimary } from "@/lib/languages";
 import { Card, CardHeader } from "@/components/app/ui";
@@ -26,6 +31,8 @@ export type PersonaRow = {
   boundaries: string;
   funnel_rules: string;
   cta_link: string;
+  /** Kam ťahá ľudí: fanvue | onlyfans | other. */
+  platform: string;
   extra_rules: string;
   examples: string;
 };
@@ -198,13 +205,34 @@ export function PersonaForm({
           description="How a conversation turns into a subscriber."
         />
         <div className="grid gap-5 p-5 sm:grid-cols-2">
+          {/* Platforma je PRVÁ: rozhoduje, ako svoju stránku pomenuje, keď sa
+              jej na ňu spýtajú. Na to, KEDY a AKO odkaz ponúkne, nemá vplyv —
+              tá logika je platformovo neutrálna. */}
+          <SelectField
+            name="platform"
+            label="Where you send them"
+            defaultValue={persona.platform || "fanvue"}
+            options={[
+              { value: "fanvue", label: "Fanvue" },
+              { value: "onlyfans", label: "OnlyFans" },
+              { value: "other", label: "Somewhere else (do not name it)" },
+            ]}
+            help="Only changes what she calls your page when a fan asks. When she is on one, she says she is not on the other instead of inventing an account."
+          />
           <TextField
             name="cta_link"
             label="Your link"
             defaultValue={persona.cta_link}
-            placeholder="https://fanvue.com/yourprofile"
+            // Placeholder sedí na ULOŽENÚ platformu, nie na práve zvolenú:
+            // `SelectField` s `onChange` sa neukladá, takže živý placeholder by
+            // rozbil auto-save. Nápoveda preto hovorí jednoznačne, čo sem patrí.
+            placeholder={
+              persona.platform === "onlyfans"
+                ? "https://onlyfans.com/yourprofile"
+                : "https://fanvue.com/yourprofile"
+            }
             type="url"
-            help="Leave this empty and she never sends a link at all. Hard limits still apply: never before the 6th message, at most once per fan every 48 hours, and never more than the “Links per hour” cap you set on the Behavior tab."
+            help="Paste the link to the page you picked above. Leave this empty and she never sends a link at all. Hard limits still apply: never before the 6th message, at most once per fan every 48 hours, and never more than the “Links per hour” cap you set on the Behavior tab."
           />
           {!easy && (
           <TextAreaField

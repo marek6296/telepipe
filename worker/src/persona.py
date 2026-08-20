@@ -11,6 +11,26 @@ import jazyky
 import topics as topics_mod
 from behavior import Behavior
 
+# Kam ťahá ľudí. Kľúč -> ako sa platforma volá v jej reči.
+#
+# Ovplyvňuje LEN pomenovanie. Celá logika funnelu je platformovo neutrálna a
+# bola taká od začiatku: prompt hovorí „tvoja stránka" a `funnel.py` rozpoznáva
+# `fanvue` aj `onlyfans` rovnako. Preto prepnutie nemôže rozbiť odpisovanie —
+# pribudne jedna veta o tom, ako sa to miesto volá.
+PLATFORMY = {
+    "fanvue": "Fanvue",
+    "onlyfans": "OnlyFans",
+    # „other" = klient má stránku inde a nechce ju menovať. Vtedy ostáva
+    # pôvodné správanie: hovorí o nej ako o „mojej stránke".
+    "other": "",
+}
+
+
+def nazov_platformy(persona: Dict[str, Any]) -> str:
+    """Ako sa jej stránka volá. Prázdne = nemenovať."""
+    return PLATFORMY.get(str(persona.get("platform") or "fanvue"), "")
+
+
 PERSONA_FIELDS = (
     "name",
     "age",
@@ -620,6 +640,19 @@ def build_system_prompt(
     sections.append(
         jazyky.blok_znalosti(persona, (persona.get("languages") or "").strip())
     )
+
+    # Ako sa jej stránka volá. Bez toho na otázku „máš OnlyFans?" odpovie, čo
+    # ju napadne — a raz povie áno, inokedy nie. Funnel sa tým NEMENÍ: kedy a
+    # ako odkaz ponúkne, rieši `_ESCALATION` a je to rovnaké pre obe platformy.
+    platforma = nazov_platformy(persona)
+    if platforma:
+        sections.append(
+            "AKO SA VOLÁ TVOJA STRÁNKA\n"
+            f"Tvoja stránka je na {platforma}. Keď sa ťa spýta, kde ťa nájde "
+            f"alebo či máš niečo, povedz {platforma} — nie inú platformu.\n"
+            f"Keď sa spýta na inú stránku (napr. tú konkurenčnú), povedz, že si "
+            f"len na {platforma}. Nevymýšľaj si účty, ktoré nemáš."
+        )
 
     # `humanize.looks_foreign` vie povedať len „toto nie je angličtina" — má
     # anglické markery a nič iné. Pre modelku s iným hlavným jazykom by skákalo
