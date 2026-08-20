@@ -82,7 +82,6 @@ function CinematicScene() {
       const introTrack = q("[data-intro-track]")!;
       const introDays = q("[data-intro-days]")!;
       const introSub = q("[data-intro-sub]")!;
-      const scrollHint = q("[data-scroll-hint]")!;
       const halo = q("[data-halo]")!;
       const card = q("[data-card]")!;
       const cardInner = q("[data-card-inner]")!;
@@ -152,7 +151,6 @@ function CinematicScene() {
       });
       gsap.set(introDays, { autoAlpha: 1, clipPath: "inset(0 100% 0 0)" });
       gsap.set(introSub, { autoAlpha: 0, y: 22, filter: "blur(10px)" });
-      gsap.set(scrollHint, { autoAlpha: 0, y: 12 });
 
       const introTl = gsap.timeline({ delay: 0.3 });
 
@@ -183,12 +181,7 @@ function CinematicScene() {
           { opacity: 1, y: 0, duration: 0.7, stagger: 0.09, ease: "power2.out" },
           1.95,
         )
-        .set(navGroups, { pointerEvents: "auto" })
-        .to(
-          scrollHint,
-          { autoAlpha: 1, y: 0, duration: 0.7, ease: "power2.out" },
-          2.35,
-        );
+        .set(navGroups, { pointerEvents: "auto" });
 
       /* --- Pinnutá scroll scéna (scrub) ------------------------------------
          Tempo: každý beat dostane scroll úmerný tomu, koľko sa v ňom vizuálne
@@ -292,7 +285,6 @@ function CinematicScene() {
           },
           0,
         )
-        .to(scrollHint, { opacity: 0, duration: 0.3, immediateRender: false }, 0)
         .to(halo, { scale: 1.3, opacity: 0.8, duration: 2.2 }, 0)
 
         /* Beat 2 — karta priletí zdola (0.55 → 2.05) */
@@ -463,16 +455,6 @@ function CinematicScene() {
             as a persona you create. It writes in her voice and sends AI voice
             notes and your photos, around the clock.
           </p>
-
-          <div
-            data-scroll-hint
-            className="absolute bottom-10 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2 text-[10px] uppercase tracking-[0.3em] text-white/30"
-          >
-            Scroll
-            <span className="relative h-9 w-[1px] overflow-hidden bg-white/12">
-              <span className="lp-scroll-tick absolute inset-x-0 top-0 h-3 bg-white/80" />
-            </span>
-          </div>
         </div>
 
         {/* --- Scéna 2: letiaca karta -------------------------------------
@@ -488,8 +470,18 @@ function CinematicScene() {
           >
             {/* Mobile scale wrapper — presne ako v predlohe */}
             <div className="flex w-full max-w-6xl scale-[0.56] flex-col items-center justify-center gap-8 sm:scale-[0.72] lg:scale-[0.88] lg:flex-row lg:gap-16">
-              {/* Ľavý stĺpec — brand + copy */}
-              <div className="max-w-md text-center lg:text-left">
+              {/* Ľavý stĺpec — brand + copy.
+                  PEVNÁ ŠÍRKA NA MOBILE, a je to zámer. Karta sa v scéne mení zo
+                  100vw na 85vw (beat 7), takže stĺpec s `max-w-md` dostával raz
+                  širší a raz užší priestor — a odsek sa uprostred animácie
+                  prelieval zo štyroch riadkov na tri. Pri pevnej šírke je
+                  zalomenie stále rovnaké, nech je karta akokoľvek veľká.
+                  Šírka je menšia než najužšia fáza, v ktorej je text vidieť
+                  (85vw mínus odsadenie); v úvodnej úzkej fáze je copy ešte
+                  neviditeľná, takže tam na nej nezáleží. Na `lg` sa vracia
+                  pôvodné správanie — tam je karta vždy širšia než `max-w-md`,
+                  takže sa nikdy nepreleje. */}
+              <div className="w-[264px] text-center sm:w-[340px] lg:w-auto lg:max-w-md lg:text-left">
                 <p
                   data-card-copy
                   className="text-[clamp(2.6rem,5vw,4.2rem)] font-extrabold leading-none tracking-[-0.045em] lp-text-bright"
@@ -508,9 +500,8 @@ function CinematicScene() {
                   data-card-copy
                   className="mt-4 text-[15px] leading-relaxed text-white/45"
                 >
-                  You describe her once — persona, tone, languages and the lines she
-                  never crosses. The agent then replies on her behalf in every
-                  conversation, day and night.
+                  You describe her once. The agent then replies on her behalf,
+                  in every chat, day and night.
                 </p>
 
                 <ul

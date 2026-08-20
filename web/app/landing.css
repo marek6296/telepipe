@@ -464,28 +464,8 @@
   animation: lp-float 7s ease-in-out infinite;
 }
 
-/* Bodka, ktorá steká po scroll-hint linke. */
-@keyframes lp-scroll-tick {
-  0% {
-    transform: translateY(-100%);
-    opacity: 0;
-  }
-  30% {
-    opacity: 1;
-  }
-  100% {
-    transform: translateY(320%);
-    opacity: 0;
-  }
-}
-
-.lp-scroll-tick {
-  animation: lp-scroll-tick 2.1s cubic-bezier(0.65, 0, 0.35, 1) infinite;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .lp-float,
-  .lp-scroll-tick {
+  .lp-float {
     animation: none !important;
   }
 
