@@ -1,9 +1,16 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import { motion, useReducedMotion } from "framer-motion";
-import { AudioLines, Heart, Send, UserRound, type LucideIcon } from "lucide-react";
+import {
+  AudioLines,
+  Heart,
+  Loader2,
+  Send,
+  UserRound,
+  type LucideIcon,
+} from "lucide-react";
 
 import { useBackgroundPrefetch } from "@/components/app/use-background-prefetch";
 import {
@@ -115,7 +122,7 @@ export function ModelTabs({
                   : "text-[var(--app-text-3)] hover:text-[var(--app-text-2)]",
               )}
             >
-              <Icon className="h-4 w-4" strokeWidth={1.75} />
+              <TabIcon Icon={Icon} />
               {meta.label}
               {slug === "telegram" && needsSetup && (
                 <span
@@ -179,4 +186,17 @@ export function ModelTabs({
       )}
     </div>
   );
+}
+
+/**
+ * Ikona tabu, ktorá sa počas navigácie točí.
+ *
+ * `useLinkStatus` číta stav NAJBLIŽŠIEHO `<Link>`, takže musí byť vnútri neho
+ * — preto samostatný komponent. Podčiarknutie sa hýbe hneď (`layoutId`), ale
+ * to je len presun; toto hovorí „naozaj sa niečo načítava".
+ */
+function TabIcon({ Icon }: { Icon: LucideIcon }) {
+  const { pending } = useLinkStatus();
+  if (pending) return <Loader2 className="h-4 w-4 animate-spin" strokeWidth={1.75} />;
+  return <Icon className="h-4 w-4" strokeWidth={1.75} />;
 }

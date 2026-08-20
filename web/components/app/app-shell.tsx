@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type SyntheticEvent } from "react";
 import Image from "next/image";
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -20,7 +20,7 @@ import {
   Smartphone,
   Users,
   X,
-} from "lucide-react";
+  Loader2,} from "lucide-react";
 
 import { signOutAction } from "@/app/(auth)/actions";
 import { NotificationBell } from "@/components/app/notification-bell";
@@ -395,16 +395,41 @@ function NavLink({
             : "text-[var(--app-text-2)] hover:bg-[var(--app-surface-hover)] hover:text-[var(--app-text)]",
         )}
       >
-        <Icon
-          className={cn(
-            "h-4 w-4 shrink-0",
-            active ? "text-[var(--app-text)]" : "text-[var(--app-text-4)]",
-          )}
-          strokeWidth={1.75}
-        />
+        <NavIcon Icon={Icon} active={active} />
         {item.label}
       </Link>
     </li>
+  );
+}
+
+/**
+ * Ikona odkazu, ktorá sa počas navigácie zmení na točiaci sa krúžok.
+ *
+ * `useLinkStatus` funguje LEN vnútri `<Link>`, preto je to samostatný
+ * komponent a nie kus JSX v NavLink.
+ *
+ * PREČO TO VÔBEC JE: klik musí dať odpoveď hneď, aj keď dáta ešte len letia.
+ * Bez toho človek klikne, nič sa nestane a klikne druhýkrát — a to je presne
+ * ten pocit „pomalého webu", ktorý sme odstraňovali.
+ */
+function NavIcon({ Icon, active }: { Icon: NavItem["icon"]; active: boolean }) {
+  const { pending } = useLinkStatus();
+  if (pending) {
+    return (
+      <Loader2
+        className="h-4 w-4 shrink-0 animate-spin text-[var(--app-text-3)]"
+        strokeWidth={1.75}
+      />
+    );
+  }
+  return (
+    <Icon
+      className={cn(
+        "h-4 w-4 shrink-0",
+        active ? "text-[var(--app-text)]" : "text-[var(--app-text-4)]",
+      )}
+      strokeWidth={1.75}
+    />
   );
 }
 

@@ -779,3 +779,35 @@ body {
 .app-scope ::-webkit-scrollbar-thumb:hover {
   background: #3f3f46;
 }
+
+/* --------------------------------------------------------------------------
+   Nábeh obrazovky pri navigácii (`components/app/page-transition.tsx`).
+
+   Zámerne CSS a nie JS: beží to pri KAŽDEJ navigácii a zlyhanie by znamenalo
+   prázdnu obrazovku namiesto obsahu. CSS pustí prehliadač sám pri vložení
+   prvku — nezávisí od hydratácie ani od toho, čo robí hlavné vlákno.
+
+   Krátke a s dôrazom na začiatok — väčšina pohybu je v prvej tretine, takže
+   obrazovka pôsobí usadene skôr, než animácia naozaj skončí.
+-------------------------------------------------------------------------- */
+@keyframes app-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.app-page-in {
+  animation: app-page-in 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Kto má vypnutý pohyb, dostane obsah rovno — bez animácie a bez čakania. */
+@media (prefers-reduced-motion: reduce) {
+  .app-page-in {
+    animation: none;
+  }
+}
