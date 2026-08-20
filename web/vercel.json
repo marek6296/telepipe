@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "//": "Funkcie musia bežať TAM, KDE JE DATABÁZA. Supabase je v eu-west-1 (Írsko); kým funkcie bežali v default regióne (US East), stál jeden dotaz do DB ~114 ms — namerané na /api/internal/stars-invoice porovnaním odpovede bez dotazu (403) a s jedným dotazom (404). Stránka s piatimi dotazmi tak čakala cez pol sekundy len na Atlantik. dub1 = Dublin = ten istý región ako databáza.",
   "regions": ["dub1"],
   "crons": [
     {

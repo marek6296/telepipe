@@ -1,5 +1,19 @@
 import type { NextConfig } from "next";
 
+/**
+ * POZNÁMKA K `vercel.json` — patrí sem, lebo JSON komentáre nepovoľuje.
+ *
+ * `regions: ["dub1"]` nie je kozmetika. Supabase beží v `eu-west-1` (Írsko) a
+ * funkcie predtým bežali v default regióne `iad1` (Washington). Namerané na
+ * `/api/internal/stars-invoice` porovnaním odpovede bez DB dotazu (403) a
+ * s jedným dotazom (404): jeden dotaz stál ~114 ms len na sieti. Stránka
+ * s piatimi dotazmi tak čakala cez pol sekundy na Atlantik.
+ *
+ * A pozor: `vercel.json` má PRÍSNU schému. Kľúč `"//"` použitý ako komentár
+ * zhodí celý deploy hláškou „should NOT have additional property". Preto je
+ * toto vysvetlenie tu a nie tam.
+ */
+
 const nextConfig: NextConfig = {
   images: {
     // Fotky modeliek žijú vo verejnom Supabase buckete `photos`.
