@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test:crypto": "node --env-file=.env.local scripts/crypto-interop.mts",
     "test:persona": "node scripts/persona-draft-test.mts",
+    "test:checkout": "node scripts/checkout-test.mts",
     "test:schedule": "node scripts/schedule-draft-test.mts",
     "test:coins": "node scripts/coins-test.mts",
     "test:access": "node scripts/access-test.mts",

@@ -267,6 +267,8 @@ def build_system_prompt(
     closing: bool = False,
     # Toto je posledná správa v tomto chate. Ďalšia už nebude žiadna.
     farewell: bool = False,
+    # Krátky odkaz cez našu doménu (meranie klikov). Prázdny = ide pôvodný.
+    link_override: str = "",
     allow_long: bool = True,
     foreign: bool = False,
     bare_greeting: bool = False,
@@ -914,9 +916,15 @@ def build_system_prompt(
         sections.append(f"AKO NAVIESŤ NA OBSAH\n{funnel_rules}")
 
     link = (persona.get("cta_link") or "").strip()
-    # Odkaz si so sebou nesie, komu bol poslaný — inak by sa fanúšik na Fanvue
-    # nedal spojiť s človekom, s ktorým si tu týždeň písala.
-    link = checkout.attributed(link, user.get("tg_id"))
+    if link_override:
+        # Krátky odkaz cez našu doménu: klik sa dá zmerať. Atribúcia sa
+        # nestráca — dopĺňa sa až pri presmerovaní, z tokenu sa vie, komu
+        # odkaz patril.
+        link = link_override
+    elif link:
+        # Odkaz si so sebou nesie, komu bol poslaný — inak by sa fanúšik na
+        # Fanvue nedal spojiť s človekom, s ktorým si tu týždeň písala.
+        link = checkout.attributed(link, user.get("tg_id"))
     if farewell:
         # POSLEDNÁ SPRÁVA V TOMTO CHATE. Ďalšia už nepríde žiadna, takže sa do
         # nej musí zmestiť aj dôvod, prečo prestáva, aj kam má ísť za ňou.

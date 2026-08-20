@@ -35,6 +35,8 @@ export type DmUserRow = {
   ai_enabled: boolean;
   human_takeover: boolean;
   link_sent_at: string | null;
+  /** Kedy otvoril odkaz. Zapisuje presmerovanie `/r/[token]`. */
+  link_clicked_at: string | null;
   last_incoming_at: string | null;
   last_reply_at: string | null;
   summary: string;
@@ -44,7 +46,7 @@ export type DmUserRow = {
 
 export const DM_USER_COLUMNS =
   "tg_id, username, first_name, partner_name, funnel_stage, msg_count, paid, " +
-  "ai_enabled, human_takeover, link_sent_at, last_incoming_at, last_reply_at, " +
+  "ai_enabled, human_takeover, link_sent_at, link_clicked_at, last_incoming_at, last_reply_at, " +
   "summary, style_note, created_at";
 
 export type DmMessageRow = {

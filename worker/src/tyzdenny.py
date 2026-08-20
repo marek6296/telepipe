@@ -71,6 +71,7 @@ def zostav(cisla: Dict[str, int], coiny: float, minuly: Optional[Dict[str, int]]
     """
     novi = int(cisla.get("novi") or 0)
     odkazy = int(cisla.get("odkazy") or 0)
+    kliky = int(cisla.get("kliky") or 0)
     zavrete = int(cisla.get("zavrete") or 0)
 
     riadky = [
@@ -78,6 +79,10 @@ def zostav(cisla: Dict[str, int], coiny: float, minuly: Optional[Dict[str, int]]
         "",
         f"New conversations: *{novi}*",
         f"Link sent to: *{odkazy}*" + (f" ({_pct(odkazy, novi)} of them)" if novi else ""),
+        # Bez tohto riadka je „nula predajov" hádanka. S ním je to diagnóza:
+        # nízke kliky = problém je v konverzácii, vysoké kliky bez predaja =
+        # problém je na jej stránke.
+        f"Opened your page: *{kliky}*" + (f" ({_pct(kliky, odkazy)} of them)" if odkazy else ""),
         f"Chats she wrapped up: *{zavrete}*",
     ]
 
@@ -88,6 +93,14 @@ def zostav(cisla: Dict[str, int], coiny: float, minuly: Optional[Dict[str, int]]
             riadky.append(f"That is {abs(rozdiel)} {smer} on last week.")
 
     riadky += ["", f"Pipe Coins left: *{int(coiny):,}*".replace(",", " ")]
+    # Odkaz odišiel, ale nikto ho neotvoril — to je iná chyba než prázdny týždeň
+    # a klient by ju inak hľadal na nesprávnom mieste.
+    if odkazy >= 3 and kliky == 0:
+        riadky += [
+            "",
+            "_She sent your link to several people and nobody opened it. That "
+            "points at the chat, not at your page._",
+        ]
     if novi == 0:
         riadky += [
             "",

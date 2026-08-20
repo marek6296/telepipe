@@ -82,6 +82,8 @@ CALLS = {
     "stats_od": (("2026-08-13T00:00:00+00:00",), {}),
     "mark_weekly_report_sent": (("2026-08-20T00:00:00+00:00",), {}),
     "set_control_bot_setting": (("notify_hot_lead", True), {}),
+    "ensure_short_link": ((42,), {}),
+    "fresh_clicks": ((), {}),
     "sleeping_until": ((), {}),
     "flood_until": ((), {}),
     "set_flood_until": ((None,), {}),

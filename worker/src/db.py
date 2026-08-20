@@ -40,12 +40,15 @@ from typing import Any, Dict, List, Optional
 
 import httpx
 
+import odkazy
+
 from transport import SupabaseTransport
 
 log = logging.getLogger(__name__)
 
 PERSONA = "/persona"
 USERS = "/dm_users"
+SHORT_LINKS = "/short_links"
 MESSAGES = "/dm_messages"
 SETTINGS = "/settings"
 PHOTOS = "/photos"
@@ -913,6 +916,62 @@ class TenantDb:
         )
         return len(before)
 
+    async def ensure_short_link(self, tg_id: int) -> str:
+        """Token krátkeho odkazu pre tento chat; vyrobí ho, keď ešte nie je.
+
+        Na dvojicu model+človek je stály — druhý odkaz do toho istého chatu má
+        ten istý token, takže sa kliky nerozsypú do dvoch riadkov. Súbeh dvoch
+        replík rieši `unique (model_id, tg_id)`: druhý zápis padne a token sa
+        prečíta z databázy.
+        """
+        rows = await self._get(
+            SHORT_LINKS,
+            {"model_id": self._mine, "tg_id": f"eq.{int(tg_id)}", "select": "token"},
+        )
+        if rows and rows[0].get("token"):
+            return str(rows[0]["token"])
+
+        token = odkazy.novy_token()
+        try:
+            await self._post(
+                SHORT_LINKS,
+                {"token": token, "model_id": self.model_id, "tg_id": int(tg_id)},
+            )
+            return token
+        except Exception:  # noqa: BLE001 - súbeh: riadok medzitým vyrobil niekto iný
+            rows = await self._get(
+                SHORT_LINKS,
+                {"model_id": self._mine, "tg_id": f"eq.{int(tg_id)}", "select": "token"},
+            )
+            if rows and rows[0].get("token"):
+                return str(rows[0]["token"])
+            raise
+
+    async def fresh_clicks(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Kto otvoril odkaz a ešte sme to nehlásili.
+
+        Porovnanie dvoch značiek namiesto príznaku „ohlásené": keď klikne
+        druhýkrát o týždeň, `link_clicked_at` sa posunie a upozornenie príde
+        znova — čo je správne, je to nová udalosť.
+        """
+        rows = await self._get(
+            USERS,
+            {
+                "model_id": self._mine,
+                "link_clicked_at": "not.is.null",
+                "select": "tg_id,first_name,username,partner_name,link_clicked_at,click_notified_at",
+                "order": "link_clicked_at.desc",
+                "limit": str(limit),
+            },
+        )
+        cerstve = []
+        for row in rows:
+            klik = _ts(row.get("link_clicked_at"))
+            hlasene = _ts(row.get("click_notified_at"))
+            if klik and (hlasene is None or klik > hlasene):
+                cerstve.append(row)
+        return cerstve
+
     async def links_sent_since(self, since_iso: str) -> int:
         """Koľko odkazov išlo od daného času — naprieč všetkými konverzáciami.
 
@@ -1477,6 +1536,9 @@ class TenantDb:
         return {
             "novi": await count({"created_at": od}),
             "odkazy": await count({"link_sent_at": od}),
+            # Klik je jediné číslo, ktoré rozlíši „nikto neklikol" od „klikli
+            # a nekúpili" — dve opačné diagnózy, proti ktorým sa robí opak.
+            "kliky": await count({"link_clicked_at": od}),
             "platiaci": await count({"paid": "is.true"}),
             "zavrete": await count({"farewell_at": od}),
         }

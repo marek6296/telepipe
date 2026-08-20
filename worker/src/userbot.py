@@ -27,6 +27,7 @@ import oznamy
 import judge
 import limity
 import ludskost
+import odkazy
 import memory
 import photos
 import recall
@@ -769,6 +770,13 @@ class UserBot:
             # to nespôsobí druhý odkaz v tom istom chate.
             fast_track=wants_link or explicit or zatvara_sa or je_rozlucka,
         )
+        # Krátky odkaz sa pripravuje LEN keď odkaz naozaj smie ísť — je to zápis
+        # do databázy a nemá zmysel ho robiť pri každej správe. Prázdny výsledok
+        # znamená „pošli pôvodný Fanvue odkaz": meranie je bonus, nie podmienka.
+        kratky = ""
+        if allow_link:
+            kratky = await odkazy.pre_konverzaciu(self._db, tg_id, self._cfg.web_api_url)
+
         if allow_link and not await self._link_quota_ok(behavior):
             log.info("%s: odkaz zablokovaný globálnym stropom %s/h", tg_id, behavior.max_links_per_hour)
             allow_link = False
@@ -969,6 +977,7 @@ class UserBot:
                     user, persona, behavior, "", rows, now_local, None,
                     said_goodnight=True,
                     farewell=je_rozlucka,
+                    link_override=kratky,
                 )
                 return
             # Nahrávka neodišla. Rozlúčiť sa musí aj tak — mlčanie namiesto
@@ -1056,6 +1065,7 @@ class UserBot:
             link_already_sent=int(user.get("link_push_count") or 0) > 0,
             closing=zatvara_sa,
             farewell=je_rozlucka,
+            link_override=kratky,
             # Bez tohto stropu spomenula odkaz v každej jednej odpovedi.
             remind_link=not funnel.recently_reminded(rows),
             allow_long=allow_long,
@@ -1305,6 +1315,7 @@ class UserBot:
             said_goodnight=len_hlasovka,
             cta_voice=bool(chosen_voice and chosen_voice.get("is_cta")),
             farewell=je_rozlucka,
+            link_override=kratky,
         )
 
     @staticmethod
@@ -2169,6 +2180,7 @@ class UserBot:
         said_goodnight: bool = False,
         cta_voice: bool = False,
         farewell: bool = False,
+        link_override: str = "",
     ) -> None:
         tg_id = user["tg_id"]
         patch: Dict[str, Any] = {
@@ -2220,7 +2232,11 @@ class UserBot:
             patch["farewell_at"] = _utc_iso()
             await self._notify(f"👋 Chat closed — {_who(user)} (`{tg_id}`)")
 
-        link = persona.get("cta_link") or ""
+        # Porovnáva sa proti TOMU ISTÉMU odkazu, aký išiel do promptu. Keby sa
+        # tu pozeralo len na `cta_link`, krátky odkaz cez našu doménu by sa
+        # nerozpoznal — a `link_push_count` by ostal na nule, takže by sa
+        # pravidlo „odkaz raz do chatu" ticho vyplo.
+        link = link_override or (persona.get("cta_link") or "")
         # Pozvánka hlasom je ten istý krok ako poslať odkaz — inak by
         # obchádzala cooldown aj strop pushov a chodila donekonečna.
         if cta_voice or (link and humanize.contains_link(sent_text, link)):
@@ -2547,7 +2563,29 @@ class UserBot:
             except Exception:  # noqa: BLE001
                 log.exception("Sweeper zlyhal")
 
+    async def _hlasi_kliky(self) -> None:
+        """Kto práve otvoril stránku. Beží pri každom priechode sweepera.
+
+        Je to najsilnejší okamih v celom lieviku — človek sa v tej chvíli
+        pozerá na jej profil — a jediné upozornenie, ktoré nestojí na hádaní
+        z textu. Klik zapisuje web pri presmerovaní (`app/r/[token]`), sem
+        dorazí ako rozdiel dvoch značiek v `dm_users`.
+        """
+        if not self._control:
+            return
+        try:
+            for user in await self._db.fresh_clicks():
+                tg_id = int(user.get("tg_id") or 0)
+                await self._db.update_user(tg_id, {"click_notified_at": _utc_iso()})
+                await self._notify(
+                    f"🔗 *Opened your page* — {_who(user)} (`{tg_id}`)\n"
+                    "_Right now is the best moment to say something._"
+                )
+        except Exception:  # noqa: BLE001 - upozornenie nesmie zhodiť sweeper
+            log.exception("Hlásenie klikov zlyhalo")
+
     async def _sweep_once(self) -> None:
+        await self._hlasi_kliky()
         behavior = await self._behavior()
         now_local = datetime.now(ZoneInfo(behavior.active_tz))
         if not bhv.in_active_window(

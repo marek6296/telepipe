@@ -93,6 +93,13 @@ export default async function ChatsPage({
                         {chatTitle(chat)}
                       </span>
                       <FunnelBadge stage={chat.funnel_stage} />
+                      {/* Otvoril stránku — jediné číslo v lieviku, ktoré nie je
+                          odhad z textu, ale skutočný skutok fanúšika. */}
+                      {chat.link_clicked_at && !chat.paid && (
+                        <span className="rounded-full border border-[var(--app-up)]/40 px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-[var(--app-up)]">
+                          Opened your page
+                        </span>
+                      )}
                       {chat.human_takeover && (
                         <span className="rounded-full border border-[var(--app-border)] px-2 py-0.5 text-[10px] uppercase tracking-[0.08em] text-[var(--app-text-3)]">
                           You took over
