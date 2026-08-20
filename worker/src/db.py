@@ -64,6 +64,7 @@ VOICE_CLIPS = "/voice_clips"
 VOICE_JOBS = "/voice_jobs"
 PENDING = "/pending_replies"
 ACCOUNTS = "/accounts"
+CONTROL_BOT_SETTINGS = "/control_bot_settings"
 
 # Ako dlho platí raz načítaný kľúč účtu. Päť minút je kompromis: v dashboarde
 # to pôsobí okamžite (kým si človek otvorí kartu hlasu a klikne, je to vonku),
@@ -370,6 +371,42 @@ class TenantDb:
             return float(rows[0].get("credit_balance_usd") or 0)
         except (TypeError, ValueError):
             return 0.0
+
+    # ---------- nastavenia control bota ----------
+
+    async def control_bot_settings(self) -> Dict[str, Any]:
+        """Čo má bot hlásiť. Prázdny slovník = platia defaulty z `oznamy`.
+
+        Chýbajúci riadok NIE JE chyba: modelka mohla vzniknúť pred migráciou,
+        ktorá tabuľku pridala. Vtedy je lepšie hlásiť podľa rozumného základu
+        než nehlásiť nič.
+        """
+        try:
+            rows = await self._get(
+                CONTROL_BOT_SETTINGS, {"model_id": self._mine, "select": "*"}
+            )
+        except Exception:  # noqa: BLE001 — notifikácie nesmú zhodiť odpisovanie
+            log.exception("nastavenia control bota sa nepodarilo načítať")
+            return {}
+        return rows[0] if rows else {}
+
+    async def mark_credits_warned(self, kedy) -> None:
+        """Značka upozornenia na kredit. `None` ju zmaže — to je návrat do
+        stavu, keď smie prísť ďalšie upozornenie po opätovnom minutí."""
+        await self._patch(
+            CONTROL_BOT_SETTINGS,
+            {"model_id": self._mine},
+            {"credits_warned_at": kedy, "updated_at": _now_iso()},
+        )
+
+    async def mark_daily_report_sent(self, kedy: str) -> None:
+        """Zapíše, kedy report odišiel. Poistka proti dvom za jeden deň —
+        bez nej by ho každý reštart workera v aktívnom okne poslal znova."""
+        await self._patch(
+            CONTROL_BOT_SETTINGS,
+            {"model_id": self._mine},
+            {"daily_report_sent_at": kedy, "updated_at": _now_iso()},
+        )
 
     # ---------- persona ----------
 

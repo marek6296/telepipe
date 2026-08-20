@@ -21,7 +21,9 @@ import den
 import facts
 import funnel
 import gags
+import denny_report
 import humanize
+import oznamy
 import judge
 import limity
 import memory
@@ -174,6 +176,73 @@ class UserBot:
                 await self._voice_jobs_once()
             except Exception:  # noqa: BLE001 - slučka nesmie umrieť
                 log.exception("Obsluha ukážok zlyhala")
+
+    async def _denny_report(self, behavior: Behavior, now_local) -> None:
+        """Súhrn dňa do control bota. Ticho nerobí nič, keď nie je komu poslať,
+        keď je vypnutý, alebo keď dnes už odišiel.
+
+        Zlyhanie sa NEŠÍRI: report je príjemnosť navrch a nesmie zhodiť
+        upratovanie, kvôli ktorému sweeper mimo okna vôbec beží.
+        """
+        if not self._control:
+            return
+        try:
+            nastavenia = await self._db.control_bot_settings()
+            if not nastavenia.get("daily_report"):
+                return
+            if not denny_report.treba_poslat(
+                now_local,
+                behavior.active_start_min,
+                behavior.active_end_min,
+                nastavenia.get("daily_report_sent_at"),
+            ):
+                return
+
+            text = await denny_report.zostav(self._db, self._llm)
+            # Značka sa zapisuje AJ keď nebolo o čom písať — inak by sa prázdny
+            # deň skúšal zhrnúť každé tri minúty až do rána.
+            await self._db.mark_daily_report_sent(
+                datetime.now(timezone.utc).isoformat()
+            )
+            if text:
+                await self._control.notify(text)
+                log.info("Denný report odoslaný")
+        except Exception:  # noqa: BLE001
+            log.exception("Denný report zlyhal")
+
+    async def _strazi_kredit(self) -> None:
+        """Upozorní na dochádzajúce Pipe Coiny — raz, nie pri každom behu.
+
+        Značka sa NULUJE, keď zostatok znova stúpne nad prah. Bez toho by po
+        dobití druhé upozornenie už nikdy neprišlo a klient by sa o ďalšom
+        došlom kredite dozvedel až tým, že modelka stíchla.
+
+        Beží mimo aktívneho okna, kde sweeper aj tak upratuje — o kredite sa
+        netreba dozvedieť v tej istej sekunde, ale pred ďalším dňom áno.
+        """
+        if not self._control:
+            return
+        try:
+            nastavenia = await self._db.control_bot_settings()
+            zostatok_usd = await self._db.account_balance_usd()
+            coins = zostatok_usd * 1000
+
+            if coins > oznamy.PRAH_COINOV:
+                # Dobil — poistka sa nuluje, aby ďalšie upozornenie mohlo prísť.
+                if nastavenia.get("credits_warned_at"):
+                    await self._db.mark_credits_warned(None)
+                return
+
+            if nastavenia.get("credits_warned_at"):
+                return
+
+            text = oznamy.sprava_o_kredite(coins, nastavenia)
+            await self._db.mark_credits_warned(datetime.now(timezone.utc).isoformat())
+            if text:
+                await self._control.notify(text)
+                log.info("Upozornenie na kredit odoslané (%.0f coinov)", coins)
+        except Exception:  # noqa: BLE001 — upozornenie nesmie zhodiť upratovanie
+            log.exception("Stráženie kreditu zlyhalo")
 
     async def _behavior(self) -> Behavior:
         try:
@@ -2359,6 +2428,10 @@ class UserBot:
             # Mimo okna aj tak nikto nečaká — je to najlepší čas upratať.
             await self._tidy_up()
             await self._close_stale_sessions()
+            # Denný súhrn patrí sem: koniec okna JE koniec jej dňa. Report
+            # o polnoci by nočnej modelke rozsekol deň naprostred.
+            await self._denny_report(behavior, now_local)
+            await self._strazi_kredit()
             return
         if await self._db.is_paused():
             return

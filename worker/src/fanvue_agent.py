@@ -31,6 +31,7 @@ import fvflow
 import fvmedia
 import fvsync
 import fvvoice
+import oznamy
 
 log = logging.getLogger(__name__)
 
@@ -446,6 +447,16 @@ class FanvueAgent:
                 prebite.append(int(posledna[kto]["id"]))
             posledna[kto] = event
 
+        # Notifikácie idú PRED kontrolou `enabled`. Upozornenie nie je odpoveď:
+        # kto si vypol automatické odpisovanie na Fanvue, stále chce vedieť, že
+        # mu niekto zaplatil.
+        bot_nastavenia = await self._db.control_bot_settings()
+        for event in events:
+            try:
+                await self._oznam(event, bot_nastavenia)
+            except Exception as exc:  # noqa: BLE001 — oznam nesmie zhodiť odpisovanie
+                log.warning("Oznam k udalosti %s zlyhal: %s", event.get("id"), exc)
+
         for event in events:
             try:
                 if int(event["id"]) in prebite:
@@ -458,6 +469,32 @@ class FanvueAgent:
                 # Označí sa vždy, aj keď sa neodpisuje. Inak by tá istá
                 # udalosť visela vo fronte donekonečna a blokovala novšie.
                 await self._db.mark_handled(int(event["id"]))
+
+    async def _oznam(self, event: Dict[str, Any], nastavenia: Dict[str, Any]) -> None:
+        """Pošle majiteľovi do control bota, že sa niečo stalo na Fanvue.
+
+        Bez control bota sa ticho nerobí nič — nespárovaná modelka nie je
+        porucha, len ešte nemá kam písať.
+        """
+        if not self._control:
+            return
+
+        fan = fan_of(event)
+        meno = (fan.get("name") or fan.get("username") or "").strip()
+        if meno and fan.get("username") and meno != fan["username"]:
+            meno = f"{meno} (@{fan['username']})"
+        elif fan.get("username") and not meno:
+            meno = f"@{fan['username']}"
+
+        suma = ""
+        if is_payment(event):
+            centy = paid_cents(event)
+            if centy > 0:
+                suma = f"${centy / 100:.2f}"
+
+        text = oznamy.sprava_k_udalosti(event, nastavenia, meno_fana=meno, suma=suma)
+        if text:
+            await self._control.notify(text)
 
     async def _dispatch(self, event: Dict[str, Any], settings: Dict[str, Any]) -> None:
         if is_payment(event):

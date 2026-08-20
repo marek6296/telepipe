@@ -246,6 +246,23 @@ class Llm:
         )
 
 
+    async def report(self, system: str, podklad: str) -> str:
+        """Denný súhrn konverzácií pre majiteľa.
+
+        Ide cez `_summary_model` (lacnejší) zámerne: report nikto nečíta ako
+        prózu, chce z neho mená a jednu vetu ku každému. Je to jedno volanie
+        denne na modelku, ale zbytočne drahé volanie denne je stále zbytočné.
+
+        Nízka teplota z rovnakého dôvodu ako pri `summarize` — od súhrnu sa
+        čaká presnosť, nie nápaditosť.
+        """
+        return await self._chat(
+            self._summary_model,
+            [{"role": "system", "content": system}, {"role": "user", "content": podklad}],
+            max_tokens=900,
+            temperature=0.3,
+        )
+
     async def transcribe_voice(self, data: bytes, fmt: str = "ogg") -> str:
         """Prepíše hlasovku, ktorú poslal klient. Prázdny reťazec = nepodarilo sa.
 

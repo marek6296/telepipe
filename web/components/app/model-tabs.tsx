@@ -46,6 +46,7 @@ const SUB_TAB_LABEL: Partial<Record<ModelTabSlug, Partial<Record<ModelSubTabSlug
     telegram: {
       index: "Connection",
       settings: "Settings",
+      bot: "Bot",
       photos: "Photos",
       chats: "Chats",
     },

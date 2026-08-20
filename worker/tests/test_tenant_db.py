@@ -66,6 +66,9 @@ ACCOUNT = "9c0ffee0-0000-4000-8000-000000000001"
 
 CALLS = {
     "account_balance_usd": ((), {}),
+    "control_bot_settings": ((), {}),
+    "mark_daily_report_sent": (("2026-08-20T00:00:00Z",), {}),
+    "mark_credits_warned": ((None,), {}),
     "get_persona": ((), {}),
     "set_persona_field": (("name", "Eva"), {}),
     "get_behavior": ((), {}),

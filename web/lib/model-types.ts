@@ -31,6 +31,8 @@ export type ModelSubTabSlug =
   | "settings"
   | "photos"
   | "chats"
+  /** Control bot: čo má hlásiť do Telegramu majiteľovi. */
+  | "bot"
   | "behavior"
   | "day";
 
@@ -118,12 +120,12 @@ export const MODEL_TYPE_SUBTABS: Record<
   Partial<Record<ModelTabSlug, readonly ModelSubTabSlug[]>>
 > = {
   persona: {
-    telegram: ["index", "settings", "photos", "chats"],
+    telegram: ["index", "settings", "bot", "photos", "chats"],
     fanvue: ["index", "settings", "photos", "chats"],
     persona: ["index", "behavior", "day"],
   },
   business: {
-    telegram: ["index", "settings", "photos", "chats"],
+    telegram: ["index", "settings", "bot", "photos", "chats"],
     // Firemný agent nemá denný život: firma nechodí do posilňovne a jej
     // odpovede sa nemajú spomaľovať tým, že „je na fotení".
     persona: ["index", "behavior"],
