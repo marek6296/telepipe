@@ -9,7 +9,7 @@ export const metadata: Metadata = { title: "Bot notifications" };
 
 const COLUMNS =
   "model_id, notify_fanvue_subscribe, notify_fanvue_payment, notify_fanvue_follow, " +
-  "notify_fanvue_like, notify_fanvue_comment, notify_credits_low, notify_startup, daily_report";
+  "notify_fanvue_like, notify_fanvue_comment, notify_credits_low, notify_startup, notify_crash, daily_report";
 
 /**
  * Čo má control bot hlásiť.
@@ -41,6 +41,7 @@ export default async function BotPage({ params }: PageProps<"/app/m/[id]/telegra
     notify_fanvue_comment: false,
     notify_credits_low: true,
     notify_startup: true,
+    notify_crash: true,
     daily_report: false,
   };
 

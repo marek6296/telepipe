@@ -19,6 +19,7 @@ const PREPINACE = [
   "notify_fanvue_comment",
   "notify_credits_low",
   "notify_startup",
+  "notify_crash",
   "daily_report",
 ] as const;
 

@@ -429,7 +429,7 @@ class UserBot:
         if is_new and not user.get("notified"):
             await self._db.update_user(tg_id, {"notified": True})
             await self._notify(
-                f"🆕 <b>New conversation</b>\n{_who(user)} (`{tg_id}`)\n\n\u201c{text[:200]}\u201d"
+                f"🆕 *New conversation*\n{_who(user)} (`{tg_id}`)\n\n\u201c{text[:200]}\u201d"
             )
         if funnel.detect_paid_claim(text) and not user.get("paid"):
             await self._notify(

@@ -47,6 +47,9 @@ class TenantRunner:
         self._transport = transport
         self._stopping = asyncio.Event()
         self._once_task: asyncio.Task | None = None
+        # Control bot aktuálneho behu — nastaví ho `_run_once`, používa ho
+        # `_ohlas_pad`. `None` = ešte nebeží alebo modelka bota nemá.
+        self._control = None
         # Čo treba po sebe upratať — asyncio úlohy a Telethon klienti.
         self._cleanup: list = []
 
@@ -129,6 +132,44 @@ class TenantRunner:
                 self._once_task = None
 
     # ---------- pomocné ----------
+
+    async def _ohlas_pad(self, exc: BaseException) -> None:
+        """Povie majiteľovi, že modelka spadla. Nikdy nehádže.
+
+        Riadené ukončenie (deploy, presun tenanta) sa NEHLÁSI — to nie je
+        porucha a klient by dostával správu pri každom nasadení.
+        """
+        if self._stopping.is_set() or self._control is None:
+            return
+        try:
+            from credits import OutOfCredits
+
+            # Vyčerpaný kredit hlási `credits.py` vlastnou správou, ktorá povie
+            # aj čo s tým. Druhá správa o tom istom by len mátla.
+            if isinstance(exc, OutOfCredits):
+                return
+
+            nastavenia = {}
+            with contextlib.suppress(Exception):
+                nastavenia = await self._db_for_notify()
+            if not nastavenia.get("notify_crash", True):
+                return
+
+            await self._control.notify(
+                "🔴 *She stopped replying*\n"
+                f"Reason: `{type(exc).__name__}`\n\n"
+                "Restarting automatically. If this keeps happening you will "
+                "stop getting messages until it is fixed."
+            )
+        except Exception:  # noqa: BLE001 — hlásenie pádu nesmie pád zhoršiť
+            log.exception("model %s: pád sa nepodarilo ohlásiť", self.model_id)
+
+    async def _db_for_notify(self) -> dict:
+        """Nastavenia bota bez toho, aby sa runner viazal na `db` z `_run_once`."""
+        from db import TenantDb
+
+        db = TenantDb(self._transport, self.model_id)
+        return await db.control_bot_settings()
 
     async def _park(self, reason: str) -> None:
         """Odstaví model: zapíše dôvod do `models` a pustí lease."""
@@ -255,6 +296,10 @@ class TenantRunner:
                 raise AuthKeyUnregisteredError(request=None)
 
             control = ControlBot(cfg, db, bot_client)
+            # Runner si bota drží, aby vedel ohlásiť pád. Klient sa v `finally`
+            # odpojí, takže samotné odoslanie musí prebehnúť SKÔR — viď
+            # `_ohlas_pad` volané ešte pred prepadnutím výnimky von.
+            self._control = control
             if bot_ready:
                 control.register()
 
@@ -312,7 +357,7 @@ class TenantRunner:
                     nastavenia = {}
                 if nastavenia.get("notify_startup", True):
                     await control.notify(
-                        f"🚀 <b>AI replying is live</b>\nAccount: {handle}\n"
+                        f"🚀 *AI replying is live*\nAccount: {handle}\n"
                         f"Model: `{g.model}`{summary}"
                     )
 
@@ -329,6 +374,14 @@ class TenantRunner:
                 for w in watchers:
                     w.cancel()
                 await asyncio.gather(*watchers, return_exceptions=True)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — len ohlásime a pustíme ďalej
+            # Ohlásiť sa MUSÍ tu: o pár riadkov nižšie `finally` odpojí bota a
+            # potom už niet čím poslať správu. Samotné zotavenie rieši `run()`,
+            # tu sa logika behu nemení.
+            await self._ohlas_pad(exc)
+            raise
         finally:
             # `transport` ani `db` sa tu nezatvárajú — spojenie je spoločné pre
             # všetkých tenantov a patrí poolu (main.py).

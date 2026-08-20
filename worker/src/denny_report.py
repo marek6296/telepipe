@@ -172,4 +172,4 @@ async def zostav(db, llm, hodin: int = 24) -> Optional[str]:
     text = (text or "").strip()
     if not text:
         return None
-    return f"📊 <b>Daily summary</b>\n\n{text}"
+    return f"📊 *Daily summary*\n\n{text}"

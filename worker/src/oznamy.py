@@ -6,6 +6,13 @@ Rozhodnutie „toto sa hlási, toto nie" sa dotýka troch miest: Fanvue udalost�
 kreditu a denného reportu. Kým to bolo rozsypané, nedalo sa otestovať a nedalo
 sa na jednom mieste pozrieť, čo klientovi vlastne chodí.
 
+FORMÁTOVANIE JE MARKDOWN, NIE HTML
+----------------------------------
+Control bot posiela cez Telethon, ktorý používa markdown (`*tučné*`). Náš shop
+bot (`web/lib/telegram-shop.ts`) ide cez Bot API s `parse_mode: HTML`, takže
+tam sa píše `<b>`. Sú to dve rôzne cesty a zámena je vidieť okamžite: v chate
+sa zobrazia holé značky namiesto tučného textu.
+
 TEXTY SÚ ZÁMERNE KRÁTKE
 -----------------------
 Control bot je ovládač, nie čítanka. Notifikácia má povedať ČO sa stalo a
@@ -93,7 +100,7 @@ def sprava_k_udalosti(
     if not _povolene(nastavenia, stlpec, default):
         return None
 
-    riadky = [f"{ikona} <b>{popis}</b>"]
+    riadky = [f"{ikona} *{popis}*"]
     kto = (meno_fana or "").strip()
     if kto:
         riadky.append(kto)
@@ -111,7 +118,7 @@ def sprava_o_kredite(coins: float, nastavenia: Optional[Dict[str, Any]]) -> Opti
     if not _povolene(nastavenia, "notify_credits_low", True):
         return None
     return (
-        f"🪙 <b>Pipe Coins are running low</b>\n"
+        f"🪙 *Pipe Coins are running low*\n"
         f"About {int(coins):,} left.\n"
         "When they run out she stops replying. Top up in the dashboard or "
         "right here with /menu → Top up."

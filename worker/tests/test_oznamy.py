@@ -67,3 +67,25 @@ class TestKredit:
         """Samotné číslo je bez následku — musí byť jasné, že prestane odpisovať."""
         text = oznamy.sprava_o_kredite(100, None)
         assert "stops replying" in text
+
+
+class TestFormatovanie:
+    """Control bot ide cez Telethon = MARKDOWN. Shop bot cez Bot API = HTML.
+
+    Zámena je vidieť okamžite: v chate sa zobrazia holé značky namiesto
+    tučného textu. Stalo sa to raz, preto tento test.
+    """
+
+    def test_ziadne_html_znacky(self):
+        texty = [
+            oznamy.sprava_k_udalosti(_event("creator.payment.succeeded"), None, meno_fana="Jane"),
+            oznamy.sprava_o_kredite(500, None),
+        ]
+        for text in texty:
+            assert text
+            assert "<b>" not in text and "</b>" not in text, text
+            assert "<" not in text, text
+
+    def test_pouziva_markdown(self):
+        text = oznamy.sprava_o_kredite(500, None)
+        assert "*" in text

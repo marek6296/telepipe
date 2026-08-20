@@ -16,6 +16,7 @@ export type BotSettingsRow = {
   notify_fanvue_comment: boolean;
   notify_credits_low: boolean;
   notify_startup: boolean;
+  notify_crash: boolean;
   daily_report: boolean;
 };
 
@@ -101,6 +102,14 @@ export function BotSettingsForm({
           description="Things about your account and the agent itself, not about her chats."
         />
         <div className="space-y-3 p-5">
+          {/* Prvé v sekcii zámerne: je to jediná notifikácia, ktorá hovorí,
+              že služba NEFUNGUJE. Ostatné sú informatívne. */}
+          <SwitchField
+            name="notify_crash"
+            label="She stopped replying"
+            defaultValue={settings.notify_crash}
+            help="Sent when the agent crashes and has to restart. Deploys and planned restarts are not reported — those are not faults."
+          />
           <SwitchField
             name="notify_startup"
             label="Agent started"
