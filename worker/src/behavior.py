@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import random
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
@@ -242,7 +242,50 @@ class Behavior:
                 values[field_name] = float(raw)
             else:
                 values[field_name] = str(raw)
-        return cls(**values)
+        return _ludsky(cls(**values))
+
+
+# Podlaha, pod ktorú sa nedá nastaviť — nech si klient napíše do políčka čokoľvek.
+#
+# PREČO TO NIE JE VOĽNÉ. Ostatné nastavenia sú vec vkusu: rýchlejšie, pomalšie,
+# viac či menej otázok, to nech si klient nastaví. Tieto štyri čísla ale nie sú
+# vkus — pri týchto hodnotách prestane byť modelka človekom. Odpoveď do nuly
+# sekúnd, zakaždým rovnako rýchla, s otázkou v každej správe: to nie je „iný
+# štýl", to je stroj a Telegramu aj fanúšikom je to zjavné.
+#
+# Zámerne veľmi nízko. Nie je to náš názor na to, ako sa má odpisovať — je to
+# hranica, za ktorou to už nie je odpisovanie.
+#
+# `question_chance` tu ZÁMERNE NIE JE, hoci otázka v každej správe je rovnaký
+# problém. Dá sa totiž zmerať na tom, čo modelka naozaj poslala
+# (`ludskost.uz_sa_pytala_dost`), a to je lepšie: strop by len znížil
+# pravdepodobnosť, kým meranie vidí výsledok. Navyše by z „pýtaj sa vždy"
+# spravil náhodu — teda nastavenie, ktoré robí niečo iné, než hovorí.
+MIN_READ_S = 1
+MIN_REPLY_S = 3
+# Rozptyl medzi min a max. Rovnaké číslo v oboch znamená ROVNAKÝ odstup pri
+# každej správe, a pravidelnosť je to prvé, čo si všimne aj človek, aj systém.
+MIN_ROZPTYL_S = 5
+MAX_QUICK = 0.8
+
+
+def _ludsky(b: "Behavior") -> "Behavior":
+    """Stiahne hodnoty, pri ktorých by modelka prestala pôsobiť ako človek.
+
+    `Behavior` je `frozen`, takže sa nič neprepisuje na mieste — vzniká nová
+    inštancia. Je to zámer: nastavenie klienta v databáze ostáva jeho, mení sa
+    len to, s čím worker pracuje.
+    """
+    citanie_min = max(MIN_READ_S, b.read_delay_min_s)
+    odpoved_min = max(MIN_REPLY_S, b.reply_delay_min_s)
+    return replace(
+        b,
+        read_delay_min_s=citanie_min,
+        reply_delay_min_s=odpoved_min,
+        read_delay_max_s=max(citanie_min + MIN_ROZPTYL_S, b.read_delay_max_s),
+        reply_delay_max_s=max(odpoved_min + MIN_ROZPTYL_S, b.reply_delay_max_s),
+        quick_reply_chance=min(MAX_QUICK, b.quick_reply_chance),
+    )
 
 
 def _span(low: int, high: int, rng: Optional[random.Random]) -> float:

@@ -26,6 +26,7 @@ import humanize
 import oznamy
 import judge
 import limity
+import ludskost
 import memory
 import photos
 import recall
@@ -834,6 +835,14 @@ class UserBot:
             podiel = 1.0 - (poradie / persona_mod.EARLY_PHASE)
             sanca_otazky = max(sanca_otazky, sanca_otazky + (0.65 - sanca_otazky) * podiel)
         can_ask = random.random() < sanca_otazky
+        # A nakoniec sa pozrie, čo naozaj posiela. Nastavenie je zámer, toto je
+        # skutočnosť: pri rovnakom kóde mala jedna modelka otázku v 19 %
+        # správ a druhá v 46 %, lebo mala inak nastavený `question_chance` a
+        # chaty ešte v ranej fáze. Rozhovor s otázkou v každej druhej správe už
+        # nie je rozhovor, je to dotazník — a to si klient nemá ako všimnúť.
+        if can_ask and ludskost.uz_sa_pytala_dost(rows):
+            log.info("%s: otázku potláčam — v posledných správach ich bolo priveľa", tg_id)
+            can_ask = False
         gag = gags.maybe_pick(
             user.get("used_gags"), part, float(getattr(behavior, "gag_chance", 0.07) or 0)
         )

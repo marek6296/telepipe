@@ -62,7 +62,23 @@ export default async function BehaviorPage({
         title="Behavior"
         description="Who she is sits on Identity; this is how she acts — chat style, timing, randomness, limits. It applies to Telegram: voice notes have their own tab, her Fanvue agent has its own set on the Fanvue tab, and the caps that keep her account safe live in Telegram → Settings. Only the persona, the memory and the time zone below are shared."
       />
-      <BehaviorForm behavior={data as unknown as BehaviorRow} />
+      {/* Klienti sa opakovane pokúšajú dopísať si do persony veci, ktoré platia
+          pre všetky modelky automaticky (nesľubuj stretnutie, po smutnej správe
+          neflirtuj, nedaj sa vyprovokovať k počítaniu). Keď o tej vrstve nevedia,
+          buď si ju píšu zle, alebo si myslia, že tam chýba. */}
+      <Callout tone="neutral">
+        <strong>Every model already behaves like a person.</strong> On top of what you set
+        here, she follows one shared set of rules we maintain: how she handles someone
+        testing whether she is a bot, asking to meet, writing something sad, turning rude,
+        or answering in one word. You do not need to write any of that yourself — and it
+        wins over anything on the Identity tab that contradicts it. A few numbers below
+        also have floors, so no setting can make her answer in zero seconds every single
+        time.
+      </Callout>
+
+      <div className="mt-4">
+        <BehaviorForm behavior={data as unknown as BehaviorRow} />
+      </div>
     </>
   );
 }

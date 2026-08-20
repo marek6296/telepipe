@@ -306,3 +306,37 @@ class TestOpakovanyOtvarac:
         assert humanize.opener("haha, to je dobre") == "haha"
         assert humanize.opener("  Yeah no") == "yeah"
         assert humanize.opener("😅 nic") == ""
+
+
+class TestOtvaracAkoNavyk:
+    """Tik, ktorý sa medzi ostatné správy schová.
+
+    Namerané naživo: „haha" na začiatku 18 % jej správ, „aw"/„aww" ďalších 8 %.
+    Ani jedno neporušuje pravidlo „nie trikrát po sebe" — a napriek tomu takto
+    nepíše nikto.
+    """
+
+    def _historia(self, kolko_haha, celkom=8):
+        return ["haha nieco" if i < kolko_haha else "no nic" for i in range(celkom)]
+
+    def test_castý_otvarac_sa_odstrani(self):
+        out = humanize.thin_openers("haha to je dobre", self._historia(4))
+        assert not out.startswith("haha")
+        assert "to je dobre" in out
+
+    def test_obcasny_otvarac_ostava(self):
+        text = "haha to je dobre"
+        assert humanize.thin_openers(text, self._historia(1)) == text
+
+    def test_prve_pouzitie_v_kratkej_historii_ostava(self):
+        """Pri dvoch správach by jeden „haha" znamenal 50 %."""
+        text = "haha to je dobre"
+        assert humanize.thin_openers(text, ["haha ahoj", "no nic"]) == text
+
+    def test_iny_otvarac_sa_neriesi(self):
+        text = "yeah presne tak"
+        assert humanize.thin_openers(text, self._historia(6)) == text
+
+    def test_nezostane_prazdna_sprava(self):
+        """Keď je otvárač celá správa, radšej sa nerobí nič."""
+        assert humanize.thin_openers("haha", self._historia(6)) == "haha"

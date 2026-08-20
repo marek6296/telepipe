@@ -260,12 +260,29 @@ def opener(text: str) -> str:
     return match.group(1).lower() if match else ""
 
 
-def thin_openers(text: str, recent: List[str], streak: int = 2) -> str:
-    """Nezačínaj tretíkrát po sebe tým istým slovom.
+# Nad týmto podielom posledných správ je otvárač návyk, nie náhoda. Namerané
+# naživo: „haha" na začiatku 18 % jej správ, „aw"/„aww" ďalších 8 %. Ani jedno
+# neporušuje pravidlo „nie trikrát po sebe" — a napriek tomu je to na
+# konverzácii vidieť, lebo takto nepíše nikto.
+OTVARAC_PODIEL = 0.3
+OTVARAC_OKNO = 8
+
+
+def thin_openers(
+    text: str,
+    recent: List[str],
+    streak: int = 2,
+    podiel: float = OTVARAC_PODIEL,
+) -> str:
+    """Nezačínaj tretíkrát po sebe tým istým slovom — ani ním nezačínaj stále.
 
     Presne ten istý prípad ako `thin_emoji`: prompt to hovorí, model to
     nedodrží, a je to merateľné. „haha" na začiatku je samo o sebe v poriadku
-    — v poriadku nie je, keď ním začína každá tretia správa.
+    — v poriadku nie je, keď ním začína každá piata správa.
+
+    Dve pravidlá naraz: tri rovnaké začiatky ZA SEBOU, alebo ten istý začiatok
+    v prílišnom PODIELE posledných správ. Prvé chytá zjavné opakovanie, druhé
+    tik, ktorý sa medzi ostatné správy schová.
 
     Odstráni sa len otvárač, zvyšok vety ostáva. Keď by po ňom nezostalo nič
     vecné, radšej sa nerobí nič — prázdna správa je horšia než opakovaný začiatok.
@@ -273,8 +290,16 @@ def thin_openers(text: str, recent: List[str], streak: int = 2) -> str:
     moj = opener(text)
     if not moj:
         return text
-    posledne = [t for t in recent if (t or "").strip()][-streak:]
-    if len(posledne) < streak or not all(opener(t) == moj for t in posledne):
+    platne = [t for t in recent if (t or "").strip()]
+    posledne = platne[-streak:]
+    za_sebou = len(posledne) >= streak and all(opener(t) == moj for t in posledne)
+
+    okno = platne[-OTVARAC_OKNO:]
+    # Až od štyroch správ: pri dvoch by jeden „haha" znamenal 50 % a modelka by
+    # prišla o začiatok, ktorý použila prvýkrát v živote.
+    navyk = len(okno) >= 4 and sum(1 for t in okno if opener(t) == moj) / len(okno) > podiel
+
+    if not za_sebou and not navyk:
         return text
     zvysok = _OPENER_RE.sub("", text or "", count=1).lstrip()
     if len(zvysok.strip()) < 3:

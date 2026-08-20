@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 import behavior as behaviour_mod
 import checkout
+import ludskost
 import humanize
 import jazyky
 import topics as topics_mod
@@ -315,6 +316,11 @@ def build_system_prompt(
             sections.append(f"{label}\n{value}")
 
     sections.append(_CORE_RULES)
+    # Univerzálna ľudská vrstva. Zámerne ZA personou a za `_CORE_RULES`: hovorí
+    # o sebe, že platí nad všetkým vyššie, a to má zmysel len vtedy, keď to
+    # model číta ako posledné. Klient si tak nevie jedným poľom v persone
+    # rozbiť správanie, ktoré drží celý produkt.
+    sections.append(ludskost.blok())
     # Úroveň hlavného jazyka patrí k jadru pravidiel, ale nesmie byť natvrdo
     # angličtina — modelka píšuca po nemecky dostávala pokyn o angličtine.
     sections.append(jazyky.pravidlo_hlavneho(persona))

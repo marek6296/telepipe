@@ -32,6 +32,7 @@ import fvflow
 import fvmedia
 import fvsync
 import fvvoice
+import ludskost
 import oznamy
 
 log = logging.getLogger(__name__)
@@ -241,6 +242,10 @@ def build_prompt(
         str(persona.get("tone") or "").strip(),
         "",
         persona_mod.CORE_RULES,
+        # Tá istá ľudská vrstva ako na Telegrame. Je to tá istá osoba a tie isté
+        # situácie — smutná správa, test na bota či hrubosť nevyzerajú na Fanvue
+        # inak, len by tam doteraz nemala povedané, čo s nimi.
+        ludskost.blok(),
     ]
 
     # Slang podľa nastavenia modelky — ten istý zdroj ako Telegram.
