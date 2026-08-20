@@ -25,6 +25,11 @@ import { cn } from "@/lib/utils";
  * Ukladá sa cez `AutoSaveForm` ako dve polia: `lang_primary` (kód) a
  * `lang_extra` (pole). Server ich očistí ešte raz — tento komponent je
  * pohodlie, nie hranica.
+ *
+ * DVE ČASTI. `LanguageFields` je len ovládanie (dostane hodnotu, vráti novú) a
+ * používa ho aj wizard, kde sa ešte nič neukladá. `LanguagePicker` je to isté
+ * plus auto-save. Kým to bolo jedno, wizard mal vlastný zoznam jazykov bez
+ * úrovní — a preto modelke chýbali jazyky, ktoré si klient klikol.
  */
 export function LanguagePicker({
   primary: initialPrimary,
@@ -37,26 +42,48 @@ export function LanguagePicker({
   const [primary, setPrimary] = useState(initialPrimary);
   const [extra, setExtra] = useState<ExtraLanguage[]>(initialExtra);
 
-  /** Ukladá sa VŽDY oboje naraz. Server potrebuje hlavný jazyk, aby vedel
-   *  vyhodiť duplicitu z vedľajších — a keby prišiel len jeden, hádal by. */
+  return (
+    <LanguageFields
+      primary={primary}
+      extra={extra}
+      onChange={(novyPrimary, noveExtra) => {
+        setPrimary(novyPrimary);
+        setExtra(noveExtra);
+        // Ukladá sa VŽDY oboje naraz. Server potrebuje hlavný jazyk, aby vedel
+        // vyhodiť duplicitu z vedľajších — keby prišiel len jeden, hádal by.
+        set("lang_primary", novyPrimary);
+        set("lang_extra", noveExtra);
+        flush();
+      }}
+    />
+  );
+}
+
+/** To isté ovládanie bez ukladania — hodnotu drží ten, kto ho použije. */
+export function LanguageFields({
+  primary,
+  extra,
+  onChange,
+  className = "sm:col-span-2",
+}: {
+  primary: string;
+  extra: ExtraLanguage[];
+  onChange: (primary: string, extra: ExtraLanguage[]) => void;
+  className?: string;
+}) {
   function uloz(novyPrimary: string, noveExtra: ExtraLanguage[]) {
-    set("lang_primary", novyPrimary);
-    set("lang_extra", noveExtra);
-    flush();
+    onChange(novyPrimary, noveExtra);
   }
 
   function zmenPrimary(code: string) {
     // Nový hlavný jazyk nesmie ostať aj medzi vedľajšími — databáza to odmietne
     // a klient by videl chybu za niečo, čo spravil úplne rozumne.
     const ocistene = extra.filter((item) => item.code !== code);
-    setPrimary(code);
-    setExtra(ocistene);
     uloz(code, ocistene);
   }
 
   function zmenExtra(index: number, patch: Partial<ExtraLanguage>) {
     const next = extra.map((item, i) => (i === index ? { ...item, ...patch } : item));
-    setExtra(next);
     uloz(primary, next);
   }
 
@@ -66,20 +93,18 @@ export function LanguagePicker({
     );
     if (!volny) return;
     const next = [...extra, { code: volny.code, level: DEFAULT_LEVEL }];
-    setExtra(next);
     uloz(primary, next);
   }
 
   function odober(index: number) {
     const next = extra.filter((_, i) => i !== index);
-    setExtra(next);
     uloz(primary, next);
   }
 
   const mozeVieduPridat = extra.length < MAX_EXTRA && extra.length + 1 < LANGUAGES.length;
 
   return (
-    <div className="sm:col-span-2">
+    <div className={className}>
       <label className="block">
         <span className="text-[12.5px] text-[var(--app-text-2)]">Main language</span>
         <select

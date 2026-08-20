@@ -47,28 +47,33 @@ export default async function PersonaPage({ params }: PageProps<"/app/m/[id]/per
 
   return (
     <>
-      {isBlank(persona) && (
-        // `mb-12`, nie `mb-4`: `AutoSaveForm` ťahá obsah o `-mt-8` hore pod
-        // lepiaci indikátor ukladania, takže menší odstup by karta prekryla.
-        <div className="mb-12 flex flex-col gap-3 rounded-lg border border-[var(--app-border-strong)] bg-[#0e0e0e] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <p className="flex items-center gap-2 text-[13px] font-medium text-[var(--app-text)]">
-              <Sparkles className="h-3.5 w-3.5 text-[var(--app-text-4)]" strokeWidth={1.75} />
-              Nothing here yet
-            </p>
-            <p className="mt-1 text-[12px] leading-relaxed text-[var(--app-text-3)]">
-              Answer seven quick questions and we write all of this for you — you can edit
-              every word afterwards, right here.
-            </p>
-          </div>
-          <Link
-            href={`/app/m/${model.id}/persona/build`}
-            className="app-btn app-btn-primary h-9 shrink-0 px-4"
-          >
-            Build her with AI
-          </Link>
+      {/* Tlačidlo tu ostáva NAVŽDY, nielen kým je karta prázdna. Postaviť
+          charakter nanovo je bežná vec — klient zmení jazyk, tempo alebo to,
+          kam ťahá ľudí — a kým sa banner po prvom vyplnení stratil, nedalo sa
+          k builderu vôbec vrátiť. Rovnaké tlačidlo pokrýva aj kartu Behavior:
+          jeden beh píše obe, takže tam vlastné tlačidlo nepatrí.
+
+          `mb-12`, nie `mb-4`: `AutoSaveForm` ťahá obsah o `-mt-8` hore pod
+          lepiaci indikátor ukladania, takže menší odstup by kartu prekryl. */}
+      <div className="mb-12 flex flex-col gap-3 rounded-lg border border-[var(--app-border-strong)] bg-[#0e0e0e] px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 text-[13px] font-medium text-[var(--app-text)]">
+            <Sparkles className="h-3.5 w-3.5 text-[var(--app-text-4)]" strokeWidth={1.75} />
+            {isBlank(persona) ? "Nothing here yet" : "Build her again"}
+          </p>
+          <p className="mt-1 text-[12px] leading-relaxed text-[var(--app-text-3)]">
+            {isBlank(persona)
+              ? "Answer eight quick questions and we write all of this for you — her story, her texting, her limits and her rhythm. You can edit every word afterwards, right here."
+              : "Answer the questions again and we rewrite her story, her texting, her limits and her rhythm — on this tab and on Behavior. Nothing changes until you approve it."}
+          </p>
         </div>
-      )}
+        <Link
+          href={`/app/m/${model.id}/persona/build`}
+          className="app-btn app-btn-primary h-9 shrink-0 px-4"
+        >
+          {isBlank(persona) ? "Build her with AI" : "Rebuild with AI"}
+        </Link>
+      </div>
       <div className="mb-4">
         <SetupModeSwitch modelId={model.id} mode={mode} />
       </div>

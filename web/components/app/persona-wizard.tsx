@@ -12,12 +12,13 @@ import {
 } from "@/app/app/m/[id]/persona/build/actions";
 import { Callout } from "@/components/app/ui";
 import type { PersonaDraft } from "@/lib/persona-draft";
+import { LanguageFields } from "@/components/app/forms/language-picker";
 import {
+  CHAT_WINDOWS,
   EMOJI_LEVELS,
   EMPTY_ANSWERS,
-  LANGUAGES,
-  MAX_LANGUAGES,
   MAX_VIBES,
+  PACE_LEVELS,
   MSG_LENGTHS,
   SLANG_LEVELS,
   SPICE_LEVELS,
@@ -31,12 +32,17 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * Asistovaná tvorba persony — sedem otázok, jedno generovanie, jedna kontrola.
+ * Asistovaná tvorba persony — osem otázok, jedno generovanie, jedna kontrola.
  *
  * PREČO TAK MÁLO OTÁZOK: karta Persona má trinásť polí a karta Behavior ďalších
  * štyridsať. Klient, ktorý zakladá prvú modelku, nevie, čo do nich patrí — a
  * väčšina z nich sa dá odvodiť. Pýtame sa len na to, čo sa odvodiť NEDÁ (kto je,
  * kde žije, ako ďaleko smie zájsť), zvyšok napíše model.
+ *
+ * SPUSTIŤ SA DÁ KEDYKOĽVEK, nielen na prázdnej karte. Prestavať charakter je
+ * bežná vec (iný jazyk, iné tempo, iná platforma) — preto `overwrites`: keď je
+ * persona vypísaná, povie sa to na úvodnej aj na kontrolnej obrazovke, lebo
+ * Apply prepíše aj to, čo si klient napísal sám.
  *
  * NIČ SA NEUKLADÁ, KÝM KLIENT NEPOVIE. Generovanie vráti draft do prehliadača,
  * zapisuje sa až „Apply" — a to cez tie isté akcie ako obyčajné karty.
@@ -44,7 +50,7 @@ import { cn } from "@/lib/utils";
 
 type Phase = "intro" | "questions" | "review";
 
-const LAST_STEP = 6;
+const LAST_STEP = 7;
 
 /** Hlášky počas generovania — bez nich je to tridsať sekúnd prázdnej obrazovky. */
 const PROGRESS = [
@@ -59,11 +65,14 @@ export function PersonaWizard({
   modelId,
   modelName,
   blockedReason,
+  overwrites = false,
 }: {
   modelId: string;
   modelName: string;
   /** Neprázdne = generovať sa teraz nedá (kredit, chýbajúca konfigurácia). */
   blockedReason?: string;
+  /** Persona už je vypísaná — Apply ju prepíše, a to treba povedať dopredu. */
+  overwrites?: boolean;
 }) {
   const router = useRouter();
   const [phase, setPhase] = useState<Phase>("intro");
@@ -118,6 +127,7 @@ export function PersonaWizard({
       <IntroCard
         modelId={modelId}
         blockedReason={blockedReason}
+        overwrites={overwrites}
         onStart={() => {
           setPhase("questions");
           setStep(0);
@@ -130,6 +140,7 @@ export function PersonaWizard({
     return (
       <ReviewCard
         draft={draft}
+        overwrites={overwrites}
         warnings={warnings}
         error={error}
         applying={applying}
@@ -220,10 +231,12 @@ export function PersonaWizard({
 function IntroCard({
   modelId,
   blockedReason,
+  overwrites,
   onStart,
 }: {
   modelId: string;
   blockedReason?: string;
+  overwrites?: boolean;
   onStart: () => void;
 }) {
   return (
@@ -233,13 +246,24 @@ function IntroCard({
           <Sparkles className="h-4 w-4" strokeWidth={1.5} />
         </span>
         <h2 className="mt-5 text-[17px] font-medium tracking-[-0.01em] text-[var(--app-text)]">
-          Want help building her?
+          {overwrites ? "Build her again?" : "Want help building her?"}
         </h2>
         <p className="mt-2.5 text-[13px] leading-relaxed text-[var(--app-text-3)]">
-          Answer seven quick questions — mostly taps — and we write her whole persona
-          for you: her story, how she texts, what she never does and how she leads a
-          chat to your link. You can change every word afterwards on the normal tabs.
+          Answer eight quick questions — mostly taps — and we write her whole persona for
+          you: her story, how she texts, what she never does, how she leads a chat to your
+          link, and the rhythm she answers in. You can change every word afterwards on the
+          normal tabs.
         </p>
+
+        {overwrites && (
+          <div className="mt-6 text-left">
+            <Callout tone="gold">
+              She is already set up. Nothing changes while you answer — but if you approve
+              the result at the end, it replaces what is on her Persona and Behavior tabs,
+              including anything you wrote yourself.
+            </Callout>
+          </div>
+        )}
 
         {blockedReason ? (
           <div className="mt-6 text-left">
@@ -311,6 +335,7 @@ function GeneratingCard() {
 
 function ReviewCard({
   draft,
+  overwrites,
   warnings,
   error,
   applying,
@@ -319,6 +344,7 @@ function ReviewCard({
   onBack,
 }: {
   draft: PersonaDraft;
+  overwrites?: boolean;
   warnings: string[];
   error: string;
   applying: boolean;
@@ -338,8 +364,9 @@ function ReviewCard({
             Here she is
           </h2>
           <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--app-text-3)]">
-            Nothing has been saved yet. Apply it and every field below lands on her
-            Persona, Behavior and Voice tabs, where you can edit any of it word by word.
+            {overwrites
+              ? "Nothing has been saved yet. Apply it and every field below REPLACES what is on her Persona and Behavior tabs — including anything you wrote yourself. You can still edit all of it afterwards."
+              : "Nothing has been saved yet. Apply it and every field below lands on her Persona, Behavior and Voice tabs, where you can edit any of it word by word."}
           </p>
         </div>
 
@@ -356,7 +383,6 @@ function ReviewCard({
           </Section>
 
           <Section title="How she talks">
-            <Row label="Reply language" value={persona.language} />
             <Row label="Languages she speaks" value={persona.languages} />
             <Row label="Tone" value={persona.tone} />
             <Row label="Message style" value={persona.msg_style} />
@@ -366,6 +392,25 @@ function ReviewCard({
               value={behavior.no_diacritics ? "Yes" : "No"}
             />
             <Row label="Voice notes" value={behavior.voices_enabled ? "On" : "Off"} />
+            <Row label="Photos" value={behavior.photos_enabled ? "On" : "Off"} />
+          </Section>
+
+          {/* Rytmus je jediná časť draftu, ktorú klient nezadal slovami —
+              o to viac ju musí pred zápisom vidieť. */}
+          <Section title="Her rhythm">
+            <Row
+              label="Replies"
+              value={`usually in ${behavior.reply_delay_min_s}–${behavior.reply_delay_max_s} s, straight away ${pct(behavior.quick_reply_chance)} of the time`}
+            />
+            <Row
+              label="Leaves it on seen"
+              value={`${pct(behavior.seen_only_chance)} of messages, and gets back to it hours later ${pct(behavior.defer_reply_chance)} of the time`}
+            />
+            <Row label="Asks a question back" value={pct(behavior.question_chance)} />
+            <Row
+              label="Keeps a chat going"
+              value={`${behavior.chat_days} ${behavior.chat_days === 1 ? "day" : "days"}`}
+            />
           </Section>
 
           <Section title="Examples of her writing">
@@ -434,6 +479,11 @@ function ReviewCard({
   );
 }
 
+/** 0.07 → „7%". Percentá sa čítajú, desatinné čísla sa lúštia. */
+function pct(value: number): string {
+  return `${Math.round(value * 100)}%`;
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="px-5 py-4">
@@ -470,7 +520,8 @@ const TITLES = [
   "Tell us about her life",
   "How does she text?",
   "How far does she go?",
-  "Your link and her voice",
+  "How present is she?",
+  "Your link, her voice and photos",
 ];
 
 function Progress({ step }: { step: number }) {
@@ -517,7 +568,8 @@ function StepBody({
       {step === 3 && <StepLife answers={answers} set={set} />}
       {step === 4 && <StepTexting answers={answers} set={set} />}
       {step === 5 && <StepSpice answers={answers} set={set} />}
-      {step === 6 && <StepFunnel answers={answers} set={set} />}
+      {step === 6 && <StepPace answers={answers} set={set} />}
+      {step === 7 && <StepFunnel answers={answers} set={set} />}
     </>
   );
 }
@@ -679,12 +731,18 @@ function StepTexting({ answers, set }: StepProps) {
             onChange={(values) => values[0] && set("emoji", values[0])}
           />
         </Field>
-        <Field label={`Languages she speaks — the first one is what she writes in`}>
-          <Chips
-            options={LANGUAGES}
-            selected={answers.languages}
-            max={MAX_LANGUAGES}
-            onChange={(values) => set("languages", values)}
+        <Field label="Languages she speaks">
+          {/* To isté ovládanie ako na karte Persona — vrátane úrovní. Bez nich
+              si model úrovne domýšľal a klientovi potom v nastaveniach chýbal
+              jazyk, ktorý si tu vybral. */}
+          <LanguageFields
+            className=""
+            primary={answers.langPrimary}
+            extra={answers.langExtra}
+            onChange={(primary, extra) => {
+              set("langPrimary", primary);
+              set("langExtra", extra);
+            }}
           />
           <input
             className="app-input mt-3"
@@ -714,6 +772,42 @@ function StepSpice({ answers, set }: StepProps) {
         max={1}
         onChange={(values) => values[0] && set("spice", values[0])}
       />
+    </>
+  );
+}
+
+function StepPace({ answers, set }: StepProps) {
+  return (
+    <>
+      <Hint>
+        Two things nobody notices until they are wrong: how fast she answers, and how long
+        she stays interested. An agent that replies to everyone in four seconds, forever, is
+        the easiest thing in the world to spot.
+      </Hint>
+
+      <div className="mt-5 space-y-5">
+        <Field label="How fast she replies">
+          <Chips
+            options={PACE_LEVELS}
+            selected={[answers.pace]}
+            max={1}
+            onChange={(values) => values[0] && set("pace", values[0])}
+          />
+        </Field>
+        <Field label="How long she keeps a chat going">
+          <Chips
+            options={CHAT_WINDOWS}
+            selected={[answers.chatWindow]}
+            max={1}
+            onChange={(values) => values[0] && set("chatWindow", values[0])}
+          />
+          <p className="mt-2 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
+            Day one is her most talkative; after that she answers less and less, then sends
+            one last message pointing at your page and goes quiet. You can change this later
+            in Telegram settings.
+          </p>
+        </Field>
+      </div>
     </>
   );
 }
@@ -757,6 +851,23 @@ function StepFunnel({ answers, set }: StepProps) {
             selected={[answers.voice ? "yes" : "no"]}
             max={1}
             onChange={(values) => set("voice", values[0] === "yes")}
+          />
+        </Field>
+
+        <Field label="Photos">
+          <Chips
+            options={[
+              {
+                value: "yes",
+                label: "She sends photos",
+                hint: "upload them later on the Photos tab",
+                prompt: "",
+              },
+              { value: "no", label: "No photos", prompt: "" },
+            ]}
+            selected={[answers.photos ? "yes" : "no"]}
+            max={1}
+            onChange={(values) => set("photos", values[0] === "yes")}
           />
         </Field>
       </div>
@@ -858,8 +969,7 @@ function validateStep(step: number, answers: WizardAnswers): string {
   }
   if (step === 1 && !answers.city.trim()) return "Tell us her city.";
   if (step === 2 && answers.vibes.length === 0) return "Pick at least one.";
-  if (step === 4 && answers.languages.length === 0) return "Pick at least one language.";
-  if (step === 6 && answers.link.trim() && !/^https?:\/\/\S+\.\S+/.test(answers.link.trim())) {
+  if (step === LAST_STEP && answers.link.trim() && !/^https?:\/\/\S+\.\S+/.test(answers.link.trim())) {
     return "That link does not look right.";
   }
   return "";

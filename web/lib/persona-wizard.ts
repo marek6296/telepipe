@@ -18,6 +18,11 @@
  * rozumného výberu — staršiu personu si klient dopíše na karte Persona, kde
  * je rozsah 18–99. Wizard je rýchla voľba, nie strop produktu.
  */
+import { DEFAULT_LEVEL, DEFAULT_PRIMARY, MAX_EXTRA, type Level } from "./languages.ts";
+
+export { DEFAULT_LEVEL, DEFAULT_PRIMARY, MAX_EXTRA };
+export type { Level };
+
 export const WIZARD_MIN_AGE = 18;
 export const WIZARD_MAX_AGE = 45;
 
@@ -151,30 +156,60 @@ export const EMOJI_LEVELS: readonly Choice[] = [
 ] as const;
 
 /* --------------------------------------------------------------------------
-   Jazyky, ktorými hovorí
+   Rytmus — ako rýchlo a ako často je pri telefóne
 -------------------------------------------------------------------------- */
 /**
- * Prvý vybraný jazyk je jej hlavný — v ňom píše fanúšikom a v ňom musia byť
- * ukážkové správy. Zoznam je krátky zámerne: čo tu nie je, dopíše klient do
- * voľného poľa.
+ * Jedna otázka namiesto dvanástich čísel. Hodnoty, na ktoré sa to prekladá,
+ * sedia v `persona-draft.ts` (`PACE_TIMING`) — tam sú aj rozsahy, ktoré stráži
+ * `saveBehaviorAction`. Klient nemá riešiť sekundy; má povedať, aký človek to je.
  */
-export const LANGUAGES: readonly Choice[] = [
-  { value: "english", label: "English", prompt: "English" },
-  { value: "slovak", label: "Slovak", prompt: "Slovak" },
-  { value: "czech", label: "Czech", prompt: "Czech" },
-  { value: "german", label: "German", prompt: "German" },
-  { value: "spanish", label: "Spanish", prompt: "Spanish" },
-  { value: "french", label: "French", prompt: "French" },
-  { value: "italian", label: "Italian", prompt: "Italian" },
-  { value: "polish", label: "Polish", prompt: "Polish" },
-  { value: "portuguese", label: "Portuguese", prompt: "Portuguese" },
-  { value: "romanian", label: "Romanian", prompt: "Romanian" },
-  { value: "hungarian", label: "Hungarian", prompt: "Hungarian" },
-  { value: "ukrainian", label: "Ukrainian", prompt: "Ukrainian" },
-  { value: "russian", label: "Russian", prompt: "Russian" },
+export const PACE_LEVELS: readonly Choice[] = [
+  {
+    value: "chill",
+    label: "Busy",
+    hint: "answers when she has time",
+    prompt:
+      "she has a life outside the phone: often reads a message and gets back to it later, sometimes hours later",
+  },
+  {
+    value: "normal",
+    label: "Normal",
+    hint: "like most people",
+    prompt:
+      "an ordinary texter: usually replies within a minute or two, sometimes leaves it for a while",
+  },
+  {
+    value: "quick",
+    label: "Always on",
+    hint: "phone in hand",
+    prompt: "she is on her phone most of the day and usually answers within seconds",
+  },
 ] as const;
 
-export const MAX_LANGUAGES = 4;
+/* --------------------------------------------------------------------------
+   Ako dlho si s jedným človekom píše — `behavior.chat_days`
+-------------------------------------------------------------------------- */
+export const CHAT_WINDOWS: readonly Choice[] = [
+  {
+    value: "1",
+    label: "One day",
+    hint: "fast, link goes out same day",
+    prompt: "she chats with one person for a single day and makes sure her link goes out that day",
+  },
+  {
+    value: "3",
+    label: "A few days",
+    hint: "recommended",
+    prompt: "she chats with one person for about three days, most active on the first",
+  },
+  {
+    value: "7",
+    label: "A week",
+    hint: "slow burn",
+    prompt: "she keeps a chat going for about a week, winding down towards the end",
+  },
+] as const;
+
 
 /* --------------------------------------------------------------------------
    Pikantnosť — mapuje sa priamo na `behavior.heat`
@@ -224,14 +259,22 @@ export type WizardAnswers = {
   slang: string;
   length: string;
   emoji: string;
-  /** 1–4 hodnoty z `LANGUAGES`; prvá je hlavná. */
-  languages: string[];
+  /** Jazyk, v ktorom píše fanúšikom — kód z katalógu `languages.ts`. */
+  langPrimary: string;
+  /** Ďalšie jazyky s úrovňou. Presne to, čo ide do `persona.lang_extra`. */
+  langExtra: { code: string; level: Level }[];
   /** Voľný dodatok k jazykom („trochu po nemecky"). */
   languagesNote: string;
   spice: string;
+  /** Rytmus odpovedania — prekladá sa na časovanie v `behavior`. */
+  pace: string;
+  /** Dĺžka okna konverzácie v dňoch, ako reťazec z `CHAT_WINDOWS`. */
+  chatWindow: string;
   /** Odkaz na jej platformu. Prázdny = nikdy nepošle žiadny odkaz. */
   link: string;
   voice: boolean;
+  /** Posiela fotky z knižnice. */
+  photos: boolean;
 };
 
 export const EMPTY_ANSWERS: WizardAnswers = {
@@ -244,11 +287,15 @@ export const EMPTY_ANSWERS: WizardAnswers = {
   slang: "light",
   length: "medium",
   emoji: "some",
-  languages: ["english"],
+  langPrimary: DEFAULT_PRIMARY,
+  langExtra: [],
   languagesNote: "",
   spice: "medium",
+  pace: "normal",
+  chatWindow: "3",
   link: "",
   voice: true,
+  photos: true,
 };
 
 export function choiceOf(
