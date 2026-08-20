@@ -13,11 +13,11 @@ import { getTelegramConnection } from "@/lib/telegram";
  */
 export default async function ModelLayout({ children, params }: LayoutProps<"/app/m/[id]">) {
   const { id } = await params;
-  const model = await requireModel(id);
-  const [connection, aiPaused] = await Promise.all([
-    getTelegramConnection(model),
-    isAiPaused(model.id),
-  ]);
+  // `isAiPaused` potrebuje len id, nie celý riadok modelky — nemusí teda čakať
+  // na `requireModel`. Pri ~114 ms na okruh do databázy je to jeden ušetrený
+  // okruh pri KAŽDOM prepnutí karty modelky.
+  const [model, aiPaused] = await Promise.all([requireModel(id), isAiPaused(id)]);
+  const connection = await getTelegramConnection(model);
 
   return (
     <>

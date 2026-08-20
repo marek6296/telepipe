@@ -31,14 +31,20 @@ export default async function TelegramPage({
   params,
   searchParams,
 }: PageProps<"/app/m/[id]/telegram">) {
-  const { id } = await params;
-  const { reconnect } = await searchParams;
+  const [{ id }, { reconnect }] = await Promise.all([params, searchParams]);
   const model = await requireModel(id);
-  const connection = await getTelegramConnection(model);
-  // Stav kontrolného bota (uložený token, spárovaný chat, čakajúci kód,
-  // `owner_as_client`) skladá server action so service kľúčom — token je
-  // šifrovaný a klient naň nevidí.
-  const controlBot = await pollControlBotAction(model.id);
+
+  // Stav pripojenia a stav kontrolného bota sú NEZÁVISLÉ — čakať jedno na
+  // druhé stálo celý ďalší okruh do databázy. Pri ~114 ms na dotaz je každý
+  // ušetrený okruh priamo viditeľný na tom, ako rýchlo sa karta otvorí.
+  //
+  // `pollControlBotAction` skladá stav bota (uložený token, spárovaný chat,
+  // čakajúci kód, `owner_as_client`) server action so service kľúčom — token
+  // je šifrovaný a klient naň nevidí.
+  const [connection, controlBot] = await Promise.all([
+    getTelegramConnection(model),
+    pollControlBotAction(model.id),
+  ]);
 
   const reconnecting = Boolean(reconnect);
   const firstTimeSetup = !connection.connected || model.status === "draft";

@@ -41,10 +41,14 @@ const VOICE_COLUMNS =
 
 export default async function VoicePage({ params }: PageProps<"/app/m/[id]/voice">) {
   const { id } = await params;
-  const model = await requireModelTab(id, "voice");
-  const account = await getAccount();
+  // Model, účet aj klient sú nezávislé — sekvenčne to boli tri okruhy do
+  // databázy (~114 ms každý) skôr, než sa vôbec začal čítať riadok `behavior`.
+  const [model, account, supabase] = await Promise.all([
+    requireModelTab(id, "voice"),
+    getAccount(),
+    createClient(),
+  ]);
 
-  const supabase = await createClient();
   const { data } = await supabase
     .from("behavior")
     .select(VOICE_COLUMNS)
@@ -59,16 +63,15 @@ export default async function VoicePage({ params }: PageProps<"/app/m/[id]/voice
     );
   }
 
-  // Zoznam hlasov sa ťahá zo servera pri renderi, nie z prehliadača: kľúč
-  // ElevenLabs nesmie opustiť server, ani na jedno GET.
-  const catalog = await loadVoiceCatalog(account?.id ?? "");
-
   const voice = data as unknown as VoiceRow;
   const row = data as unknown as Record<string, unknown>;
 
-  // Katalog nasich hlasov + cena za hlasovku. RLS pusti len zapnute hlasy,
-  // takze filtrovat tu netreba.
-  const [{ data: managed }, config] = await Promise.all([
+  // Katalóg hlasov, náš číselník a cenník naraz — ani jedno nezávisí od
+  // druhého. `loadVoiceCatalog` sa ťahá zo servera, nie z prehliadača: kľúč
+  // ElevenLabs nesmie opustiť server, ani na jedno GET. RLS pustí len zapnuté
+  // hlasy, takže filtrovať tu netreba.
+  const [catalog, { data: managed }, config] = await Promise.all([
+    loadVoiceCatalog(account?.id ?? ""),
     supabase
       .from("managed_voices")
       .select("id, label, description")
