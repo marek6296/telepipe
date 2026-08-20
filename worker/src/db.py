@@ -400,6 +400,42 @@ class TenantDb:
             return {}
         return rows[0] if rows else {}
 
+    # Čo si smie majiteľ prepnúť z control bota. Zoznam je tu preto, že cez
+    # PATCH by inak prešlo aj `daily_report_sent_at` — a to sú poistky workera
+    # proti opakovaným správam, nie nastavenia. Tie isté stĺpce má whitelist
+    # na stránke (`web/app/app/m/[id]/telegram/bot/actions.ts`).
+    PREPINACE = (
+        "notify_fanvue_subscribe",
+        "notify_fanvue_payment",
+        "notify_fanvue_follow",
+        "notify_fanvue_like",
+        "notify_fanvue_comment",
+        "notify_credits_low",
+        "notify_startup",
+        "notify_crash",
+        "notify_hot_lead",
+        "daily_report",
+        "weekly_report",
+    )
+
+    async def set_control_bot_setting(self, field: str, value: bool) -> None:
+        """Prepne jednu notifikáciu. Neznámy stĺpec je chyba, nie ticho.
+
+        Riadok sa zakladá cez `upsert`: modelka spárovaná pred migráciou ho
+        nemá a prvé prepnutie by inak neurobilo nič.
+        """
+        if field not in self.PREPINACE:
+            raise ValueError(f"Neznáme nastavenie: {field}")
+        await self._post(
+            CONTROL_BOT_SETTINGS,
+            {
+                "model_id": self.model_id,
+                field: bool(value),
+                "updated_at": _now_iso(),
+            },
+            upsert=True,
+        )
+
     async def mark_credits_warned(self, kedy) -> None:
         """Značka upozornenia na kredit. `None` ju zmaže — to je návrat do
         stavu, keď smie prísť ďalšie upozornenie po opätovnom minutí."""

@@ -20,7 +20,10 @@ class _Cfg:
 
 
 def _spusti(coro):
-    return asyncio.get_event_loop().run_until_complete(coro)
+    # `asyncio.run`, nie `get_event_loop()`: ten druhý si berie slučku, ktorú
+    # nechal niekto iný, a keď ju predchádzajúci test zavrel, padne na
+    # „There is no current event loop" — chyba, ktorá s coinmi nesúvisí vôbec.
+    return asyncio.run(coro)
 
 
 def _fake_urlopen(monkeypatch, payload, zaznam=None):

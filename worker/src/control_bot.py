@@ -475,6 +475,13 @@ class ControlBot:
 
         if not value.isdigit():
             return "Enter a whole number. Or /cancel."
+
+        # Okno konverzácie má v databáze CHECK 1–14. Bez tejto kontroly by
+        # klient dostal surovú chybu z Postgresu namiesto vety, ktorá mu povie,
+        # čo má napísať.
+        if field == "chat_days" and not 1 <= int(value) <= 14:
+            return "Between 1 and 14 days. Or /cancel."
+
         await self._db.set_behavior_field(field, int(value))
         return None
 
@@ -575,6 +582,10 @@ class ControlBot:
             await self._send_safety(event, edit=True)
         elif head == "vx":
             await self._send_voice_exceptions(event, edit=True)
+        elif head == "nt":
+            await self._send_notifications(event, edit=True)
+        elif head == "nx":
+            await self._toggle_notification(event, arg)
         elif head == "st":
             await self._send_stats(event)
         elif head == "cv":
@@ -1224,6 +1235,10 @@ class ControlBot:
             [Button.inline("👤 Persona", b"pm"), Button.inline("🎭 Behaviour", b"bm")],
             [Button.inline("⏰ Times", b"tm"), Button.inline("📊 Stats", b"st")],
             [Button.inline("💬 Conversations", b"cv"), Button.inline("💰 Top up", b"tu")],
+            [Button.inline("🔔 Notifications", b"nt")],
+            # „Wipe my test chat" tu bolo dovtedy, kým sa skúšalo písaním na jej
+            # skutočný účet z vlastného Telegramu. To robí `🧪 Test chat`, ktorý
+            # sa premazáva sám a žiadnu konverzáciu nezanecháva.
             [
                 Button.inline(
                     "🛑 End test chat" if self._skuska.bezi(self._cfg.owner_chat_id)
@@ -1231,14 +1246,70 @@ class ControlBot:
                     b"try",
                 )
             ],
-            [
-                Button.inline(
-                    "🧹 Wipe my test chat",
-                    f"wq:{self._cfg.owner_chat_id}".encode(),
-                )
-            ],
         ]
         await self._render(event, text, buttons, edit)
+
+    # ---------- notifikácie ----------
+
+    # (stĺpec, popis) v poradí, v akom sa zobrazujú. Zoskupené podľa toho, čoho
+    # sa týkajú — nie podľa toho, ako sa volajú v databáze.
+    _NOTIFIKACIE: Tuple[Tuple[str, str, bool], ...] = (
+        ("notify_hot_lead", "🔥 Hot chat", True),
+        ("notify_crash", "🛑 She stopped replying", True),
+        ("notify_credits_low", "🪙 Coins running low", True),
+        ("notify_startup", "▶️ Agent started", True),
+        ("notify_fanvue_payment", "💰 Payment", True),
+        ("notify_fanvue_subscribe", "⭐ New subscriber", True),
+        ("notify_fanvue_follow", "👀 New follower", False),
+        ("notify_fanvue_like", "❤️ Post liked", False),
+        ("notify_fanvue_comment", "💬 New comment", False),
+        ("daily_report", "📋 Daily summary", False),
+        ("weekly_report", "📈 Weekly numbers", True),
+    )
+
+    async def _send_notifications(self, event, edit: bool = False) -> None:
+        """Všetky prepínače notifikácií na jednej obrazovke.
+
+        To isté sa dá nastaviť aj na stránke; toto je tá istá tabuľka a tie isté
+        stĺpce. Klient, ktorý práve dostal otravnú notifikáciu, ju musí vedieť
+        vypnúť tam, kde ju dostal — nie sa kvôli tomu prihlasovať do appky.
+        """
+        nastavenia = await self._db.control_bot_settings()
+        riadky = []
+        for stlpec, popis, vychodzie in self._NOTIFIKACIE:
+            zapnute = bool(nastavenia.get(stlpec, vychodzie))
+            riadky.append(
+                [
+                    Button.inline(
+                        f"{'✅' if zapnute else '⭕'} {popis}",
+                        f"nx:{stlpec}".encode(),
+                    )
+                ]
+            )
+        riadky.append([Button.inline("← Back", b"m")])
+
+        text = (
+            "*Notifications*\n\n"
+            "What I tell you about. Tap to switch one on or off — it applies "
+            "right away and matches the website.\n\n"
+            "_The daily summary costs a little credit each day (it reads her "
+            "chats). Everything else is free._"
+        )
+        await self._render(event, text, riadky, edit)
+
+    async def _toggle_notification(self, event, field: str) -> None:
+        nastavenia = await self._db.control_bot_settings()
+        vychodzie = next(
+            (v for stlpec, _, v in self._NOTIFIKACIE if stlpec == field), True
+        )
+        nova = not bool(nastavenia.get(field, vychodzie))
+        try:
+            await self._db.set_control_bot_setting(field, nova)
+        except ValueError:
+            await event.answer("Unknown setting", alert=True)
+            return
+        await event.answer("On" if nova else "Off")
+        await self._send_notifications(event, edit=True)
 
     # ---------- dobitie Pipe Coinov ----------
 
@@ -1387,6 +1458,13 @@ class ControlBot:
                     f"📻 Kvalita: {behavior.voice_strength}",
                     b"bt:voice_strength",
                 ),
+            ],
+            [
+                Button.inline(
+                    f"📆 Chat window: {behavior.chat_days} "
+                    f"{'day' if behavior.chat_days == 1 else 'days'}",
+                    b"b:chat_days",
+                )
             ],
             [Button.inline("🎙 When she may voice", b"vx")],
             [Button.inline("⏱ Timing", b"ti"), Button.inline("🎲 Randomness", b"ra")],
