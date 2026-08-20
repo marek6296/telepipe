@@ -262,3 +262,48 @@ class TestDrzost:
 
     def test_bez_utoku_sekcia_nie_je(self):
         assert "DRZÝ" not in self._prompt(False)
+
+
+class TestRozlucka:
+    """Posledná správa v chate — musí povedať PREČO a KAM, nie len zmiznúť."""
+
+    @staticmethod
+    def _prompt(allow_link=True, link_already_sent=False, farewell=True):
+        persona = {
+            "name": "Simona", "language": "", "languages": "",
+            "lang_primary": "en", "lang_extra": [],
+            "backstory": "", "tone": "", "msg_style": "",
+            "boundaries": "", "funnel_rules": "",
+            "cta_link": "https://fanvue.com/simona", "extra_rules": "",
+        }
+        return build_system_prompt(
+            persona,
+            {"tg_id": 1, "msg_count": 30, "funnel_stage": "warm"},
+            allow_link=allow_link,
+            asked_if_ai=False,
+            farewell=farewell,
+            link_already_sent=link_already_sent,
+        )
+
+    def test_vie_ze_je_to_posledna_sprava(self):
+        out = self._prompt()
+        assert "POSLEDNÁ SPRÁVA" in out
+
+    def test_odkaz_ide_do_nej(self):
+        """Pozvánka bez adresy je len rozlúčka."""
+        assert "https://fanvue.com/simona" in self._prompt()
+
+    def test_ked_odkaz_uz_ma_len_pripomenie(self):
+        out = self._prompt(allow_link=False, link_already_sent=True)
+        assert "PRIPOMEŇ" in out
+        assert "https://fanvue.com/simona" not in out
+
+    def test_nadviaze_na_rozhovor(self):
+        """Napísaná fráza by prezradila automat viac než čokoľvek iné."""
+        out = self._prompt()
+        assert "VLASTNÝMI SLOVAMI" in out
+        assert "zareaguj na to, čo ti práve napísal" in out
+
+    def test_bez_rozlucky_tam_nic_z_toho_nie_je(self):
+        out = self._prompt(farewell=False)
+        assert "POSLEDNÁ SPRÁVA" not in out

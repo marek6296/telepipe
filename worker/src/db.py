@@ -822,6 +822,9 @@ class TenantDb:
                 "last_outreach_at": None,
                 "outreach_silent": 0,
                 "tidied_at": None,
+                # Vyčistený chat začína odznova, vrátane okna konverzácie —
+                # inak by na prvú novú správu prišla rovno rozlúčka.
+                "farewell_at": None,
             },
         )
         return len(before)

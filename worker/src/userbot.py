@@ -496,6 +496,16 @@ class UserBot:
             log.info("Preskakujem %s (takeover/vypnuté)", tg_id)
             return
 
+        # Rozlúčka už odišla → tento chat je uzavretý. Je to TVRDÁ BRÁNA hneď
+        # vedľa takeoveru, nie súčasť útlmu nižšie: tam by sa dostala až za
+        # `_mark_read()`, a jeho správy by sa mu naďalej označovali ako
+        # prečítané. „Videné" bez odpovede je samo o sebe správa — a klient si
+        # nastavil, že už žiadna ísť nemá. Nech píše čokoľvek a koľkokrát chce.
+        if user.get("farewell_at"):
+            log.info("Preskakujem %s: po rozlúčke, chat je uzavretý", tg_id)
+            await self._db.update_user(tg_id, {"pending_reply": False})
+            return
+
         # Režim odpovedania (Off / Auto / Semi). Off = nereaguje vôbec; Semi =
         # namiesto odoslania sa vygenerujú návrhy a pošlú majiteľovi na
         # schválenie. V Semi sa preskakuje rozvrh/časovanie (tempo riadi majiteľ,
@@ -695,11 +705,24 @@ class UserBot:
         # Sám si pýta odkaz alebo chce explicitný obsah → nedrž mu ho pred nosom.
         wants_link = funnel.detect_link_request(last_user_text)
         explicit = funnel.detect_explicit_interest(last_user_text)
+        # Kto má odkaz už pár dní a stále je len tu, dostáva postupne menej.
+        okno_dni = int(getattr(behavior, "chat_days", taper_mod.DEFAULT_DNI) or taper_mod.DEFAULT_DNI)
+        utlm = taper_mod.level(user, okno_dni)
+        # Koniec okna má DVE fázy. Najprv odíde jedna posledná správa — má
+        # priveľa správ, a ak si chce písať ďalej, nájde ju na jej stránke.
+        # Až po nej je ticho. Zmiznúť bez slova uprostred rozhovoru je horšie
+        # než sa rozlúčiť: človek píše ďalej a čaká, prečo neodpisuje.
+        # (Že rozlúčka už odišla, sa rieši vyššie ako tvrdá brána — sem sa
+        # taký človek vôbec nedostane.)
+        je_rozlucka = utlm == taper_mod.TICHO
+        if je_rozlucka:
+            log.info("%s: okno %s dní vypršalo — posledná správa", tg_id, okno_dni)
+        if utlm:
+            log.info("%s: útlm konverzácie — úroveň %s (okno %s dní)", tg_id, utlm, okno_dni)
+
         # Blíži sa koniec okna? Vtedy sa odkaz pustí aj bez „aspoň 6 správ a
         # warm" — pri jednodňovom okne by ho človek inak nikdy nevidel.
-        zatvara_sa = taper_mod.closing(
-            user, int(getattr(behavior, "chat_days", taper_mod.DEFAULT_DNI) or taper_mod.DEFAULT_DNI)
-        )
+        zatvara_sa = taper_mod.closing(user, okno_dni)
         allow_link = funnel.can_send_link(
             user,
             datetime.now(timezone.utc),
@@ -710,7 +733,7 @@ class UserBot:
             # `wants_link`: nemá zmysel držať pred ním odkaz, keď o pár hodín
             # už s ním nebude reč. Strop pushov aj cooldown platia ďalej, takže
             # to nespôsobí druhý odkaz v tom istom chate.
-            fast_track=wants_link or explicit or zatvara_sa,
+            fast_track=wants_link or explicit or zatvara_sa or je_rozlucka,
         )
         if allow_link and not await self._link_quota_ok(behavior):
             log.info("%s: odkaz zablokovaný globálnym stropom %s/h", tg_id, behavior.max_links_per_hour)
@@ -801,18 +824,6 @@ class UserBot:
             log.info("%s: %s. obvinenie z bota — nechávam to tak", tg_id, tlak_bot)
             await self._db.update_user(tg_id, {"pending_reply": False})
             return
-
-        # Kto má odkaz už pár dní a stále je len tu, dostáva postupne menej.
-        okno_dni = int(getattr(behavior, "chat_days", taper_mod.DEFAULT_DNI) or taper_mod.DEFAULT_DNI)
-        utlm = taper_mod.level(user, okno_dni)
-        if utlm == taper_mod.TICHO:
-            # Koniec okna. NEODPOVEDÁME a ani nečítame — „videné" bez odpovede
-            # je samo o sebe správa a klient si nastavil, že už žiadna nemá ísť.
-            # Zámerne to nie je „krátka slušná odpoveď": tá by okno len predĺžila.
-            log.info("%s: okno %s dní vypršalo — ticho", tg_id, okno_dni)
-            return
-        if utlm:
-            log.info("%s: útlm konverzácie — úroveň %s (okno %s dní)", tg_id, utlm, okno_dni)
 
         # --- hlasovka: len keď prepis naozaj sadne na rozhovor ---
         # Nahrávky sú v angličtine, takže do inojazyčnej konverzácie nepatria —
@@ -915,6 +926,7 @@ class UserBot:
                 await self._post_send_update(
                     user, persona, behavior, "", rows, now_local, None,
                     said_goodnight=True,
+                    farewell=je_rozlucka,
                 )
                 return
             # Nahrávka neodišla. Rozlúčiť sa musí aj tak — mlčanie namiesto
@@ -1001,6 +1013,7 @@ class UserBot:
             photo_reason=photo_reason or "",
             link_already_sent=int(user.get("link_push_count") or 0) > 0,
             closing=zatvara_sa,
+            farewell=je_rozlucka,
             # Bez tohto stropu spomenula odkaz v každej jednej odpovedi.
             remind_link=not funnel.recently_reminded(rows),
             allow_long=allow_long,
@@ -1249,6 +1262,7 @@ class UserBot:
             gag.key if gag else None,
             said_goodnight=len_hlasovka,
             cta_voice=bool(chosen_voice and chosen_voice.get("is_cta")),
+            farewell=je_rozlucka,
         )
 
     @staticmethod
@@ -2083,6 +2097,7 @@ class UserBot:
         gag_used: Optional[str] = None,
         said_goodnight: bool = False,
         cta_voice: bool = False,
+        farewell: bool = False,
     ) -> None:
         tg_id = user["tg_id"]
         patch: Dict[str, Any] = {
@@ -2127,6 +2142,12 @@ class UserBot:
         style_note = memory.describe_style(rows)
         if style_note and style_note != (user.get("style_note") or ""):
             patch["style_note"] = style_note
+
+        # Pečiatka rozlúčky. Kým tam nie je, koniec okna znamená len ďalšiu
+        # poslednú správu — a človek by ich dostával toľko, koľkokrát napíše.
+        if farewell:
+            patch["farewell_at"] = _utc_iso()
+            await self._notify(f"👋 Chat closed — {_who(user)} (`{tg_id}`)")
 
         link = persona.get("cta_link") or ""
         # Pozvánka hlasom je ten istý krok ako poslať odkaz — inak by

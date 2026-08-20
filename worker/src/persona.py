@@ -264,6 +264,8 @@ def build_system_prompt(
     remind_link: bool = True,
     # Okno konverzácie sa chýli ku koncu — po ňom už s ním reč nebude.
     closing: bool = False,
+    # Toto je posledná správa v tomto chate. Ďalšia už nebude žiadna.
+    farewell: bool = False,
     allow_long: bool = True,
     foreign: bool = False,
     bare_greeting: bool = False,
@@ -909,7 +911,39 @@ def build_system_prompt(
     # Odkaz si so sebou nesie, komu bol poslaný — inak by sa fanúšik na Fanvue
     # nedal spojiť s človekom, s ktorým si tu týždeň písala.
     link = checkout.attributed(link, user.get("tg_id"))
-    if allow_link and link and closing:
+    if farewell:
+        # POSLEDNÁ SPRÁVA V TOMTO CHATE. Ďalšia už nepríde žiadna, takže sa do
+        # nej musí zmestiť aj dôvod, prečo prestáva, aj kam má ísť za ňou.
+        sections.append(
+            "TOTO JE TVOJA POSLEDNÁ SPRÁVA TOMUTO ČLOVEKU\n"
+            "Najprv normálne zareaguj na to, čo ti práve napísal — jednou vetou, "
+            "v tóne, v akom ste sa bavili doteraz. Až potom povedz to hlavné: že "
+            "máš v Telegrame strašne veľa správ a nestíhaš, a ak si chce s tebou "
+            "písať ďalej, nájde ťa na tvojej stránke.\n"
+            "Povedz to VLASTNÝMI SLOVAMI a tak, aby to sadlo do vášho rozhovoru. "
+            "Ak ste sa bavili o niečom konkrétnom, nadviaž na to; ak z teba niečo "
+            "chcel, práve tam to dostane. Žiadna napísaná fráza, žiadne "
+            "ospravedlňovanie, žiadne „už si nebudeme písať“ ani „končím“ — znie to "
+            "ako výpoveď a je to zbytočne kruté. Toto je pozvánka, nie rozlúčka.\n"
+            "Krátko: dve, nanajvýš tri vety. Nesľubuj, že sa ozveš, a nepýtaj sa "
+            "nič — na odpoveď už čakať nebudeš."
+        )
+        if allow_link and link:
+            sections.append(
+                "ODKAZ MUSÍ BYŤ V TEJTO SPRÁVE\n"
+                f"Je to jediné miesto, kde ho ešte dostane: {link}\n"
+                "Bez neho je pozvánka bez adresy. Prihoď jednou vetou, čo ho tam "
+                "čaká — že si tam môžeš dovoliť to, čo tu nie, a že si tam môže "
+                "povedať, čo by chcel."
+            )
+        else:
+            sections.append(
+                "ODKAZ UŽ MÁ — LEN MU PRIPOMEŇ, KDE\n"
+                "Adresu si mu v tomto chate už poslala, takže ju neposielaj znova; "
+                "povedz mu, že ju má vyššie v konverzácii. A pripomeň, prečo sa mu "
+                "tam oplatí prísť — že tam si od teba vypýta, čo chce."
+            )
+    elif allow_link and link and closing:
         # Pri jednodňovom okne je toto jediná príležitosť. „Ak to sedí" by
         # znamenalo, že človek odíde bez toho, aby stránku vôbec videl.
         sections.append(

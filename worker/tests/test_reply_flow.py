@@ -1432,3 +1432,76 @@ class TestRozhovoryNaraz:
         bot, _db, client = self._bot(list(range(30)), max_naraz=0)
         asyncio.run(bot.reply_to(555))
         assert client.sent
+
+
+class TestRozluckaNaKonciOkna:
+    """Koniec okna: jedna posledná správa, potom absolútne ticho.
+
+    Zmiznúť bez slova uprostred rozhovoru je horšie než sa rozlúčiť — človek
+    píše ďalej a čaká, prečo neodpisuje. Preto dve fázy, nie jedna.
+    """
+
+    def _stary(self, dni=3, **kw):
+        """Konverzácia začatá dávno pred koncom okna."""
+        return user_row(
+            created_at=(datetime.now(timezone.utc) - timedelta(days=dni * 3)).isoformat(),
+            **kw,
+        )
+
+    def test_posledna_sprava_este_odide(self):
+        bot, db, _, client, _ = build(
+            self._stary(),
+            [{"role": "user", "content": "hey what are you up to"}],
+            "so many messages here babe, find me on my page",
+            behavior={"active_start_min": 0, "active_end_min": 0, "chat_days": 3},
+        )
+        asyncio.run(bot.reply_to(555))
+        assert client.sent, "posledná správa musí odísť, nie mlčanie"
+
+    def test_a_zapecati_sa(self):
+        bot, db, _, _, _ = build(
+            self._stary(),
+            [{"role": "user", "content": "hey"}],
+            "im drowning in messages, you know where to find me",
+            behavior={"active_start_min": 0, "active_end_min": 0, "chat_days": 3},
+        )
+        asyncio.run(bot.reply_to(555))
+        assert db.users[555].get("farewell_at"), "rozlúčka sa musí zapísať"
+
+    def test_po_nej_uz_ani_slovo_ani_videne(self):
+        """Aj keby písal donekonečna — žiadna odpoveď a žiadne „videné"."""
+        bot, db, _, client, _ = build(
+            self._stary(farewell_at=datetime.now(timezone.utc).isoformat()),
+            [{"role": "user", "content": "hello?"}],
+            "toto nesmie odist",
+            behavior={"active_start_min": 0, "active_end_min": 0, "chat_days": 3},
+        )
+        for _ in range(3):
+            asyncio.run(bot.reply_to(555))
+        assert client.sent == [], "po rozlúčke sa neodpisuje"
+        assert client.read == [], "ani sa nedáva videné"
+
+    def test_druha_rozlucka_neexistuje(self):
+        """Jedna posledná správa je jedna, nie jedna na každú jeho správu."""
+        bot, db, _, client, _ = build(
+            self._stary(),
+            [{"role": "user", "content": "hey"}],
+            "find me on my page",
+            behavior={"active_start_min": 0, "active_end_min": 0, "chat_days": 3},
+        )
+        asyncio.run(bot.reply_to(555))
+        db.messages.append({"role": "user", "content": "hello?? you there??"})
+        db.users[555]["pending_reply"] = True
+        asyncio.run(bot.reply_to(555))
+        assert len(client.sent) == 1, f"odišlo {len(client.sent)} správ, má jedna"
+
+    def test_v_okne_sa_normalne_odpisuje(self):
+        bot, db, _, client, _ = build(
+            user_row(created_at=datetime.now(timezone.utc).isoformat()),
+            [{"role": "user", "content": "hey"}],
+            "hey you",
+            behavior={"active_start_min": 0, "active_end_min": 0, "chat_days": 3},
+        )
+        asyncio.run(bot.reply_to(555))
+        assert client.sent, "v okne sa odpisuje ako doteraz"
+        assert not db.users[555].get("farewell_at"), "a nič sa nezatvára"

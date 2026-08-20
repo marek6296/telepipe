@@ -1431,8 +1431,12 @@ class ControlBot:
             f"*{user.get('first_name') or tg_id}*"
             + (f" · @{user['username']}" if user.get("username") else ""),
             f"stage: {user.get('funnel_stage')} · msgs: {user.get('msg_count')} "
-            f"· odkaz {user.get('link_push_count')}×",
+            f"· link sent {user.get('link_push_count')}×",
         ]
+        # Bez tohto riadka vyzerá uzavretý chat ako pokazený agent: správy
+        # pribúdajú, odpovede nie a nikde nie je vidieť prečo.
+        if user.get("farewell_at"):
+            lines.append("_closed — she said her goodbye, this chat is over_")
         if user.get("style_note"):
             lines.append(f"_writes: {user['style_note']}_")
         if user.get("summary"):
