@@ -111,3 +111,31 @@ class TestGuidance:
 
     def test_obsahuje_meno(self):
         assert "Peter" in outreach.guidance(clovek(partner_name="Peter"))
+
+
+class TestOknoKonverzacie:
+    """Ranný pozdrav rešpektuje, koľko dní si klient nastavil."""
+
+    def _clovek(self, hodin_od_zaciatku, now):
+        return {
+            "created_at": (now - timedelta(hours=hodin_od_zaciatku)).isoformat(),
+            "msg_count": 12,
+            "paid": False,
+            "funnel_stage": "warm",
+            "ai_enabled": True,
+            "last_reply_at": (now - timedelta(hours=hodin_od_zaciatku - 1)).isoformat(),
+            "last_outreach_at": None,
+        }
+
+    def test_jednodnove_okno_sa_neozve_vobec(self):
+        """Jeden deň znamená jeden deň — a pozdrav chodí až na druhý."""
+        now = datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc)
+        assert not outreach.deserves(self._clovek(20, now), now, 1)
+
+    def test_dvojdnove_okno_sa_ozve(self):
+        now = datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc)
+        assert outreach.deserves(self._clovek(20, now), now, 2)
+
+    def test_po_okne_sa_neozve(self):
+        now = datetime(2026, 8, 20, 9, 0, tzinfo=timezone.utc)
+        assert not outreach.deserves(self._clovek(96, now), now, 3)

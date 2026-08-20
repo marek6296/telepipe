@@ -86,6 +86,9 @@ const INTEGERS: Record<string, [number, number]> = {
   // preto rozsah začína na nule; `chat_slot_min` nie, tam by nula ticho vypla
   // aj `max_active_chats`.
   max_outreach_per_hour: [0, 200],
+  // Dĺžka okna konverzácie v dňoch (Telegram → Settings). Nula tu nedáva
+  // zmysel a databáza ju aj tak odmietne (`behavior_chat_days_check`).
+  chat_days: [1, 14],
   max_active_chats: [0, 100],
   chat_slot_min: [1, 1440],
 };

@@ -21,6 +21,7 @@ export type TelegramLimitsRow = {
   chat_slot_min: number;
   max_outreach_per_hour: number;
   morning_enabled: boolean;
+  chat_days: number;
 };
 
 export function TelegramLimitsForm({ limits }: { limits: TelegramLimitsRow }) {
@@ -37,6 +38,24 @@ export function TelegramLimitsForm({ limits }: { limits: TelegramLimitsRow }) {
             label="Send a first 'hey' the next day"
             defaultValue={limits.morning_enabled}
             help="The day after a real conversation starts, she sends one short greeting like 'hey' — nothing else, no old topics, no link. Just once per person. Turn off and she never messages first."
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="How long she keeps a chat going"
+          description="Nobody writes to the same stranger forever. She is at her most talkative on day one and answers less each day after, until she stops — she does not even leave the last message on seen."
+        />
+        <div className="p-5">
+          <NumberField
+            name="chat_days"
+            label="Days she talks to one person"
+            defaultValue={limits.chat_days}
+            min={1}
+            max={14}
+            suffix="days"
+            help="Counted from his first message, not from the link. Set it to 1 and she talks for that one day only — and makes sure your page goes into the chat before it ends. From 2 up she can also say hi the next day. Whatever you pick, the link itself is only ever sent once per chat; after that she just reminds him it is up there."
           />
         </div>
       </Card>

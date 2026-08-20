@@ -59,7 +59,11 @@ def _last_contact(user: Dict[str, Any]) -> Optional[datetime]:
     return max(known) if known else None
 
 
-def deserves(user: Dict[str, Any], now_local: datetime) -> bool:
+def deserves(
+    user: Dict[str, Any],
+    now_local: datetime,
+    chat_days: int = 3,
+) -> bool:
     """Má sa tomuto človeku dnes ráno ozvať tým jedným pozdravom?
 
     `now_local` MUSÍ byť tz-aware v ČASOVOM PÁSME modelky — „druhý deň" sa
@@ -69,6 +73,18 @@ def deserves(user: Dict[str, Any], now_local: datetime) -> bool:
     if user.get("human_takeover") or not user.get("ai_enabled", True):
         return False
     if user.get("paid") or (user.get("funnel_stage") or "") == "converted":
+        return False
+
+    # Za oknom sa neozývame. Klient si nastavil, koľko dní to má trvať —
+    # ranný pozdrav deň po konci by to okno potichu predĺžil.
+    import taper as taper_mod
+    if taper_mod.ticho(user, chat_days, now_local.astimezone(timezone.utc)):
+        return False
+    # Jednodňové okno znamená jeden deň, a pozdrav chodí zásadne až na druhý.
+    # Samotné `ticho()` na to nestačí: okno sa počíta v hodinách, takže keby
+    # napísal poobede, ráno by ešte technicky „bežalo" — a ozvala by sa v deň,
+    # v ktorom už podľa nastavenia mlčí.
+    if int(chat_days or 1) < 2:
         return False
     if int(user.get("msg_count") or 0) < MIN_MESSAGES:
         return False
@@ -100,9 +116,10 @@ def due(
     users: Sequence[Dict[str, Any]],
     now_local: datetime,
     limit: int = 25,
+    chat_days: int = 3,
 ) -> List[Dict[str, Any]]:
     """Koho z týchto ľudí dnes ráno pozdraviť."""
-    vybrati = [user for user in users if deserves(user, now_local)]
+    vybrati = [user for user in users if deserves(user, now_local, chat_days)]
     return vybrati[:limit]
 
 

@@ -695,13 +695,22 @@ class UserBot:
         # Sám si pýta odkaz alebo chce explicitný obsah → nedrž mu ho pred nosom.
         wants_link = funnel.detect_link_request(last_user_text)
         explicit = funnel.detect_explicit_interest(last_user_text)
+        # Blíži sa koniec okna? Vtedy sa odkaz pustí aj bez „aspoň 6 správ a
+        # warm" — pri jednodňovom okne by ho človek inak nikdy nevidel.
+        zatvara_sa = taper_mod.closing(
+            user, int(getattr(behavior, "chat_days", taper_mod.DEFAULT_DNI) or taper_mod.DEFAULT_DNI)
+        )
         allow_link = funnel.can_send_link(
             user,
             datetime.now(timezone.utc),
             self._cfg.link_min_messages,
             self._cfg.link_cooldown_hours,
             self._cfg.link_max_pushes,
-            fast_track=wants_link or explicit,
+            # `zatvara_sa` je tu ako fast_track z rovnakého dôvodu ako
+            # `wants_link`: nemá zmysel držať pred ním odkaz, keď o pár hodín
+            # už s ním nebude reč. Strop pushov aj cooldown platia ďalej, takže
+            # to nespôsobí druhý odkaz v tom istom chate.
+            fast_track=wants_link or explicit or zatvara_sa,
         )
         if allow_link and not await self._link_quota_ok(behavior):
             log.info("%s: odkaz zablokovaný globálnym stropom %s/h", tg_id, behavior.max_links_per_hour)
@@ -794,9 +803,16 @@ class UserBot:
             return
 
         # Kto má odkaz už pár dní a stále je len tu, dostáva postupne menej.
-        utlm = taper_mod.level(user)
+        okno_dni = int(getattr(behavior, "chat_days", taper_mod.DEFAULT_DNI) or taper_mod.DEFAULT_DNI)
+        utlm = taper_mod.level(user, okno_dni)
+        if utlm == taper_mod.TICHO:
+            # Koniec okna. NEODPOVEDÁME a ani nečítame — „videné" bez odpovede
+            # je samo o sebe správa a klient si nastavil, že už žiadna nemá ísť.
+            # Zámerne to nie je „krátka slušná odpoveď": tá by okno len predĺžila.
+            log.info("%s: okno %s dní vypršalo — ticho", tg_id, okno_dni)
+            return
         if utlm:
-            log.info("%s: útlm konverzácie — úroveň %s", tg_id, utlm)
+            log.info("%s: útlm konverzácie — úroveň %s (okno %s dní)", tg_id, utlm, okno_dni)
 
         # --- hlasovka: len keď prepis naozaj sadne na rozhovor ---
         # Nahrávky sú v angličtine, takže do inojazyčnej konverzácie nepatria —
@@ -984,6 +1000,7 @@ class UserBot:
             photo_wanted=photo_reason == "asked",
             photo_reason=photo_reason or "",
             link_already_sent=int(user.get("link_push_count") or 0) > 0,
+            closing=zatvara_sa,
             # Bez tohto stropu spomenula odkaz v každej jednej odpovedi.
             remind_link=not funnel.recently_reminded(rows),
             allow_long=allow_long,
@@ -2376,7 +2393,12 @@ class UserBot:
             return
 
         vybrati: List[int] = []
-        for user in outreach_mod.due(kandidati, now_local, limit=behavior.morning_max_per_day):
+        for user in outreach_mod.due(
+            kandidati,
+            now_local,
+            limit=behavior.morning_max_per_day,
+            chat_days=int(getattr(behavior, "chat_days", 3) or 3),
+        ):
             if len(vybrati) >= volno:
                 log.info("Pozdrav na druhý deň: hodinový strop, zvyšok počká na ďalší cyklus")
                 break

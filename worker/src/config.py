@@ -203,7 +203,7 @@ class Config:
             contact_exceptions=_ids("CONTACT_EXCEPTIONS"),
             link_min_messages=_int("LINK_MIN_MESSAGES", 6),
             link_cooldown_hours=_int("LINK_COOLDOWN_HOURS", 48),
-            link_max_pushes=_int("LINK_MAX_PUSHES", 3),
+            link_max_pushes=_int("LINK_MAX_PUSHES", 1),
             encryption_key=_req("ENCRYPTION_KEY"),
             max_tenants=_int("MAX_TENANTS", 25),
             replica_name=os.getenv("RAILWAY_REPLICA_ID")
@@ -273,7 +273,10 @@ class TenantConfig:
     contact_exceptions: frozenset = frozenset()
     link_min_messages: int = 6
     link_cooldown_hours: int = 48
-    link_max_pushes: int = 3
+    # Samotná URL ide do chatu PRÁVE RAZ. Druhé vloženie odkazu vyzerá ako
+    # spam; keď na obsah tlačí znova, `persona.py` jej povie, nech mu
+    # pripomenie, že odkaz má vyššie v konverzácii — bez novej URL.
+    link_max_pushes: int = 1
     web_api_url: str = ""
     internal_api_secret: str = ""
 

@@ -41,6 +41,7 @@ FIELD_LABELS = {
     "quick_reply_min_s": "quick: reply min (s)",
     "quick_reply_max_s": "quick: reply max (s)",
     "question_chance": "chance she asks a question",
+    "chat_days": "days she keeps a chat going",
     "gag_chance": "chance of a cheeky joke",
     "photo_cooldown_min": "gap between photos (min)",
     "photos_enabled": "posielať fotky",
@@ -143,6 +144,8 @@ class Behavior:
     quick_reply_min_s: int = 5
     quick_reply_max_s: int = 20
     question_chance: float = 0.45
+    # Koľko dní sa s jedným človekom baví, kým stíchne. Viď `taper.py`.
+    chat_days: int = 3
     gag_chance: float = 0.07
     # Odstup medzi fotkami. Doteraz sa čítal cez getattr z poľa, ktoré tu
     # nebolo — takže to bola konštanta 45 tváriaca sa ako nastavenie.

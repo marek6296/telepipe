@@ -34,7 +34,10 @@ export default async function TelegramSettingsPage({
   const [{ data }, { data: settings }] = await Promise.all([
     supabase
       .from("behavior")
-      .select("model_id, max_active_chats, chat_slot_min, max_outreach_per_hour, morning_enabled")
+      .select(
+        "model_id, max_active_chats, chat_slot_min, max_outreach_per_hour, " +
+          "morning_enabled, chat_days",
+      )
       .eq("model_id", model.id)
       .maybeSingle(),
     supabase

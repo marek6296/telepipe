@@ -1,28 +1,41 @@
-"""Postupný útlm konverzácie po tom, čo dostal odkaz.
+"""Postupný útlm konverzácie a jej koniec.
 
-Keď niekto dostane odkaz a aj pár pripomenutí, ale aj tak ostáva len na
-Telegrame, nemá zmysel baviť ho tam donekonečna zadarmo. Namiesto tvrdého
-ukončenia sa konverzácia utlmuje: odpovede sú kratšie, iniciatívy menej, až mu
-raz povie, že sa teraz zdržiava hlavne na svojej stránke a nech príde tam.
+Keď niekto píše len na Telegrame a na stránku nejde, nemá zmysel baviť ho tam
+donekonečna zadarmo. Namiesto tvrdého konca sa konverzácia utlmuje: odpovede
+sú kratšie, iniciatívy menej, až raz stíchne úplne.
 
-Meria sa to v DŇOCH, nie v správach. Marek to chce až po dvoch-troch dňoch
-písania, nie po pol hodine — inak to vyzerá ako odbitie hneď po zoznámení.
+MERIA SA OD PRVÉHO KONTAKTU, NIE OD ODKAZU
+------------------------------------------
+Predtým sa útlm počítal od chvíle, keď odkaz odišiel. Malo to dve chyby: kto
+odkaz nikdy nedostal, neutlmil sa NIKDY, a klient nevedel dopredu povedať, ako
+dlho sa má s človekom baviť. Teraz je to okno v dňoch od prvej správy a
+nastavuje si ho klient (`behavior.chat_days`).
+
+KRIVKA
+------
+Okno sa delí na štvrtiny. V prvej je konverzácia normálna, potom sa postupne
+sťahuje, v poslednej štvrtine jej povie, že sa presúva na stránku — a po
+uplynutí okna stíchne ÚPLNE: neodpovie a nedá ani „videné".
+
+Pri jednodňovom okne sa to celé zmestí do jedného dňa. Preto je dôležité, že
+`closing()` dovolí poslať odkaz aj vtedy, keď by ho bežné pravidlá ešte
+nepustili — inak by človek odišiel bez toho, aby ho vôbec videl.
+
+Kto zaplatil, do útlmu nespadne nikdy.
 
 Je to počítané z dát v databáze, nie odhadované modelom, takže sa to nedá
-"rozhodnúť" zle a prežije to restart.
+„rozhodnúť" zle a prežije to restart.
 """
 from __future__ import annotations
 
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 
-# (dni od poslania odkazu, počet pripomenutí) → úroveň útlmu
-_PRAHY = (
-    (5, 3, 4),   # už len minimum, zmienku o stránke má za sebou
-    (3, 3, 3),   # povie mu, že sa presúva na stránku
-    (2, 2, 2),   # citeľne kratšie, skoro žiadne otázky
-    (1, 1, 1),   # o niečo kratšie, menej iniciatívy
-)
+# Úroveň, pri ktorej sa už neodpovedá vôbec. Nie je to „úroveň 5 útlmu",
+# je to koniec — volajúci ju musí riešiť inak než ostatné.
+TICHO = 5
+
+DEFAULT_DNI = 3
 
 
 def _parse(value: Any) -> Optional[datetime]:
@@ -37,23 +50,61 @@ def _parse(value: Any) -> Optional[datetime]:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-def level(user: Dict[str, Any], now: Optional[datetime] = None) -> int:
-    """0 = normálna konverzácia, 4 = už len minimum.
+def _dni_od_zaciatku(user: Dict[str, Any], now: datetime) -> Optional[float]:
+    """Koľko dní ubehlo od prvého kontaktu. `None` = nevieme, teda neutlmujeme."""
+    zaciatok = _parse(user.get("created_at"))
+    if zaciatok is None:
+        return None
+    return (now - zaciatok).total_seconds() / 86400
+
+
+def level(
+    user: Dict[str, Any],
+    chat_days: int = DEFAULT_DNI,
+    now: Optional[datetime] = None,
+) -> int:
+    """0 = normálna konverzácia, 4 = dohasína, `TICHO` = už neodpovedá vôbec.
 
     Kto zaplatil, do útlmu nikdy nespadne — ten si pozornosť zaslúži.
     """
     if user.get("paid") or (user.get("funnel_stage") or "") == "converted":
         return 0
-    sent = _parse(user.get("link_sent_at"))
-    if sent is None:
+
+    okno = max(1, int(chat_days or DEFAULT_DNI))
+    dni = _dni_od_zaciatku(user, now or datetime.now(timezone.utc))
+    if dni is None:
         return 0
 
-    dni = ((now or datetime.now(timezone.utc)) - sent).total_seconds() / 86400
-    pripomenuti = int(user.get("link_push_count") or 0)
-    for prah_dni, prah_push, uroven in _PRAHY:
-        if dni >= prah_dni and pripomenuti >= prah_push:
-            return uroven
+    if dni >= okno:
+        return TICHO
+
+    podiel = dni / okno
+    if podiel >= 0.75:
+        return 3        # posledná štvrtina: povie mu, že sa presúva na stránku
+    if podiel >= 0.5:
+        return 2
+    if podiel >= 0.25:
+        return 1
     return 0
+
+
+def ticho(user: Dict[str, Any], chat_days: int = DEFAULT_DNI,
+          now: Optional[datetime] = None) -> bool:
+    """Je konverzácia za oknom? Vtedy sa neodpovedá ani nečíta."""
+    return level(user, chat_days, now) == TICHO
+
+
+def closing(user: Dict[str, Any], chat_days: int = DEFAULT_DNI,
+            now: Optional[datetime] = None) -> bool:
+    """Blíži sa koniec okna — odkaz musí von, kým je ešte komu.
+
+    Bez tohto by pri jednodňovom okne človek odišiel bez toho, aby stránku
+    vôbec videl: bežné pravidlá pýtajú aspoň šesť správ a fázu `warm`, a to sa
+    za jeden deň nemusí stihnúť.
+    """
+    uroven = level(user, chat_days, now)
+    # Po okne už nikoho nezatvárame — vtedy sa neodpisuje vôbec.
+    return 3 <= uroven < TICHO
 
 
 GUIDANCE = {

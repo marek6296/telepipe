@@ -262,6 +262,8 @@ def build_system_prompt(
     misheard: bool = False,
     link_already_sent: bool = False,
     remind_link: bool = True,
+    # Okno konverzácie sa chýli ku koncu — po ňom už s ním reč nebude.
+    closing: bool = False,
     allow_long: bool = True,
     foreign: bool = False,
     bare_greeting: bool = False,
@@ -907,7 +909,18 @@ def build_system_prompt(
     # Odkaz si so sebou nesie, komu bol poslaný — inak by sa fanúšik na Fanvue
     # nedal spojiť s človekom, s ktorým si tu týždeň písala.
     link = checkout.attributed(link, user.get("tg_id"))
-    if allow_link and link:
+    if allow_link and link and closing:
+        # Pri jednodňovom okne je toto jediná príležitosť. „Ak to sedí" by
+        # znamenalo, že človek odíde bez toho, aby stránku vôbec videl.
+        sections.append(
+            "ODKAZ MUSÍ ÍSŤ VON V TEJTO ODPOVEDI\n"
+            f"Toto je posledná chvíľa, kedy mu ho vieš dať: {link}\n"
+            "Nehľadaj ideálny moment, žiadny nepríde. Zabaľ ho do toho, čo ho "
+            "tam čaká — že si tam môžeš dovoliť to, čo tu nie, a že si tam môže "
+            "povedať, čo by chcel. Nech to znie ako pozvánka, nie ako rozlúčka; "
+            "že končíte, mu nehovor."
+        )
+    elif allow_link and link:
         sections.append(
             "ODKAZ JE TERAZ POVOLENÝ\n"
             f"Ak to do rozhovoru prirodzene sedí, môžeš raz spomenúť: {link}\n"

@@ -211,3 +211,44 @@ class TestMenoZHolejOdpovede:
     def test_cela_veta_funguje_aj_bez_otazky(self):
         assert funnel.extract_name("my name is Gerard") == "Gerard"
         assert funnel.extract_name("Im Marek") == "Marek"
+
+
+class TestOdkazIbaRaz:
+    """URL ide do chatu práve raz — potom sa už len pripomína.
+
+    Predtým bol strop 3. V reálnych chatoch to vyzeralo tak, že tá istá
+    adresa padla trikrát v priebehu pár dní; ako reklama, nie ako pozvánka.
+    """
+
+    def _clovek(self, pushes, **kw):
+        row = {
+            "funnel_stage": "warm",
+            "msg_count": 30,
+            "link_push_count": pushes,
+            "paid": False,
+        }
+        row.update(kw)
+        return row
+
+    def test_prvy_odkaz_prejde(self):
+        assert funnel.can_send_link(
+            self._clovek(0), NOW, min_messages=6, cooldown_hours=48, max_pushes=1
+        )
+
+    def test_druhy_uz_nie_ani_po_cooldowne(self):
+        u = self._clovek(1, link_sent_at=(NOW - timedelta(days=30)).isoformat())
+        assert not funnel.can_send_link(
+            u, NOW, min_messages=6, cooldown_hours=48, max_pushes=1
+        )
+
+    def test_ani_ked_si_ho_sam_pyta(self):
+        """Fast-track obchádza počet správ, nie strop na počet odkazov."""
+        u = self._clovek(1, link_sent_at=(NOW - timedelta(days=30)).isoformat())
+        assert not funnel.can_send_link(
+            u, NOW, min_messages=6, cooldown_hours=48, max_pushes=1, fast_track=True
+        )
+
+    def test_default_konfiguracie_je_jeden(self):
+        import config
+
+        assert config.TenantConfig.link_max_pushes == 1
