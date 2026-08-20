@@ -443,3 +443,34 @@ class TestReakciaNaText:
         # „i hate you" obsahuje „you“ vzory milých viet nechytia, ale poistka
         # proti reakcii na útok musí platiť pre celý zoznam drzostí.
         assert humanize.text_reaction("fuck you i love you") == ""
+
+
+class TestOdkazySaNecistia:
+    """Čistenie typografie NESMIE siahnuť na odkaz.
+
+    `_STRIP_CHARS` obsahuje `_ ~ # | * ^ < >` — všetko znaky, ktoré v URL bežne
+    sú. Kým sa čistilo naslepo, každý odkaz s trackovacím parametrom odišiel
+    rozbitý (`?client_reference_id=` -> `?client reference id=`), v Telegrame
+    sa zlomil na prvej medzere a prepojenie fanúšika s konverzáciou ticho
+    zmizlo. Naozaj sa to dialo — je to vidieť v odoslaných správach.
+    """
+
+    def test_trackovaci_parameter_prezije(self):
+        link = "https://www.fanvue.com/aykokuro?client_reference_id=tg-6048574308"
+        assert link in humanize.sanitize(f"come see me {link}", keep_greeting=True)
+
+    def test_kotva_a_viac_parametrov_prezije(self):
+        link = "https://a.com/x?a_b=c&d~e=f#frag_ment"
+        assert link in humanize.sanitize(f"tu {link} koniec", keep_greeting=True)
+
+    def test_dva_odkazy_v_jednej_sprave(self):
+        a = "https://a.com/?x_y=1"
+        b = "https://b.com/?z_w=2"
+        out = humanize.sanitize(f"{a} a tiez {b}", keep_greeting=True)
+        assert a in out and b in out
+
+    def test_mimo_odkazu_sa_cisti_dalej(self):
+        """Poistka nesmie vypnúť čistenie zvyšku textu."""
+        out = humanize.sanitize("some _text_ here https://a.com/?x_y=1", keep_greeting=True)
+        assert "_text_" not in out
+        assert "https://a.com/?x_y=1" in out

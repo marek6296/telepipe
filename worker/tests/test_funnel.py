@@ -175,3 +175,39 @@ class TestHovorASretnutie:
     def test_bezny_text_nie(self):
         for text in ["hey how was ur day", "call it a night", "i called my mom today"]:
             assert not funnel.wants_call(text), text
+
+
+class TestMenoZHolejOdpovede:
+    """Holé „Gerard" je najčastejšia odpoveď na otázku o mene.
+
+    Kým prepadávalo, `partner_name` ostalo prázdne — a `humanize.enforce_name`
+    bez mena nemá čo vynucovať, takže si ho model vytiahol z histórie a používal
+    ho v každej piatej správe. Na jednej modelke bolo prázdnych 5 z 5
+    konverzácií a meno používala 4× častejšie, než návrh dovoľuje.
+    """
+
+    def test_hole_meno_po_otazke(self):
+        for text, ocakavane in [
+            ("Gerard", "Gerard"),
+            ("Marek and you? :)", "Marek"),
+            ("Rafael", "Rafael"),
+            ("Ruto", "Ruto"),
+        ]:
+            assert funnel.extract_name(text, just_asked=True) == ocakavane, text
+
+    def test_bez_otazky_sa_meno_nehada(self):
+        """Mimo odpovede na otázku by z každého prvého slova bolo meno."""
+        for text in ("Gerard", "Marek and you? :)", "Rafael"):
+            assert funnel.extract_name(text) == ""
+
+    def test_bezne_zaciatky_nie_su_mena(self):
+        """Presne tieto sa v ostrej prevádzke uložili ako meno: „Actually", „Im"."""
+        for text in ("im good", "Actually", "sorry", "yeah", "Honestly nothing", "lol"):
+            assert funnel.extract_name(text, just_asked=True) == "", text
+
+    def test_dlha_odpoved_nie_je_predstavenie(self):
+        assert funnel.extract_name("i had a really long day at work today", just_asked=True) == ""
+
+    def test_cela_veta_funguje_aj_bez_otazky(self):
+        assert funnel.extract_name("my name is Gerard") == "Gerard"
+        assert funnel.extract_name("Im Marek") == "Marek"

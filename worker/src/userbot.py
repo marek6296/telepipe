@@ -414,7 +414,10 @@ class UserBot:
         # Meno ukladáme hneď ako sa predstaví — do vlastného stĺpca, nie do
         # summary. Vďaka tomu sa naň už nikdy nespýta, ani o týždeň.
         if not (user.get("partner_name") or "").strip():
-            found = funnel.extract_name(text)
+            # `name_asked` = práve sa naň pýtala. Vtedy platí aj holé „Gerard",
+            # čo je v skutočnosti najčastejšia odpoveď — a práve tá doteraz
+            # prepadávala, takže meno sa nikdy neuložilo.
+            found = funnel.extract_name(text, just_asked=bool(user.get("name_asked")))
             if found:
                 patch["partner_name"] = found
                 user["partner_name"] = found
@@ -748,13 +751,23 @@ class UserBot:
         part = bhv.part_of_day(now_local)
         fresh = topics.suggest(asked, now_local, part, known_facts=known, seed=str(tg_id))
         avoid = topics.recently_asked(asked)
-        # V ranej fáze sa pýta výrazne častejšie. Namerané: otázku mala len
-        # v 16 % správ, hoci nastavenie povoľuje 45 % — a prvých dvadsať správ
-        # má byť čisté spoznávanie. Kto sa nepýta, ten sa nespoznáva.
+        # V ranej fáze sa pýta častejšie — spoznávanie bez otázok nefunguje.
+        #
+        # ALE NIE 80 %. Predtým tu bola tvrdá hranica 0.8 a na novej modelke to
+        # bolo vidieť okamžite: otázka v 46 % VŠETKÝCH správ a v podstate každá
+        # druhá veta bola „what do u do for work", „where do u live", „what do u
+        # like to do for fun". Čítalo sa to ako dotazník, nie ako rozhovor.
+        #
+        # Preto sa boost ZMENŠUJE s tým, ako sa spoznávajú: na začiatku okolo
+        # 65 %, k dvadsiatej správe plynule klesne na nastavenú hodnotu. Kto sa
+        # už pár vecí opýtal, nemá pokračovať v rovnakom tempe.
+        #
         # Nula znamená nula: keď má vypnuté otázky, neprebíja to ani raná fáza.
         sanca_otazky = float(behavior.question_chance or 0)
-        if sanca_otazky > 0 and int(user.get("msg_count") or 0) < persona_mod.EARLY_PHASE:
-            sanca_otazky = max(sanca_otazky, 0.8)
+        poradie = int(user.get("msg_count") or 0)
+        if sanca_otazky > 0 and poradie < persona_mod.EARLY_PHASE:
+            podiel = 1.0 - (poradie / persona_mod.EARLY_PHASE)
+            sanca_otazky = max(sanca_otazky, sanca_otazky + (0.65 - sanca_otazky) * podiel)
         can_ask = random.random() < sanca_otazky
         gag = gags.maybe_pick(
             user.get("used_gags"), part, float(getattr(behavior, "gag_chance", 0.07) or 0)

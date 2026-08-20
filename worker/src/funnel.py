@@ -99,11 +99,40 @@ _NOT_NAMES = {
     "in", "at", "on", "up", "out", "off", "too", "also", "sure", "yes", "no",
     "nice", "cool", "hot", "big", "small", "rich", "poor", "hungry", "thinking",
     "wondering", "asking", "wanting", "hoping", "waiting", "watching", "working",
+    # Slová, ktorými sa ľudia bežne začínajú, keď sa PRÁVE nepredstavujú.
+    # Bez nich by holá odpoveď „im good" dala meno „Im" a „Actually…" meno
+    # „Actually" — oboje sa naozaj stalo a modelka potom volala človeka
+    # nezmyslom v každej piatej správe.
+    "im", "i'm", "am", "my", "me", "actually", "honestly", "basically", "anyway",
+    "hey", "hi", "hii", "hello", "yo", "sup", "yeah", "yep", "yup", "nope", "nah",
+    "haha", "lol", "hmm", "hmmm", "oh", "ah", "wow", "omg", "thanks", "thank",
+    "please", "maybe", "nothing", "nvm", "what", "why", "how", "who", "where",
+    "when", "which", "wait", "hold", "listen", "look", "guess", "dunno", "idk",
 }
 
 
-def extract_name(text: str) -> str:
-    """Vytiahne meno, keď sa predstaví. Prázdny string, keď sa nepredstavil."""
+# Holá odpoveď na otázku o mene: „Gerard", „Marek and you?", „im Rafael :)".
+# Berie sa PRVÉ slovo — čokoľvek za ním je zdvorilosť alebo otázka späť.
+_HOLE_MENO_RE = re.compile(r"^[\s\W]*([A-Za-zÀ-ž][A-Za-zÀ-ž'-]{1,19})\b")
+
+
+def extract_name(text: str, just_asked: bool = False) -> str:
+    """Vytiahne meno, keď sa predstaví. Prázdny string, keď sa nepredstavil.
+
+    `just_asked=True` znamená, že sa naň PRÁVE pýtala. Vtedy platí aj holé
+    meno bez vety okolo — a to je v skutočnosti najčastejšia odpoveď.
+
+    NAMERANÉ, PREČO TO TU JE
+    ------------------------
+    Vzory nižšie poznajú len celé vety („im Marek", „my name is Gerard"). Na
+    otázku „what's your name?" ale ľudia odpovedajú jedným slovom: „Gerard",
+    „Marek and you? :)". Tie prepadli, `partner_name` ostalo prázdne — a keďže
+    `humanize.enforce_name` bez mena nemá čo vynucovať, model si ho vytiahol
+    z histórie a používal ho v každej piatej správe. Presne to, čo z odpovede
+    robí zjavný automat.
+
+    U jednej modelky bolo prázdnych 5 z 5 konverzácií.
+    """
     for pattern in _NAME_RES:
         match = pattern.search(text or "")
         if not match:
@@ -112,6 +141,17 @@ def extract_name(text: str) -> str:
         if len(candidate) < 2 or candidate.lower() in _NOT_NAMES:
             continue
         return candidate[:1].upper() + candidate[1:].lower()
+
+    if just_asked:
+        raw = (text or "").strip()
+        # Dlhá odpoveď nie je predstavenie sa — je to rozprávanie a meno by sa
+        # v nej hádalo. Štyri slová stačia na „Gerard and you? :)".
+        if len(raw.split()) <= 4:
+            match = _HOLE_MENO_RE.match(raw)
+            if match:
+                candidate = match.group(1).strip("'-")
+                if len(candidate) >= 2 and candidate.lower() not in _NOT_NAMES:
+                    return candidate[:1].upper() + candidate[1:].lower()
     return ""
 
 

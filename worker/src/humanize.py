@@ -101,9 +101,35 @@ _TYPOGRAPHY = {
 _STRIP_CHARS = '"\u201c\u201d\u201e\u201f\u00ab\u00bb`*_~|#^<>'
 
 
+# Odkaz sa čistením NESMIE dotknúť.
+#
+# `_STRIP_CHARS` obsahuje `_ ~ # | * ^ < >` — všetko znaky, ktoré v URL bežne
+# sú. Kým sa čistilo naslepo, každý odkaz s trackovacím parametrom odišiel
+# rozbitý: `?client_reference_id=tg-123` sa zmenilo na `?client reference
+# id=tg-123`. Odkaz sa v Telegrame zlomil na prvej medzere a prepojenie
+# fanúšika s jeho konverzáciou tichom zmizlo — funkcia, ktorá má vlastný modul
+# (`checkout.py`), nefungovala ani raz.
+_URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+
+
 def plain_punctuation(text: str) -> str:
-    """Prepíše typografiu na to, čo človek reálne natrieska na mobile."""
+    """Prepíše typografiu na to, čo človek reálne natrieska na mobile.
+
+    Odkazy sa vyberú bokom a vrátia späť nedotknuté — na mobile ich nikto
+    neprepisuje a čistenie typografie sa ich netýka.
+    """
     out = text or ""
+
+    odkazy: list[str] = []
+
+    def _odloz(match: "re.Match[str]") -> str:
+        odkazy.append(match.group(0))
+        # Zástupný znak nesmie obsahovať nič z `_STRIP_CHARS` ani z typografie,
+        # inak by ho čistenie samo rozbilo.
+        return f"\x00{len(odkazy) - 1}\x00"
+
+    out = _URL_RE.sub(_odloz, out)
+
     for bad, good in _TYPOGRAPHY.items():
         out = out.replace(bad, good)
     out = out.translate({ord(ch): " " for ch in _STRIP_CHARS})
@@ -112,7 +138,11 @@ def plain_punctuation(text: str) -> str:
     out = re.sub(r"\.{4,}", "...", out)
     out = re.sub(r"[ \t]{2,}", " ", out)
     out = re.sub(r"^[,\s]+", "", out)
-    return out.strip()
+    out = out.strip()
+
+    for i, odkaz in enumerate(odkazy):
+        out = out.replace(f"\x00{i}\x00", odkaz)
+    return out
 
 
 # Skratky, ktoré 27-ročná píše nanajvýš občas a 40-ročná vôbec. Model na
