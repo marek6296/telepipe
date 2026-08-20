@@ -20,7 +20,9 @@ const PREPINACE = [
   "notify_credits_low",
   "notify_startup",
   "notify_crash",
+  "notify_hot_lead",
   "daily_report",
+  "weekly_report",
 ] as const;
 
 export type BotSettingsResult = { error?: string };

@@ -162,9 +162,12 @@ export async function setAiPausedAction(
   paused: boolean,
 ): Promise<ActionResult> {
   const supabase = await createClient();
+  // `paused_until` sa nuluje spolu s tým — je to tretia cesta k tomu istému
+  // tichu (uspatie z control bota) a „Resume replies", ktoré ju nechá bežať,
+  // by tlačidlo spravilo klamlivým: klient klikne a modelka mlčí ďalej.
   const { error } = await supabase
     .from("settings")
-    .update({ ai_paused: paused })
+    .update({ ai_paused: paused, ...(paused ? {} : { paused_until: null }) })
     .eq("model_id", modelId);
 
   if (error) return { error: error.message };

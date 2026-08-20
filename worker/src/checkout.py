@@ -13,7 +13,7 @@ ako odkaz, ostáva nedotknuté.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 # Predpona, podľa ktorej sa na druhej strane pozná, že v hodnote je Telegram id
 # a nie čosi iné. Bez nej by sa ručne vyplnené `client_reference_id` dalo
@@ -39,6 +39,26 @@ def telegram_id(value: Any) -> Optional[int]:
         return int(text[len(PREFIX):])
     except ValueError:
         return None
+
+
+def z_udalosti(event: Dict[str, Any]) -> Optional[int]:
+    """Telegram id z Fanvue udalosti. None = táto platba k nám nevedie.
+
+    Fanvue nesie hodnotu raz takto a raz onak (`client_reference_id` aj
+    `clientReferenceId`, v `data` aj o úroveň vyššie), preto sa hľadá na
+    všetkých miestach naraz. Radšej pozrieť štyri kľúče než tvrdiť „nevieme,
+    odkiaľ prišiel" o človeku, s ktorým si týždeň písala.
+    """
+    payload = event.get("payload") or {}
+    data = payload.get("data") or {}
+    for kde in (data, payload, event):
+        if not isinstance(kde, dict):
+            continue
+        for kluc in ("client_reference_id", "clientReferenceId"):
+            hodnota = telegram_id(kde.get(kluc))
+            if hodnota is not None:
+                return hodnota
+    return None
 
 
 def attributed(link: str, tg_id: Any) -> str:

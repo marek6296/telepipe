@@ -29,13 +29,14 @@ import asyncio
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from telethon import Button, TelegramClient, events
 
 import behavior as bhv
 import coiny
+import skuska as skuska_mod
 from behavior import Behavior
 from config import TenantConfig as Config
 from db import TenantDb as Db
@@ -100,6 +101,27 @@ def _hhmm(minutes: int) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
+def _hhmm_z_iso(value: str, tz_name: str) -> str:
+    """Čas z ISO značky v pásme MODELKY — majiteľ myslí v jej čase.
+
+    Nečitateľná značka nesmie zhodiť menu: vtedy sa vypíše „soon" a klient
+    aspoň vidí, že spí.
+    """
+    try:
+        kedy = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return "soon"
+    if kedy.tzinfo is None:
+        kedy = kedy.replace(tzinfo=timezone.utc)
+    try:
+        from zoneinfo import ZoneInfo
+
+        kedy = kedy.astimezone(ZoneInfo(tz_name))
+    except Exception:  # noqa: BLE001 - zlá zóna nesmie zhodiť menu
+        kedy = kedy.astimezone(timezone.utc)
+    return kedy.strftime("%H:%M")
+
+
 def _parse_hhmm(text: str) -> Optional[int]:
     raw = text.strip().replace(".", ":")
     if ":" not in raw:
@@ -133,6 +155,10 @@ class ControlBot:
         self._cfg = cfg
         self._db = db
         self._client = client
+        # Skúšobný chat. LLM doplní runner (`set_llm`) — bez neho sa tlačidlo
+        # len ospravedlní, namiesto toho aby bot spadol.
+        self._llm: Any = None
+        self._skuska = skuska_mod.Skuska()
         # chat_id → ("persona"|"behavior"|"time"|"semi_custom"|"semi_price"|
         # "semi_caption", field) — čaká sa na hodnotu. Pri semi_* field nesie
         # message_id karty (str).
@@ -150,6 +176,12 @@ class ControlBot:
         # Chaty, ktorým sme už povedali, že bot čaká na párovací kód (viď
         # `_hint_unpaired`). Raz stačí — opakovať by z bota spravilo ozvenu.
         self._hinted: set[int] = set()
+
+    def set_llm(self, llm: Any) -> None:
+        """Merač LLM z runnera. Skúšobný chat platí z rovnakého kreditu ako
+        ostatné odpovede — je to skutočné volanie modelu a klient to musí
+        vidieť v spotrebe."""
+        self._llm = llm
 
     def register(self) -> None:
         self._client.add_event_handler(
@@ -275,11 +307,24 @@ class ControlBot:
         try:
             if command in ("/start", "/menu", "/help"):
                 self._awaiting.pop(event.chat_id, None)
+                # Menu je aj cesta von zo skúšky. Bez toho by každá ďalšia
+                # správa majiteľa išla modelke namiesto nastavení.
+                self._skuska.vypni(event.chat_id)
                 await self._send_main(event)
             elif command == "/cancel":
                 self._awaiting.pop(event.chat_id, None)
                 await event.reply("Cancelled.")
                 await self._send_main(event)
+            elif command == "/reset":
+                if self._skuska.bezi(event.chat_id):
+                    self._skuska.vycisti(event.chat_id)
+                    await event.reply(
+                        "🔄 *Fresh start.* She has forgotten this test chat and picks "
+                        "up whatever you changed. Say hi.",
+                        buttons=[[Button.inline("🛑 End test", b"try")]],
+                    )
+                else:
+                    await event.reply("Nothing to reset — no test chat is running.")
             elif command == "/den":
                 await self._send_day(event)
             else:
@@ -288,6 +333,48 @@ class ControlBot:
             log.exception("Command failed")
             await event.reply(f"⚠️ {exc}")
         raise events.StopPropagation
+
+    # ---------- skúšobný chat ----------
+
+    async def _karta_skusky(self, event) -> None:
+        """Úvod skúšky aj jej ovládanie. Tlačidlá ostávajú v chate, takže sa
+        dá premazať kedykoľvek — bez hľadania príkazu."""
+        await event.respond(
+            "🧪 *Test chat*\n\n"
+            "Write to her here as if you were a fan — she answers with the exact "
+            "persona, style and language your fans get.\n\n"
+            "Nothing here touches a real conversation, nothing is remembered after "
+            "you leave, and she never sends your link in a test.\n\n"
+            "Changed something on the website? Tap *Start over* — otherwise she "
+            "keeps following the answers she already gave here.\n\n"
+            "It does use your credit, same as any reply.",
+            buttons=[
+                [Button.inline("🔄 Start over", b"tryr"), Button.inline("🛑 End test", b"try")],
+            ],
+        )
+
+    async def _skusobna_odpoved(self, event: events.NewMessage.Event) -> None:
+        """Majiteľ napísal v skúške — modelka odpovie tu, v bote."""
+        text = (event.raw_text or "").strip()
+        if not text:
+            return
+        if self._llm is None:
+            await event.reply("The test chat is not available right now.")
+            return
+
+        persona = await self._db.get_persona()
+        behavior = Behavior.from_row(await self._db.get_behavior())
+        async with self._client.action(event.chat_id, "typing"):
+            kusy = await self._skuska.odpoved(
+                event.chat_id, text, persona, behavior, self._llm
+            )
+        if not kusy:
+            await event.reply("_(nothing came out — try again)_")
+            return
+        # Bubliny idú ako samostatné správy, presne ako fanúšikovi. Práve na
+        # rytme správ je najviac vidieť, či znie ako človek.
+        for kus in kusy:
+            await event.respond(kus)
 
     # ---------- prijatie hodnoty ----------
 
@@ -300,6 +387,16 @@ class ControlBot:
                 await self._try_pair(event)
             except Exception:  # noqa: BLE001 — pokazené párovanie nezhodí bota
                 log.exception("párovanie zlyhalo")
+            return
+        # Skúšobný chat má prednosť pred „nič sa nečaká" — ale NIE pred
+        # rozpísaným nastavením. Kto práve píše novú personu, nesmie ju omylom
+        # poslať modelke ako správu.
+        if chat_id not in self._awaiting and self._skuska.bezi(chat_id):
+            try:
+                await self._skusobna_odpoved(event)
+            except Exception as exc:  # noqa: BLE001 - skúška nesmie zhodiť bota
+                log.exception("skúšobný chat zlyhal")
+                await event.reply(f"⚠️ {exc}")
             return
         if chat_id not in self._awaiting:
             return
@@ -415,6 +512,39 @@ class ControlBot:
             paused = await self._db.is_paused()
             await self._db.set_paused(not paused)
             await event.answer("AI on" if paused else "AI off")
+            await self._send_main(event, edit=True)
+        elif head == "try":
+            if self._skuska.bezi(event.chat_id):
+                self._skuska.vypni(event.chat_id)
+                await event.answer("Test chat ended")
+                await self._send_main(event, edit=True)
+            elif self._llm is None:
+                await event.answer("The test chat is not available right now.", alert=True)
+            else:
+                self._skuska.zapni(event.chat_id)
+                await event.answer()
+                await self._karta_skusky(event)
+        elif head == "tryr":
+            # Vyčistenie skúšky. Toto NIE JE kozmetika: kým v histórii visia
+            # staré odpovede, model sa nimi riadi — klient zmení personu, ona
+            # ďalej odpisuje po starom a vyzerá to, že zmena nezabrala.
+            self._skuska.vycisti(event.chat_id)
+            await event.answer("Starting over")
+            await event.respond(
+                "🔄 *Fresh start.* She has forgotten this test chat and picks up "
+                "whatever you changed. Say hi."
+            )
+        elif head == "nap":
+            # Uspatie na pár hodín. Oproti „Turn AI off" má koniec — a práve
+            # to je celý zmysel: na zapnutie späť sa zabúda.
+            hodin = max(1, min(12, int(arg or 2)))
+            do = datetime.now(timezone.utc) + timedelta(hours=hodin)
+            await self._db.sleep_until(do.isoformat())
+            await event.answer(f"Sleeping for {hodin} h")
+            await self._send_main(event, edit=True)
+        elif head == "wake":
+            await self._db.sleep_until(None)
+            await event.answer("She is back")
             await self._send_main(event, edit=True)
         elif head == "tu":
             # Dobitie Pipe Coinov. `arg` prázdny = ponuka balíkov, inak počet
@@ -1061,8 +1191,17 @@ class ControlBot:
         fvmode_label = labels.get(fv.get("mode", "auto"), fv.get("mode", "auto"))
 
         fv_line = f"Replies (Fanvue): *{fvmode_label}*\n" if fv_connected else ""
+        # Spí na čas? Vtedy sa v hlavičke píše DOKEDY. „PAUSED" bez konca a
+        # „PAUSED do 14:30" sú dva úplne iné stavy a klient musí vidieť, ktorý má.
+        spi_do = await self._db.sleeping_until()
+        if spi_do:
+            stav = f"😴 asleep until {_hhmm_z_iso(spi_do, behavior.active_tz)}"
+        elif paused:
+            stav = "⏸ PAUSED"
+        else:
+            stav = "✅ running"
         text = (
-            f"*{persona.get('name') or 'Model'}* · {'⏸ PAUSED' if paused else '✅ running'}\n\n"
+            f"*{persona.get('name') or 'Model'}* · {stav}\n\n"
             f"Replies (Telegram): *{rmode_label}*\n"
             f"{fv_line}"
             f"Mode: *{mode}*\n"
@@ -1077,9 +1216,21 @@ class ControlBot:
             buttons.append([Button.inline(f"🔁 Fanvue: {fvmode_label}", b"rmf")])
         buttons += [
             [Button.inline("▶️ Turn AI on" if paused else "⏸ Turn AI off", b"pz")],
+            [
+                Button.inline("⏰ Wake her up", b"wake")
+                if spi_do
+                else Button.inline("😴 Sleep 2h", b"nap:2")
+            ],
             [Button.inline("👤 Persona", b"pm"), Button.inline("🎭 Behaviour", b"bm")],
             [Button.inline("⏰ Times", b"tm"), Button.inline("📊 Stats", b"st")],
             [Button.inline("💬 Conversations", b"cv"), Button.inline("💰 Top up", b"tu")],
+            [
+                Button.inline(
+                    "🛑 End test chat" if self._skuska.bezi(self._cfg.owner_chat_id)
+                    else "🧪 Test chat with her",
+                    b"try",
+                )
+            ],
             [
                 Button.inline(
                     "🧹 Wipe my test chat",
@@ -1395,9 +1546,9 @@ class ControlBot:
             f"Conversations: {stats['users']}\n"
             f"Warm: {stats['warm']}\n"
             f"Link sent: {stats['link_sent']}\n"
-            f"Predplatitelia: {stats['converted']}\n"
+            f"Subscribers: {stats['converted']}\n"
             f"Taken over by you: {stats['takeover']}\n\n"
-            f"Konverzia: *{stats['converted'] / total * 100:.1f} %*"
+            f"Conversion: *{stats['converted'] / total * 100:.1f} %*"
         )
         await self._render(event, text, [[Button.inline("← Back", b"m")]], True)
 

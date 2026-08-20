@@ -113,6 +113,10 @@ class FakeDb:
     async def get_behavior(self):
         return dict(self.behavior)
 
+    async def control_bot_settings(self):
+        """Notifikácie control bota. Testy si to prepíšu cez `nastavenia`."""
+        return dict(getattr(self, "nastavenia", {}))
+
     async def links_sent_since(self, since_iso):
         return self.links_last_hour
 
@@ -1505,3 +1509,65 @@ class TestRozluckaNaKonciOkna:
         asyncio.run(bot.reply_to(555))
         assert client.sent, "v okne sa odpisuje ako doteraz"
         assert not db.users[555].get("farewell_at"), "a nič sa nezatvára"
+
+
+class TestHoruciChat:
+    """Fanúšik práve tlačí — majiteľ o tom má vedieť teraz, nie z denného súhrnu."""
+
+    def _spusti(self, sprava, **kw):
+        bot, db, _, _, notes = build(
+            user_row(**kw),
+            [{"role": "user", "content": sprava}],
+            "hey you",
+        )
+        asyncio.run(bot.reply_to(555))
+        return db, notes
+
+    def test_ked_si_pyta_odkaz(self):
+        _, notes = self._spusti("where can i see more of you")
+        assert any("Hot right now" in n for n in notes)
+
+    def test_ked_tlaci_na_obsah(self):
+        _, notes = self._spusti("i want to see your pussy")
+        assert any("Hot right now" in n for n in notes)
+
+    def test_bezna_sprava_neposiela_nic(self):
+        _, notes = self._spusti("what did you have for lunch")
+        assert not any("Hot" in n for n in notes)
+
+    def test_platiaceho_nehlasime(self):
+        """Kto už platí, nie je lead — je to zákazník a tlačiť netreba."""
+        _, notes = self._spusti("send me more", paid=True)
+        assert not any("Hot" in n for n in notes)
+
+    def test_druhykrat_v_ten_isty_vecer_uz_nie(self):
+        """Jedna rozohriata konverzácia nesmie poslať desať pushov za večer."""
+        db, notes = self._spusti("where do i find more")
+        prvych = len([n for n in notes if "Hot right now" in n])
+        assert prvych == 1
+        assert db.users[555].get("hot_alert_at"), "čas sa musí zapísať"
+
+        # Druhý beh na tom istom riadku — vodoznak už je nastavený.
+        bot2, _, _, _, notes2 = build(
+            dict(db.users[555]),
+            [{"role": "user", "content": "come on where is it"}],
+            "hey you",
+        )
+        asyncio.run(bot2.reply_to(555))
+        assert not any("Hot right now" in n for n in notes2)
+
+    def test_da_sa_vypnut(self):
+        """Klientovi, ktorého to otravuje, to musí ísť zhasnúť."""
+        bot, db, _, _, notes = build(
+            user_row(),
+            [{"role": "user", "content": "where can i see more of you"}],
+            "hey you",
+        )
+        db.nastavenia = {"notify_hot_lead": False}
+        asyncio.run(bot.reply_to(555))
+        assert not any("Hot" in n for n in notes)
+
+    def test_hovori_ci_uz_odkaz_ma(self):
+        _, notes = self._spusti("where can i see more", link_push_count=1)
+        horuce = [n for n in notes if "Hot right now" in n]
+        assert horuce and "already has your link" in horuce[0]

@@ -216,6 +216,11 @@ export async function requireModelSubTab(
  * (power button), `ai_paused` hovorí, či beží a mlčí. Zlúčiť ich by znamenalo,
  * že „Resume replies" po flood warningu reštartne Telethon session — presne to,
  * čo sa po flood warningu robiť nemá.
+ *
+ * `paused_until` je tretia cesta k tomu istému tichu: uspatie na pár hodín
+ * z control bota. Číta sa TU spolu s `ai_paused` — inak by dashboard ukazoval
+ * zelené „Active" pri modelke, ktorá spí, teda presne tú chybu, kvôli ktorej
+ * toto čítanie vzniklo.
  */
 export async function getPausedMap(
   modelIds: string[],
@@ -227,11 +232,12 @@ export async function getPausedMap(
   const supabase = await createClient();
   const { data } = await supabase
     .from("settings")
-    .select("model_id, ai_paused")
+    .select("model_id, ai_paused, paused_until")
     .in("model_id", modelIds);
 
   for (const row of data ?? []) {
-    paused[row.model_id as string] = Boolean(row.ai_paused);
+    paused[row.model_id as string] =
+      Boolean(row.ai_paused) || sleeping(row.paused_until);
   }
   return paused;
 }
@@ -241,11 +247,24 @@ export const isAiPaused = cache(async function isAiPaused(modelId: string): Prom
   const supabase = await createClient();
   const { data } = await supabase
     .from("settings")
-    .select("ai_paused")
+    .select("ai_paused, paused_until")
     .eq("model_id", modelId)
     .maybeSingle();
-  return Boolean(data?.ai_paused);
+  return Boolean(data?.ai_paused) || sleeping(data?.paused_until);
 });
+
+/**
+ * Spí ešte? Nečitateľná značka = nespí.
+ *
+ * Rovnaké pravidlo ako vo workeri (`db._v_buducnosti`): pri pochybnosti sa
+ * NEHLÁSI pauza. Falošné „paused" by klienta poslalo hľadať poruchu, ktorá
+ * neexistuje.
+ */
+function sleeping(value: unknown): boolean {
+  if (!value) return false;
+  const until = new Date(String(value));
+  return !Number.isNaN(until.getTime()) && until.getTime() > Date.now();
+}
 
 /** Polnoc UTC — spotreba „za dnes" musí byť rovnaká pre server aj klienta. */
 function startOfUtcDay(): string {

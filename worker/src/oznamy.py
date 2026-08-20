@@ -109,6 +109,35 @@ def sprava_k_udalosti(
     return " · ".join(riadky)
 
 
+def sprava_o_horucom(
+    kto: str,
+    tg_id: int,
+    dovod: str,
+    nastavenia: Optional[Dict[str, Any]],
+    ma_odkaz: bool = False,
+) -> Optional[str]:
+    """Fanúšik práve tlačí — buď na obsah, alebo rovno pýta odkaz.
+
+    Jediná notifikácia v tomto module, ktorá súvisí s peniazmi: toto je presne
+    tá chvíľa, keď sa oplatí prevziať chat. Text preto hovorí, ČO povedal, nie
+    len že sa niečo deje — bez toho sa majiteľ musí najprv preklikať do chatu,
+    aby zistil, či to stojí za jeho čas.
+    """
+    if not _povolene(nastavenia, "notify_hot_lead", True):
+        return None
+    riadky = [
+        "🔥 *Hot right now*",
+        f"{kto} (`{tg_id}`)",
+        f"_{dovod}_",
+    ]
+    riadky.append(
+        "He already has your link — she is reminding him it is in the chat."
+        if ma_odkaz
+        else "She has not sent your link yet."
+    )
+    return "\n".join(riadky)
+
+
 def sprava_o_kredite(coins: float, nastavenia: Optional[Dict[str, Any]]) -> Optional[str]:
     """Dochádzajúce Pipe Coiny.
 

@@ -31,6 +31,7 @@ import photos
 import recall
 import speech
 import taper as taper_mod
+import tyzdenny
 import livevoice
 import outreach as outreach_mod
 import topics
@@ -209,6 +210,33 @@ class UserBot:
                 log.info("Denný report odoslaný")
         except Exception:  # noqa: BLE001
             log.exception("Denný report zlyhal")
+
+    async def _tyzdenny_report(self, behavior: Behavior, now_local) -> None:
+        """Štyri čísla za týždeň. Na rozdiel od denného nestojí volanie modelu,
+        preto smie byť zapnutý defaultne — a preto sa posiela aj prázdny týždeň:
+        „nikto ti nenapísal" je odpoveď, ktorú klient potrebuje počuť."""
+        if not self._control:
+            return
+        try:
+            nastavenia = await self._db.control_bot_settings()
+            if not nastavenia.get("weekly_report", True):
+                return
+            if not tyzdenny.treba_poslat(
+                now_local,
+                behavior.active_start_min,
+                behavior.active_end_min,
+                nastavenia.get("weekly_report_sent_at"),
+            ):
+                return
+
+            teraz = datetime.now(timezone.utc)
+            cisla = await self._db.stats_od((teraz - timedelta(days=7)).isoformat())
+            coiny = (await self._db.account_balance_usd()) * 1000
+            await self._db.mark_weekly_report_sent(teraz.isoformat())
+            await self._control.notify(tyzdenny.zostav(cisla, coiny))
+            log.info("Týždenný report odoslaný")
+        except Exception:  # noqa: BLE001 - report nesmie zhodiť upratovanie
+            log.exception("Týždenný report zlyhal")
 
     async def _strazi_kredit(self) -> None:
         """Upozorní na dochádzajúce Pipe Coiny — raz, nie pri každom behu.
@@ -719,6 +747,11 @@ class UserBot:
             log.info("%s: okno %s dní vypršalo — posledná správa", tg_id, okno_dni)
         if utlm:
             log.info("%s: útlm konverzácie — úroveň %s (okno %s dní)", tg_id, utlm, okno_dni)
+
+        # Práve tlačí? Majiteľ o tom má vedieť TERAZ, nie z denného súhrnu —
+        # je to jediná chvíľa, keď má zmysel prevziať chat.
+        if (wants_link or explicit) and not user.get("paid"):
+            asyncio.create_task(self._hlas_horuci(user, wants_link, last_user_text))
 
         # Blíži sa koniec okna? Vtedy sa odkaz pustí aj bez „aspoň 6 správ a
         # warm" — pri jednodňovom okne by ho človek inak nikdy nevidel.
@@ -1422,6 +1455,35 @@ class UserBot:
                 "Replies will wait and catch up afterwards."
             )
         return True
+
+    # Koľko musí uplynúť, kým sa na ten istý chat ozveme znova. Bez toho by
+    # jedna rozohriata konverzácia poslala majiteľovi desať pushov za večer a
+    # vypol by si notifikácie úplne.
+    HOT_TICHO_H = 12
+
+    async def _hlas_horuci(self, user: Dict[str, Any], pyta_odkaz: bool, text: str) -> None:
+        """Push majiteľovi, že fanúšik práve tlačí. Zlyhanie nesmie byť vidieť."""
+        tg_id = int(user.get("tg_id") or 0)
+        try:
+            posledny = _parse_ts(user.get("hot_alert_at"))
+            if posledny and datetime.now(timezone.utc) - posledny < timedelta(
+                hours=self.HOT_TICHO_H
+            ):
+                return
+            nastavenia = await self._db.control_bot_settings()
+            sprava = oznamy.sprava_o_horucom(
+                _who(user),
+                tg_id,
+                "asking where to find you" if pyta_odkaz else "pushing for more",
+                nastavenia,
+                ma_odkaz=int(user.get("link_push_count") or 0) > 0,
+            )
+            if not sprava:
+                return
+            await self._db.update_user(tg_id, {"hot_alert_at": _utc_iso()})
+            await self._notify(sprava)
+        except Exception as exc:  # noqa: BLE001 - notifikácia nesmie ovplyvniť odpoveď
+            log.warning("%s: upozornenie na horúci chat zlyhalo (%s)", tg_id, exc)
 
     async def _link_quota_ok(self, behavior: Behavior) -> bool:
         """Globálny strop odkazov za hodinu — naprieč všetkými konverzáciami.
@@ -2488,6 +2550,7 @@ class UserBot:
             # Denný súhrn patrí sem: koniec okna JE koniec jej dňa. Report
             # o polnoci by nočnej modelke rozsekol deň naprostred.
             await self._denny_report(behavior, now_local)
+            await self._tyzdenny_report(behavior, now_local)
             await self._strazi_kredit()
             return
         if await self._db.is_paused():

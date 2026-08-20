@@ -311,6 +311,9 @@ class TenantRunner:
                 notify=control.notify if bot_ready else None,
             )
 
+            # Skúšobný chat v botovi používa ten istý merač ako odpisovanie.
+            control.set_llm(llm)
+
             userbot = UserBot(cfg, db, llm, user_client, control.notify)
             userbot.register()
             # Semi-auto: prepoj control bota (schvaľovanie) s userbotom

@@ -97,6 +97,16 @@ def _ts(value: Optional[str]) -> Optional[datetime]:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
+def _v_buducnosti(value: Optional[str]) -> bool:
+    """Je táto značka ešte pred nami? Nečitateľná = nie.
+
+    Pri pochybnosti sa NESPÍ: zle prečítaný dátum smie znamenať nanajvýš to, že
+    modelka odpovie, keď nemusela — nie to, že onemie a nikto nevie prečo.
+    """
+    kedy = _ts(value)
+    return bool(kedy and kedy > datetime.now(timezone.utc))
+
+
 def unseal_eleven_key(
     row: Dict[str, Any],
     encryption_key: str,
@@ -408,6 +418,15 @@ class TenantDb:
             {"daily_report_sent_at": kedy, "updated_at": _now_iso()},
         )
 
+    async def mark_weekly_report_sent(self, kedy: str) -> None:
+        """To isté pre týždenný. Sweeper beží každé tri minúty, takže bez
+        vodoznaku by v pondelok po konci okna odišiel tridsaťkrát."""
+        await self._patch(
+            CONTROL_BOT_SETTINGS,
+            {"model_id": self._mine},
+            {"weekly_report_sent_at": kedy, "updated_at": _now_iso()},
+        )
+
     # ---------- persona ----------
 
     async def get_persona(self) -> Dict[str, Any]:
@@ -543,11 +562,40 @@ class TenantDb:
     # ---------- globálne nastavenia ----------
 
     async def is_paused(self) -> bool:
-        rows = await self._get(SETTINGS, {"model_id": self._mine, "select": "ai_paused"})
-        return bool(rows and rows[0].get("ai_paused"))
+        """Spí modelka? Ručná pauza BEZ konca, alebo uspatie na pár hodín.
+
+        Sú to dve polia, lebo sú to dve rozhodnutia. `ai_paused` platí, kým ju
+        niekto nevypne — a presne na to sa zabúda. `paused_until` sa zobudí samo
+        a je to jediné, čo klient chce, keď ide na tri hodiny preč.
+        """
+        rows = await self._get(
+            SETTINGS, {"model_id": self._mine, "select": "ai_paused,paused_until"}
+        )
+        row = rows[0] if rows else {}
+        if row.get("ai_paused"):
+            return True
+        return _v_buducnosti(row.get("paused_until"))
 
     async def set_paused(self, paused: bool) -> None:
-        await self._patch(SETTINGS, {"model_id": self._mine}, {"ai_paused": paused})
+        """Ručná pauza. Zapnutie ruší uspatie a naopak — dve pauzy naraz by
+        znamenali, že zobudenie ticho nezaberie."""
+        await self._patch(
+            SETTINGS, {"model_id": self._mine}, {"ai_paused": paused, "paused_until": None}
+        )
+
+    async def sleep_until(self, until_iso: Optional[str]) -> None:
+        """Uspí do daného času (alebo zobudí, keď príde None)."""
+        await self._patch(
+            SETTINGS,
+            {"model_id": self._mine},
+            {"paused_until": until_iso, "ai_paused": False},
+        )
+
+    async def sleeping_until(self) -> Optional[str]:
+        """Do kedy spí. None = nespí (alebo je to ručná pauza bez konca)."""
+        rows = await self._get(SETTINGS, {"model_id": self._mine, "select": "paused_until"})
+        hodnota = (rows[0].get("paused_until") if rows else None) or None
+        return hodnota if _v_buducnosti(hodnota) else None
 
     # ---------- flood pauza (oddelená od ručnej!) ----------
 
@@ -1371,6 +1419,30 @@ class TenantDb:
             "link_sent": await count({"funnel_stage": "eq.link_sent"}),
             "converted": await count({"funnel_stage": "eq.converted"}),
             "takeover": await count({"human_takeover": "is.true"}),
+        }
+
+    async def stats_od(self, since_iso: str) -> Dict[str, int]:
+        """Čísla za obdobie, nie za celý život účtu.
+
+        Celkové čísla po pár mesiacoch prestanú hovoriť čokoľvek — rastú aj
+        vtedy, keď sa posledný týždeň nedialo nič. Toto je to, čo sa naozaj
+        stalo za dané obdobie.
+        """
+        async def count(params: Dict[str, str]) -> int:
+            r = await self._client.get(
+                USERS,
+                params={"model_id": self._mine, **params, "select": "tg_id"},
+                headers={"Prefer": "count=exact", "Range": "0-0"},
+            )
+            r.raise_for_status()
+            return int(r.headers.get("content-range", "*/0").split("/")[-1])
+
+        od = f"gte.{since_iso}"
+        return {
+            "novi": await count({"created_at": od}),
+            "odkazy": await count({"link_sent_at": od}),
+            "platiaci": await count({"paid": "is.true"}),
+            "zavrete": await count({"farewell_at": od}),
         }
 
 

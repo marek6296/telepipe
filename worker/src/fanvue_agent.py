@@ -25,6 +25,7 @@ import random
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+import checkout
 import den
 import fanmatch
 import fvflow
@@ -493,8 +494,47 @@ class FanvueAgent:
                 suma = f"${centy / 100:.2f}"
 
         text = oznamy.sprava_k_udalosti(event, nastavenia, meno_fana=meno, suma=suma)
-        if text:
-            await self._control.notify(text)
+        if not text:
+            return
+        # Prišiel z Telegramu? Vtedy je to jediné číslo, ktoré klient naozaj
+        # chce vidieť — či sa to písanie vyplatilo. Odkaz si so sebou nesie,
+        # komu bol poslaný (`checkout.attributed`), len sa to doteraz na druhej
+        # strane nikdy nečítalo.
+        odkial = await self._z_telegramu(event, fan)
+        if odkial:
+            text += f"\n\n💬 From your Telegram chat with {odkial}"
+        await self._control.notify(text)
+
+    async def _z_telegramu(self, event: Dict[str, Any], fan: Dict[str, str]) -> str:
+        """Meno telegramového človeka za touto udalosťou. Prázdne = nevieme.
+
+        Dve cesty, v poradí istoty: `client_reference_id` z checkout odkazu
+        (to je dôkaz) a už spojený riadok fanúšika (to je predchádzajúci
+        odhad). Hádať sa tu nesmie — zle spojená platba by klientovi ukázala,
+        že mu zarába konverzácia, ktorá s tým nemá nič spoločné.
+        """
+        tg_id = checkout.z_udalosti(event)
+        if tg_id is None and fan.get("uuid"):
+            try:
+                row = await self._db.fan(fan["uuid"])
+            except Exception:  # noqa: BLE001 - notifikácia nesmie padnúť na DB
+                row = None
+            if row and row.get("tg_id"):
+                tg_id = int(row["tg_id"])
+        if tg_id is None:
+            return ""
+
+        try:
+            user = await self._db.get_user(int(tg_id))
+        except Exception:  # noqa: BLE001
+            user = None
+        if not user:
+            return ""
+        meno = (user.get("partner_name") or user.get("first_name") or "").strip()
+        znacka = (user.get("username") or "").strip()
+        if meno and znacka:
+            return f"{meno} (@{znacka})"
+        return meno or (f"@{znacka}" if znacka else str(tg_id))
 
     async def _dispatch(self, event: Dict[str, Any], settings: Dict[str, Any]) -> None:
         if is_payment(event):
@@ -581,7 +621,27 @@ class FanvueAgent:
             },
         )
         log.info("Fanúšik %s zaplatil %s c (%s. nákup)", fan["uuid"][:8], suma, kupene)
+
+        # Zaplatil → v Telegrame prestáva byť lead. Bez tohto by mu modelka
+        # ďalej pripomínala stránku, ktorú si práve kúpil, a po skončení okna
+        # by ho ešte aj odstrihla — hoci platiaci sa neutlmuje nikdy.
+        await self._oznac_zaplateneho(event, fan)
+
         await self._thank(fan, row, settings, suma, kupene)
+
+    async def _oznac_zaplateneho(self, event: Dict[str, Any], fan: Dict[str, str]) -> None:
+        tg_id = checkout.z_udalosti(event)
+        if tg_id is None and fan.get("uuid"):
+            row = await self._db.fan(fan["uuid"])
+            if row and row.get("tg_id"):
+                tg_id = int(row["tg_id"])
+        if tg_id is None:
+            return
+        try:
+            await self._db.update_user(int(tg_id), {"paid": True})
+            log.info("Telegram %s označený ako platiaci", tg_id)
+        except Exception as exc:  # noqa: BLE001 - platba je zaznamenaná aj tak
+            log.warning("Telegram %s sa nepodarilo označiť ako platiaci: %s", tg_id, exc)
 
     async def _thank(
         self,

@@ -17,7 +17,9 @@ export type BotSettingsRow = {
   notify_credits_low: boolean;
   notify_startup: boolean;
   notify_crash: boolean;
+  notify_hot_lead: boolean;
   daily_report: boolean;
+  weekly_report: boolean;
 };
 
 /**
@@ -127,6 +129,21 @@ export function BotSettingsForm({
 
       <Card>
         <CardHeader
+          title="Chats worth your attention"
+          description="Most chats run themselves. This is the one moment where stepping in is worth it."
+        />
+        <div className="space-y-3 p-5">
+          <SwitchField
+            name="notify_hot_lead"
+            label="Someone is pushing for more"
+            defaultValue={settings.notify_hot_lead}
+            help="Sent when a fan asks where to find you, or pushes for something explicit — the moment he is closest to paying. At most once every 12 hours per conversation, so a single hot chat cannot flood you. She keeps replying either way; this only tells you it is happening."
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader
           title="Daily summary"
           description="A short read of her day, sent when her active hours end."
         />
@@ -136,6 +153,21 @@ export function BotSettingsForm({
             label="Send a daily summary"
             defaultValue={settings.daily_report}
             help="Who is warming up, who went cold, who is new. Arrives at the end of her active window in her own time zone — not at midnight UTC. Off by default because it costs a small amount of Pipe Coins each day."
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Weekly numbers"
+          description="Monday morning, in her time zone: did the week actually earn anything?"
+        />
+        <div className="space-y-3 p-5">
+          <SwitchField
+            name="weekly_report"
+            label="Send weekly numbers"
+            defaultValue={settings.weekly_report}
+            help="New conversations, how many of them got your link, how many she wrapped up, and what is left on your balance. Costs nothing — it is counting, not writing — so it is on by default. A quiet week is reported too: that is the week worth knowing about."
           />
         </div>
       </Card>

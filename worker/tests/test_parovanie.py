@@ -38,6 +38,9 @@ class FakeDb:
         return code == self.platny
 
     # ---- to, čo potrebuje _send_main ----
+    async def sleeping_until(self):
+        return None
+
     async def is_paused(self) -> bool:
         return False
 
