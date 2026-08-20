@@ -194,33 +194,59 @@ def blok_znalosti(persona: Dict[str, Any], vlastnymi_slovami: str = "") -> str:
 
 
 def blok_cudzia_sprava(persona: Dict[str, Any]) -> str:
-    """Sekcia „napísal ti iným jazykom". Pridáva sa, len keď to naozaj nastalo."""
+    """Čo robiť, keď napíše jazykom, ktorý (ne)vie.
+
+    PRAVIDLO JE V PROMPTE VŽDY, NIE LEN PRI DETEKCII
+    ------------------------------------------------
+    `humanize.looks_foreign` má zoznam slovných markerov a na skutočných vetách
+    je takmer slepá: zo šiestich španielskych správ v ostrej prevádzke chytila
+    JEDNU. Zvyšných päť prešlo bez pravidla — a model si ich pokojne preložil
+    a odpovedal na obsah. V tom istom chate potom raz povedala, že po španielsky
+    nevie, a inokedy odpovedala na španielsku vetu, akoby rozumela. Nič
+    neprezradí automat spoľahlivejšie než táto nedôslednosť.
+
+    Preto sa pravidlo neviaže na detekciu. Je krátke a v prompte je stále.
+    """
     hlavny = nazov(primarny(persona))
     extra = vedlajsie(persona)
 
+    zaklad = [
+        "KEĎ TI NAPÍŠE JAZYKOM, KTORÝ NEVIEŠ",
+        "NEPREKLADAJ si to a NEODPOVEDAJ na obsah. Ty tomu naozaj nerozumieš — "
+        "a odpovedať vecne na vetu, ktorej si nerozumela, je to najrýchlejšie "
+        "prezradenie, aké existuje.",
+        "Povedz to ľudsky a s humorom, tak ako to spraví dievča na mobile: "
+        f"„lol what does that mean 😅“, „u lost me there, {hlavny.lower()}?“, "
+        "„no idea what u just said but it sounded cute 🥰“. Striedaj to, "
+        "nepoužívaj stále tú istú vetu.",
+        "Potom pokračuj normálne — spýtaj sa ho niečo svoje alebo nadviaž na "
+        "to, o čom ste sa bavili predtým. Nerozumieť jednej správe neznamená "
+        "zaseknúť sa.",
+        "A NIKDY neponúkaj svoju stránku ani odkaz ako odpoveď na vetu, ktorej "
+        "si nerozumela. Vyzerá to, akoby si nepočúvala a len predávala.",
+    ]
+
     if not extra:
-        return (
-            "NAPÍSAL TI INÝM JAZYKOM\n"
-            f"Nerozumieš mu — vieš len {hlavny}. Povedz to milo a s humorom a "
-            f"nech to skúsi po {hlavny}. Buď roztomilá, nie odmeraná.\n"
-            "NEPREKLADAJ jeho správu a nepredstieraj, že si rozumela."
+        zaklad.insert(
+            1,
+            f"Vieš iba {hlavny}. Žiadny iný jazyk — netvár sa, že áno, ani "
+            "z jednej vety, ani zo zdvorilosti.",
         )
+        return "\n".join(zaklad)
 
     zoznam = ", ".join(f"{nazov(k)} ({u})" for k, u in extra)
-    return (
-        "NAPÍSAL TI INÝM JAZYKOM\n"
-        f"Okrem hlavného jazyka vieš: {zoznam}.\n"
+    return "\n".join([
+        "KEĎ TI NAPÍŠE INÝM JAZYKOM",
+        f"Okrem hlavného jazyka vieš: {zoznam}.",
         "Ak je to jeden z nich, odpovedz mu V ŇOM a presne na tej úrovni, ktorú "
         "tam máš — vrátane chýb a jednoduchosti. Nezlepši sa zrazu na rodenú, "
-        "to je najväčší prezradzovač.\n"
-        f"Ak je to jazyk, ktorý nevieš, povedz to milo a s humorom po {hlavny} a "
-        "nech to skúsi tak. NEPREKLADAJ jeho správu a nepredstieraj, že si "
-        "rozumela.\n"
+        "to je najväčší prezradzovač.",
         "ŠTÝL SA NEMENÍ. Aj v cudzom jazyku píšeš krátko, nedbalo, s tými istými "
         "emoji a bez typografických znakov — si tá istá osoba, len iným jazykom. "
-        "A cieľ ostáva rovnaký: bavte sa ďalej.\n"
-        "Keď sa vráti k tvojmu hlavnému jazyku, vráť sa aj ty."
-    )
+        "Keď sa vráti k tvojmu hlavnému jazyku, vráť sa aj ty.",
+        "",
+        *zaklad,
+    ])
 
 
 def pripomenutie(persona: Dict[str, Any]) -> str:

@@ -654,13 +654,16 @@ def build_system_prompt(
             f"len na {platforma}. Nevymýšľaj si účty, ktoré nemáš."
         )
 
-    # `humanize.looks_foreign` vie povedať len „toto nie je angličtina" — má
-    # anglické markery a nič iné. Pre modelku s iným hlavným jazykom by skákalo
-    # na KAŽDEJ správe, tak sa na jej signál spoliehame len pri angličtine.
-    # Inak pravidlo visí v prompte natrvalo (rovnako ako na Fanvue): pár viet
-    # navyše je lacnejšie než odpoveď v zlom jazyku.
-    if foreign or jazyky.primarny(persona) != "en":
-        sections.append(jazyky.blok_cudzia_sprava(persona))
+    # Pravidlo o cudzom jazyku je v prompte VŽDY, nie podľa detekcie.
+    #
+    # `humanize.looks_foreign` chytila v ostrej prevádzke jednu zo šiestich
+    # španielskych viet. Zvyšných päť prešlo bez pravidla a model si ich
+    # preložil a odpovedal na obsah — v tom istom chate teda raz tvrdila, že
+    # po španielsky nevie, a inokedy odpovedala, akoby rozumela.
+    #
+    # `foreign` sa preto už nepoužíva na to, ČI pravidlo pridať; parameter
+    # ostáva kvôli volajúcim a kvôli tomu, že sa raz môže hodiť na dôraz.
+    sections.append(jazyky.blok_cudzia_sprava(persona))
 
     # --- prijatá fotka od neho ---
     incoming = (last_incoming or "")

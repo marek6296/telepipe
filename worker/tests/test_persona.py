@@ -49,8 +49,26 @@ class TestJazyky:
     def test_bez_zoznamu_ostava_len_hlavny_jazyk(self):
         """Modelka bez ďalších jazykov sa nesmie zrazu tváriť, že vie po nemecky."""
         out = self._prompt([], foreign=True)
-        assert "Nerozumieš mu" in out
+        assert "Vieš iba English" in out
         assert "odpovedz mu V ŇOM" not in out
+
+    def test_pravidlo_plati_AJ_BEZ_detekcie(self):
+        """`looks_foreign` chytila v ostrej prevádzke 1 zo 6 španielskych viet.
+        Zvyšné prešli bez pravidla a model si ich preložil a odpovedal na obsah."""
+        out = self._prompt([], foreign=False)
+        assert "KEĎ TI NAPÍŠE JAZYKOM, KTORÝ NEVIEŠ" in out
+        assert "NEPREKLADAJ" in out
+
+    def test_nesmie_predavat_na_nezrozumenu_spravu(self):
+        """Ayko odpovedala odkazom na Fanvue na „Quisiera besarte"."""
+        out = self._prompt([], foreign=False)
+        assert "neponúkaj svoju stránku ani odkaz" in out
+
+    def test_ma_konkretne_vety_na_vyhovorenie(self):
+        """Bez ukážok model vymyslí jednu frázu a opakuje ju stále dokola."""
+        out = self._prompt([], foreign=False)
+        assert "what does that mean" in out
+        assert "Striedaj to" in out
 
     def test_zoznam_nema_zvadzat_ku_klamstvu(self):
         out = self._prompt([{"code": "de", "level": "B1"}])
@@ -68,11 +86,12 @@ class TestJazyky:
         assert "ÚROVEŇ JAZYKA (German)" in out
         assert "ANGLIČTINY" not in out
 
-    def test_iny_hlavny_jazyk_ma_pravidlo_aj_bez_detekcie(self):
-        """`looks_foreign` pozná len angličtinu, takže pri inom hlavnom jazyku
-        musí pravidlo visieť natrvalo — inak by ho nikdy nič nespustilo."""
+    def test_s_vedlajsimi_jazykmi_pravidlo_tiez_plati_vzdy(self):
+        """Nadpis sa líši podľa toho, či nejaké vedľajšie jazyky má — ale
+        pravidlo je v prompte tak či tak, bez ohľadu na detekciu."""
         out = self._prompt([{"code": "en", "level": "B2"}], foreign=False, primary="de")
-        assert "NAPÍSAL TI INÝM JAZYKOM" in out
+        assert "KEĎ TI NAPÍŠE INÝM JAZYKOM" in out
+        assert "NEPREKLADAJ" in out
 
 
 class TestUkazkyAStyl:
