@@ -297,15 +297,24 @@ class TenantRunner:
             summary = ""
             if caught_up.get("dotiahnutych"):
                 summary = (
-                    f"\n\nPo výpadku: {caught_up['dotiahnutych']} zmeškaných správ, "
-                    f"{caught_up['na_odpoved']} na odpoveď"
+                    f"\n\nAfter the gap: {caught_up['dotiahnutych']} missed messages, "
+                    f"{caught_up['na_odpoved']} to answer"
                 )
                 if caught_up.get("prestarnutych"):
-                    summary += f", {caught_up['prestarnutych']} príliš starých (neodpisujem)"
+                    summary += f", {caught_up['prestarnutych']} too old (skipped)"
             if bot_ready:
-                await control.notify(
-                    f"🚀 AI odpisovanie beží\nÚčet: {handle}\nModel: `{g.model}`{summary}"
-                )
+                # Táto správa chodí pri KAŽDOM nasadení a pri každom presune
+                # tenanta medzi replikami — pri častých deployoch je to
+                # najhlučnejšia notifikácia zo všetkých, preto sa dá vypnúť.
+                try:
+                    nastavenia = await db.control_bot_settings()
+                except Exception:  # noqa: BLE001 — štart nesmie padnúť na nastaveniach
+                    nastavenia = {}
+                if nastavenia.get("notify_startup", True):
+                    await control.notify(
+                        f"🚀 <b>AI replying is live</b>\nAccount: {handle}\n"
+                        f"Model: `{g.model}`{summary}"
+                    )
 
             # Predloha čakala `asyncio.gather(run_until_disconnected...)`. Tu
             # musí beh skončiť aj na `stop()` (odobratý lease, SIGTERM), preto

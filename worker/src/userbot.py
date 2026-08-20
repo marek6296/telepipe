@@ -429,11 +429,11 @@ class UserBot:
         if is_new and not user.get("notified"):
             await self._db.update_user(tg_id, {"notified": True})
             await self._notify(
-                f"🆕 Nová konverzácia\n{_who(user)} (`{tg_id}`)\n\n„{text[:200]}\""
+                f"🆕 <b>New conversation</b>\n{_who(user)} (`{tg_id}`)\n\n\u201c{text[:200]}\u201d"
             )
         if funnel.detect_paid_claim(text) and not user.get("paid"):
             await self._notify(
-                f"💳 {_who(user)} (`{tg_id}`) tvrdí, že zaplatil.\nAk áno: `/paid {tg_id}`"
+                f"💳 {_who(user)} (`{tg_id}`) says he paid.\nIf true: `/paid {tg_id}`"
             )
 
         self._schedule_reply(tg_id)
@@ -1345,9 +1345,10 @@ class UserBot:
             if self._flood_warned_at is None or self._flood_warned_at < hodina_dozadu:
                 self._flood_warned_at = teraz
                 await self._notify(
-                    f"⚠️ *{len(self._flood_events)} flood chýb za hodinu.* Telegram "
-                    "účet pribrzďuje. Zváž zníženie stropu odpovedí za hodinu — "
-                    "ďalší krok býva PeerFlood, a ten už stojí 24 h ticha."
+                    f"⚠️ *{len(self._flood_events)} flood errors in an hour.* Telegram is "
+                    "throttling this account. Consider lowering the replies-per-hour "
+                    "cap — the next step is usually PeerFlood, and that costs 24 h "
+                    "of silence."
                 )
 
         # Do DB, nie do pamäte: reštart ani presun tenanta pauzu nesmie zrušiť.
@@ -1363,18 +1364,18 @@ class UserBot:
             # za rozposielača. Písať ďalej znamená prísť oň.
             log.error("%s: PeerFloodError — účet je označený za spam, zastavujem", tg_id)
             await self._notify(
-                "🚨 *Telegram označil účet za rozposielanie* (PeerFloodError).\n"
-                "Zastavil som odpovedanie na 24 hodín. Túto pauzu nezruší ani "
-                "prepnutie režimu — píš z účtu chvíľu ručne a len ľuďom, ktorí "
-                "napísali prví."
+                "🚨 *Telegram flagged this account for mass messaging* (PeerFloodError).\n"
+                "Replies are stopped for 24 hours. Switching reply mode will not "
+                "clear this pause — message from the account by hand for a while, "
+                "and only people who wrote first."
             )
             return True
         log.warning("%s: FloodWait %s s — do %s nič neposielam",
                     tg_id, sekund, self._flood_until.strftime("%H:%M:%S"))
         if sekund >= limity.HLASIT_NAD_S:
             await self._notify(
-                f"⏳ Telegram pýta pauzu {sekund // 60} min (FloodWait). "
-                "Odpovede počkajú a dobehnú potom."
+                f"⏳ Telegram asked for a {sekund // 60} min pause (FloodWait). "
+                "Replies will wait and catch up afterwards."
             )
         return True
 
@@ -1562,13 +1563,13 @@ class UserBot:
         if zostava <= 0:
             log.warning("%s: videl už všetky fotky, ďalšie neprídu", tg_id)
             await self._notify(
-                f"📷 `{tg_id}` už videl VŠETKY fotky — ďalšie mu neprídu. "
-                "Doplň knižnicu v dashboarde."
+                f"📷 `{tg_id}` has now seen EVERY photo — no more will be sent. "
+                "Add more to the library in the dashboard."
             )
         else:
             log.info("%s: v knižnici zostávajú %s nevidené fotky", tg_id, zostava)
             await self._notify(
-                f"📷 `{tg_id}` má už len {zostava} nevidené fotky. Doplň knižnicu."
+                f"📷 `{tg_id}` has only {zostava} unseen photos left. Add more to the library."
             )
 
     async def _send_photo(self, tg_id: int, photo: Dict[str, Any]) -> None:
@@ -2105,7 +2106,7 @@ class UserBot:
             patch["link_push_count"] = int(user.get("link_push_count") or 0) + 1
             patch["funnel_stage"] = funnel.stage_after_link(user)
             await self._notify(
-                f"🔗 Odkaz poslaný — {_who(user)} (`{tg_id}`), {patch['link_push_count']}. push"
+                f"🔗 Link sent — {_who(user)} (`{tg_id}`), push #{patch['link_push_count']}"
             )
         await self._db.update_user(tg_id, patch)
 
@@ -2218,9 +2219,9 @@ class UserBot:
             return
         self._slepota_warned_at = teraz
         await self._notify(
-            "⚠️ *Nedostanem sa k limitom v databáze*, takže radšej neodpisujem "
-            f"(`{type(exc).__name__}`). Správy sa nestrácajú a dobehnú, len čo "
-            "sa spojenie obnoví."
+            "⚠️ *Cannot reach the limits in the database*, so replies are paused "
+            f"to be safe (`{type(exc).__name__}`). Nothing is lost — messages "
+            "catch up as soon as the connection is back."
         )
 
     async def _oslovenych_za_obdobie(self, hodin: int) -> Optional[set]:

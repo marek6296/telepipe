@@ -15,6 +15,7 @@ export type BotSettingsRow = {
   notify_fanvue_like: boolean;
   notify_fanvue_comment: boolean;
   notify_credits_low: boolean;
+  notify_startup: boolean;
   daily_report: boolean;
 };
 
@@ -95,8 +96,17 @@ export function BotSettingsForm({
       )}
 
       <Card>
-        <CardHeader title="Account" description="Things about your balance, not about her." />
+        <CardHeader
+          title="Status and balance"
+          description="Things about your account and the agent itself, not about her chats."
+        />
         <div className="space-y-3 p-5">
+          <SwitchField
+            name="notify_startup"
+            label="Agent started"
+            defaultValue={settings.notify_startup}
+            help="Sent every time the agent boots — which includes every update we deploy. Useful while setting things up, noisy afterwards."
+          />
           <SwitchField
             name="notify_credits_low"
             label="Pipe Coins running low"

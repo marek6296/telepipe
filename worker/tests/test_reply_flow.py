@@ -373,7 +373,8 @@ class TestReplyFlow:
         assert "fanvue.com/lucia" in client.sent[0][1]
         assert db.users[555]["funnel_stage"] == "link_sent"
         assert db.users[555]["link_push_count"] == 1
-        assert any("Odkaz poslaný" in n for n in notes)
+        # Notifikácie majiteľovi sú po anglicky — klientela je anglicky hovoriaca.
+        assert any("Link sent" in n for n in notes)
 
     def test_link_prompt_blocked_inside_cooldown(self):
         recent = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()

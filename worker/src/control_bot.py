@@ -391,7 +391,7 @@ class ControlBot:
             await self._route(event, data)
         except Exception as exc:  # noqa: BLE001
             log.exception("Callback %s zlyhal", data)
-            await event.answer(f"Chyba: {exc}"[:190], alert=True)
+            await event.answer(f"Error: {exc}"[:190], alert=True)
 
     _APPROVAL_HEADS = frozenset({
         "ap", "ac", "as", "ax", "af", "afd", "afi", "afree", "apaid",
@@ -1182,7 +1182,7 @@ class ControlBot:
             f"({behavior.quick_reply_min_s}–{behavior.quick_reply_max_s} s)\n"
             f"Reads after: {behavior.read_delay_min_s}–{behavior.read_delay_max_s} s\n"
             f"Replies after: {behavior.reply_delay_min_s}–{behavior.reply_delay_max_s} s\n"
-            f"Len „videné“: {behavior.seen_only_chance:.0%} "
+            f"Seen only: {behavior.seen_only_chance:.0%} "
             f"({behavior.seen_only_min_s // 60}–{behavior.seen_only_max_s // 60} min)\n"
             f"Long pause: {behavior.long_pause_chance:.0%} "
             f"({behavior.long_pause_min_s // 60}–{behavior.long_pause_max_s // 60} min)\n"
