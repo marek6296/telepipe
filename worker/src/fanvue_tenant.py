@@ -67,6 +67,7 @@ FV_FOLDERS = "/fv_folders"
 FV_MEDIA = "/fv_media"
 FV_SENDS = "/fv_media_sends"
 SYNC = "/fanvue_sync_requests"
+CONTROL_BOT_SETTINGS = "/control_bot_settings"
 
 # `fanvue_agent` číta `event["type"]`, v DB je stĺpec `event_type` (aby sa
 # nebilo s rezervovaným slovom a sedelo to s webhookom). PostgREST vie stĺpec
@@ -235,6 +236,53 @@ class TenantFanvueDb:
                 "order": "last_incoming_at.desc.nullslast",
                 "limit": str(limit),
             },
+        )
+
+    async def control_bot_settings(self) -> Dict[str, Any]:
+        """Čo má control bot hlásiť. Prázdny slovník = platia defaulty z `oznamy`.
+
+        Je to tá istá tabuľka aj to isté správanie ako v `db.TenantDb` — Fanvue
+        agent posiela majiteľovi notifikácie o platbách a odberoch a musí sa
+        pýtať na to isté miesto ako telegramová vetva.
+
+        Chýbajúci riadok NIE JE chyba: modelka mohla vzniknúť pred migráciou,
+        ktorá tabuľku pridala. Vtedy je lepšie hlásiť podľa rozumného základu
+        než nehlásiť nič.
+        """
+        try:
+            rows = await self._get(
+                CONTROL_BOT_SETTINGS, {"model_id": self._mine, "select": "*"}
+            )
+        except Exception:  # noqa: BLE001 — notifikácie nesmú zhodiť odpisovanie
+            log.exception("nastavenia control bota sa nepodarilo načítať")
+            return {}
+        return rows[0] if rows else {}
+
+    async def get_user(self, tg_id: int) -> Optional[Dict[str, Any]]:
+        """Telegramová konverzácia podľa id. `None` = takú nemáme.
+
+        Fanvue agent ju potrebuje, keď platbu spojí s Telegramom: notifikácia
+        má povedať MENOM, z ktorého chatu ten predplatiteľ prišiel.
+        """
+        rows = await self._get(
+            USERS,
+            {
+                "model_id": self._mine,
+                "tg_id": f"eq.{int(tg_id)}",
+                "select": "tg_id,username,first_name,partner_name,paid,funnel_stage",
+            },
+        )
+        return rows[0] if rows else None
+
+    async def update_user(self, tg_id: int, patch: Dict[str, Any]) -> None:
+        """Zmena telegramovej konverzácie z Fanvue strany.
+
+        Používa sa na jedinú vec: kto zaplatil na Fanvue, prestáva byť
+        v Telegrame lead. Bez toho by mu modelka ďalej pripomínala stránku,
+        ktorú si práve kúpil, a po skončení okna by ho ešte aj odstrihla.
+        """
+        await self._patch(
+            USERS, {"model_id": self._mine, "tg_id": f"eq.{int(tg_id)}"}, patch
         )
 
     async def telegram_context(self, tg_id: int) -> Dict[str, Any]:
