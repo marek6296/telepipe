@@ -1107,7 +1107,8 @@ class UserBot:
         if hlas_pokyn is not None:
             log.info("%s: model pýta hlasovku %s", tg_id, hlas_pokyn or "(bez detailov)")
         text = self._uprav_odpoved(
-            raw, behavior, gap, allow_link, jej_nedavne, he_greeted=pozdravil
+            raw, behavior, gap, allow_link, jej_nedavne, he_greeted=pozdravil,
+            link=kratky,
         )
         # Sudca — posledná kontrola pred odoslaním. Zlyháva otvorene:
         # keď sa čokoľvek pokazí, odchádza pôvodný návrh.
@@ -1127,7 +1128,7 @@ class UserBot:
             log.info("%s: sudca opravil odpoveď (%s)", tg_id, verdict["why"])
             text = self._uprav_odpoved(
                 verdict["text"], behavior, gap, allow_link, jej_nedavne,
-                he_greeted=pozdravil,
+                he_greeted=pozdravil, link=kratky,
             )
             asyncio.create_task(
                 self._log_judge(tg_id, verdict["text"], text, verdict["why"])
@@ -1326,6 +1327,7 @@ class UserBot:
         allow_link: bool,
         jej_nedavne: List[str],
         he_greeted: bool = False,
+        link: str = "",
     ) -> str:
         """Post-processing, ktorý platí rovnako na návrh aj na opravu sudcu.
 
@@ -1351,6 +1353,11 @@ class UserBot:
             text = humanize.strip_diacritics(text)
         if not allow_link:
             text = _strip_urls(text)
+        elif link:
+            # Adresu modelu neveríme. Namerané: z troch odoslaných odkazov
+            # odišiel jeden bez „https" a fungoval len vďaka tomu, že si
+            # Telegram odkaz spravil aj z holej domény.
+            text = humanize.repair_link(text, link)
         return text
 
     async def _refresh_after_wait(self, tg_id: int, morning: bool):

@@ -1,11 +1,14 @@
 """Aby odpovede pôsobili ako od človeka. Čisté funkcie — bez I/O."""
 from __future__ import annotations
 
+import logging
 import random
 import re
 import unicodedata
 from datetime import datetime, timedelta
 from typing import List, Optional
+
+log = logging.getLogger(__name__)
 
 # Zdravenie na začiatku odpovede — v pokračujúcej konverzácii je to najväčší
 # prezradzovač automatu, takže ho odstraňujeme post-processingom.
@@ -267,6 +270,25 @@ def opener(text: str) -> str:
 OTVARAC_PODIEL = 0.3
 OTVARAC_OKNO = 8
 
+# Citoslovcia, ktorými sa dá začať skoro každá správa. Sú zameniteľné, takže
+# model medzi nimi prepína a KAŽDÉ zvlášť ostane pod hranicou — namerané:
+# „aw" 26 %, „haha" 23 %, „lol" 11 %, „hehe" 8 %, dokopy 36 % správ v jednom
+# chate a pravidlo o opakovaní nezasiahlo ani raz. Preto sa počítajú spolu.
+VYPLNKOVE_OTVARACE = frozenset({
+    "aw", "aww", "awww", "haha", "hah", "hahah", "hahaha", "hehe", "heh",
+    "lol", "lmao", "omg", "mmm", "mm", "hmm", "hm", "yay", "oof",
+})
+# Nad týmto podielom je to návyk. Pravidlo sa ustáli zhruba na svojej hranici,
+# takže je to zároveň cieľ. Prehraté na 85 skutočných správach z jedného chatu:
+#
+#   hranica 0.35 → ostane 27 %      hranica 0.20 → ostane 19 %
+#   hranica 0.25 → ostane 27 %      hranica 0.10 → ostane 9 %
+#
+# 0.2 skráti tik na polovicu a pritom nechá jej hlas na pokoji; pri 0.1 by sa
+# otvárač strhol každej štvrtej správe a „aw" pred milou vetou je občas presne
+# to, čo tam patrí. Ani pri jednej hranici nevznikla prázdna správa.
+VYPLNKOVY_PODIEL = 0.2
+
 
 def thin_openers(
     text: str,
@@ -299,7 +321,16 @@ def thin_openers(
     # prišla o začiatok, ktorý použila prvýkrát v živote.
     navyk = len(okno) >= 4 and sum(1 for t in okno if opener(t) == moj) / len(okno) > podiel
 
-    if not za_sebou and not navyk:
+    # A to isté pre celú skupinu citosloviec dokopy — inak sa dá hranica obísť
+    # tým, že sa striedajú.
+    vyplnok = (
+        moj in VYPLNKOVE_OTVARACE
+        and len(okno) >= 4
+        and sum(1 for t in okno if opener(t) in VYPLNKOVE_OTVARACE) / len(okno)
+        > VYPLNKOVY_PODIEL
+    )
+
+    if not za_sebou and not navyk and not vyplnok:
         return text
     zvysok = _OPENER_RE.sub("", text or "", count=1).lstrip()
     if len(zvysok.strip()) < 3:
@@ -448,6 +479,53 @@ def next_wake_time(now: datetime, end_hour: int, rng: Optional[random.Random] = 
     if target <= now:
         target += timedelta(days=1)
     return target + timedelta(minutes=r.uniform(0, 75))
+
+
+def repair_link(text: str, spravny: str) -> str:
+    """Opraví odkaz, ktorý model prepísal zle.
+
+    NAMERANÉ V PREVÁDZKE: z troch odoslaných odkazov odišiel jeden ako
+    „://telepipe.me/r/LpmwAUkF" — bez `https`. Prešlo to len šťastím, lebo
+    Telegram si odkaz spravil aj z holej domény. Keby model pokazil jeden znak
+    v tokene, fanúšik skončí na úvodnej stránke a klik sa nezaráta nikomu.
+
+    Adresu preto modelu neveríme. Nájde sa všetko, čo sa nášmu odkazu podobá
+    (holá doména, chýbajúce `https`, `http`, preklep v tokene), a nahradí sa
+    presnou adresou. Text okolo ostáva jeho — meníme JEDINE adresu.
+
+    Bez `spravny` sa nerobí nič: keď nevieme, čo tam má byť, hádať sa nesmie.
+    """
+    cesta = (spravny or "").strip()
+    if not cesta:
+        return text or ""
+    zvysok = re.sub(r"^https?://(www\.)?", "", cesta)
+    domena = zvysok.split("/")[0]
+    if not domena:
+        return text or ""
+
+    # Schéma sa berie ako alternatíva a MUSÍ sedieť tesne na doménu — inak by
+    # „napíš mi sem: telepipe.me/..." zlepilo dvojbodku s adresou.
+    vzor = re.compile(
+        r"(?:https?://|https?:|://|//)?(?:www\.)?"
+        + re.escape(domena)
+        + r"(?:/[^\s<>\"']*)?",
+        re.IGNORECASE,
+    )
+    # Bodka či otáznik na konci vety nie sú súčasťou adresy.
+    KONCOVA = ".,!?;:)"
+
+    def nahrad(zhoda: re.Match) -> str:
+        najdene = zhoda.group(0)
+        chvost = ""
+        while najdene and najdene[-1] in KONCOVA:
+            chvost = najdene[-1] + chvost
+            najdene = najdene[:-1]
+        if najdene == cesta:
+            return najdene + chvost
+        log.info("odkaz v odpovedi bol prepísaný zle (%r) — opravujem", najdene[:60])
+        return cesta + chvost
+
+    return vzor.sub(nahrad, text or "")
 
 
 def contains_link(text: str, link: str) -> bool:
