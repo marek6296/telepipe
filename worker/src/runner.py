@@ -181,6 +181,23 @@ class TenantRunner:
         with contextlib.suppress(Exception):
             await self._reg.release(self.model_id)
 
+    async def _start_instagram(self, cfg, g, llm, control=None) -> None:
+        """Best-effort rozbehnutie Instagram agenta. Nikdy nehádže.
+
+        Rovnaké pravidlo ako pri Fanvue: tretia platforma nesmie zhodiť
+        odpisovanie na prvej. Keď sa nepodarí, modelka beží na Telegrame ďalej
+        a v logu je dôvod.
+        """
+        try:
+            from instagram_start import start_instagram
+
+            await start_instagram(cfg, g, self._transport, llm, self._cleanup, control)
+        except Exception as exc:  # noqa: BLE001 — Telegram musí bežať aj tak
+            log.error(
+                "model %s: Instagram agent sa nespustil (%s) — beží bez neho",
+                self.model_id, exc,
+            )
+
     async def _start_fanvue(self, cfg, g, llm, control=None) -> None:
         """Best-effort rozbehnutie dozoru nad Fanvue. Nikdy nehádže.
 
@@ -333,6 +350,7 @@ class TenantRunner:
             # rieši sám, toto chráni pred pádom pri ŠTARTE (nedostupná DB,
             # poškodený token, chýbajúca appka).
             await self._start_fanvue(cfg, g, llm, control if bot_ready else None)
+            await self._start_instagram(cfg, g, llm, control if bot_ready else None)
 
             # Po výpadku dotiahni, čo ušlo — nikomu sa nepíše, len sa doplní
             # kontext a rozhodne, na čo sa ešte oplatí odpovedať.

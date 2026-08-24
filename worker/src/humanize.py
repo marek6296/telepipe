@@ -101,7 +101,7 @@ _TYPOGRAPHY = {
 
 # Tieto sa nahradia MEDZEROU, nie prázdnom: keby model napísal face"you,
 # odstránenie bez náhrady by z toho urobilo "faceyou". Apostrof zostáva.
-_STRIP_CHARS = '"\u201c\u201d\u201e\u201f\u00ab\u00bb`*_~|#^<>'
+_STRIP_CHARS = '"\u201c\u201d\u201e\u201f\u00ab\u00bb`*~|#^<>'
 
 
 # Odkaz sa čistením NESMIE dotknúť.
@@ -136,6 +136,11 @@ def plain_punctuation(text: str) -> str:
     for bad, good in _TYPOGRAPHY.items():
         out = out.replace(bad, good)
     out = out.translate({ord(ch): " " for ch in _STRIP_CHARS})
+    # Podčiarkovník je markdown len na okraji slova (`_takto_`). MEDZI písmenami
+    # je súčasťou mena — a používateľské mená ich majú plno. Kým sa strhával
+    # naslepo, „simona_here" odišla ako „simona here" a fanúšik ju nemal ako
+    # nájsť; na Instagrame je pritom meno jediné, čo mu vieme dať.
+    out = re.sub(r"(?<![0-9A-Za-z])_+|_+(?![0-9A-Za-z])", " ", out)
     out = re.sub(r"\s+,", ",", out)
     out = re.sub(r",{2,}", ",", out)
     out = re.sub(r"\.{4,}", "...", out)

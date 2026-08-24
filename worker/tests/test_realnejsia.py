@@ -134,3 +134,32 @@ class TestNameraneNaSkutocnychSpravach:
         historia = ["just chilling", "im home", "yeah true", "not really", "sounds fun"]
         for text in ("aw thats sweet", "haha ok"):
             assert humanize.thin_openers(text, historia) == text
+
+
+class TestPodciarkovnikVMene:
+    """Meno s podčiarkovníkom musí prežiť čistenie.
+
+    Našlo sa to testom Instagram agenta: `simona_here` odišlo ako „simona here"
+    a fanúšik by ju nemal ako nájsť. Na Instagrame je pritom meno jediné, čo mu
+    vieme dať — odkazy sa tam neposielajú.
+    """
+
+    def test_meno_prezije(self):
+        out = humanize.plain_punctuation("napis mi na simona_here, tam sa pobavime")
+        assert "simona_here" in out
+
+    def test_markdown_zmizne(self):
+        assert humanize.plain_punctuation("_zvyraznene_ slovo") == "zvyraznene slovo"
+
+    def test_tucne_zmizne_a_meno_ostane(self):
+        out = humanize.plain_punctuation("toto je __tucne__ a simona_here")
+        assert "tucne" in out and "__" not in out
+        assert "simona_here" in out
+
+    def test_podciarkovnik_na_konci_slova_zmizne(self):
+        assert humanize.plain_punctuation("koniec vety_").endswith("vety")
+
+    def test_odkaz_ostava_nedotknuty(self):
+        """Pôvodná ochrana odkazov nesmie prestať platiť."""
+        odkaz = "https://telepipe.me/r/Ab3_kR9"
+        assert odkaz in humanize.plain_punctuation(f"tu {odkaz} babe")
