@@ -117,29 +117,53 @@ export function HerDay({ plan, className = "" }: { plan: DayPlan; className?: st
 -------------------------------------------------------------------------- */
 
 const V_SIRKA = 1000;
-const V_VYSKA = 120;
-const SPODOK = V_VYSKA - 14; // miesto na popisky hodín
+const V_VYSKA = 100;
 const KROK = 10; // minúty medzi bodmi krivky
 
-function Krivka({ bloky, teraz }: { bloky: { od: number; do: number; odozva: number }[]; teraz: number | null }) {
-  // Deň kreslíme od prvej činnosti po poslednú, nie od polnoci: prázdna
-  // dopoludňajšia polovica grafu nehovorí nič a stlačí to, na čom záleží.
-  const zaciatok = Math.floor((bloky[0].od - 45) / 60) * 60;
-  const koniec = Math.ceil((bloky[bloky.length - 1].do + 45) / 60) * 60;
+/**
+ * Krivka dňa. SVG kreslí len tvar (`preserveAspectRatio="none"`, aby sa
+ * roztiahol na akúkoľvek šírku karty); čas, značka „teraz" a popisky hodín sú
+ * HTML nad ním. Skúšal som to celé v SVG a roztiahnutie zdeformovalo písmo —
+ * hodiny boli nečitateľné práve na tom, kvôli čomu graf vznikol.
+ */
+function Krivka({
+  bloky,
+  teraz,
+}: {
+  bloky: { od: number; do: number; odozva: number }[];
+  teraz: number | null;
+}) {
+  // Kreslíme DNEŠNÝ deň, teda bloky od polnoci ďalej. Presah včerajšej noci
+  // (záporné `od`) je v dátach kvôli tomu, aby sme o pol druhej ráno vedeli,
+  // čo robí — ale keby sa kreslil, graf by mal 33 hodín a dve noci.
+  const dnesne = bloky.filter((b) => b.od >= 0);
+  const kresli = dnesne.length > 0 ? dnesne : bloky;
+  // Deň začína prvou činnosťou, nie polnocou: prázdne dopoludnie nehovorí nič
+  // a stlačí to, na čom záleží.
+  const zaciatok = Math.floor((kresli[0].od - 45) / 60) * 60;
+  const koniec = Math.ceil((kresli[kresli.length - 1].do + 45) / 60) * 60;
   const rozsah = Math.max(60, koniec - zaciatok);
-  const x = (minuta: number) => ((minuta - zaciatok) / rozsah) * V_SIRKA;
+  /** Minúta → podiel šírky (0–1). */
+  const podiel = (minuta: number) => (minuta - zaciatok) / rozsah;
 
-  const body: [number, number][] = [];
+  const urovne: number[] = [];
   for (let m = zaciatok; m <= koniec; m += KROK) {
-    const blok = najdiBlok(bloky, m);
-    body.push([x(m), SPODOK - vyska(blok?.odozva ?? null) * (SPODOK - 8)]);
+    urovne.push(vyska(najdiBlok(kresli, m)?.odozva ?? null));
   }
+  // Rozmazanie cez ±30 minút. Bez neho je to schodisko: deň je z blokov, ale
+  // človek neprepne z gauča do posilňovne v jednej minúte — a hlavne, práve
+  // toto z toho robí krivku, na ktorej vidno tvar dňa, nie stĺpce.
+  const hladke = rozmaz(urovne, 3);
+  const body: [number, number][] = hladke.map((uroven, i) => [
+    podiel(zaciatok + i * KROK) * V_SIRKA,
+    V_VYSKA - 4 - uroven * (V_VYSKA - 12),
+  ]);
 
   const ciara = hladkaCiara(body);
-  const plocha = `${ciara} L ${V_SIRKA} ${SPODOK} L 0 ${SPODOK} Z`;
+  const plocha = `${ciara} L ${V_SIRKA} ${V_VYSKA} L 0 ${V_VYSKA} Z`;
 
-  // Po polnoci je jej minúta zas malá — plán ide ďalej (02:30 = 1590), tak
-  // hľadáme aj o deň posunutú, inak by značka „teraz" skočila na začiatok.
+  // Po polnoci je jej minúta zas malá — dnešný plán ide ďalej (02:30 = 1590),
+  // tak skúšame aj o deň posunutú, inak by značka skočila na začiatok dňa.
   const teraz2 =
     teraz === null
       ? null
@@ -148,86 +172,80 @@ function Krivka({ bloky, teraz }: { bloky: { od: number; do: number; odozva: num
         : teraz + DEN >= zaciatok && teraz + DEN <= koniec
           ? teraz + DEN
           : null;
+  // Výška značky patrí bloku, v ktorom NAOZAJ je (aj keď je to včerajší
+  // presah) — inak by bodka sedela inde, než hovorí veta pod grafom.
+  const uroven = vyska(teraz === null ? null : (najdiBlok(bloky, teraz)?.odozva ?? null));
 
   const hodiny: number[] = [];
-  for (let h = Math.ceil(zaciatok / 180) * 180; h <= koniec; h += 180) hodiny.push(h);
+  for (let h = Math.ceil(zaciatok / 180) * 180; h <= koniec - 60; h += 180) hodiny.push(h);
 
   return (
-    <svg
-      viewBox={`0 0 ${V_SIRKA} ${V_VYSKA}`}
-      preserveAspectRatio="none"
-      className="mt-2.5 h-[68px] w-full"
-      role="img"
-      aria-label="Her day — how reachable she is hour by hour"
-    >
-      <defs>
-        <linearGradient id="herday-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="var(--app-accent)" stopOpacity="0.30" />
-          <stop offset="100%" stopColor="var(--app-accent)" stopOpacity="0.02" />
-        </linearGradient>
-      </defs>
-
-      {hodiny.map((h) => (
-        <g key={h}>
-          <line
-            x1={x(h)}
-            y1={4}
-            x2={x(h)}
-            y2={SPODOK}
-            stroke="var(--app-border)"
-            strokeWidth="1"
-            vectorEffect="non-scaling-stroke"
-          />
-          {/* Popisky sú v jej čase a s am/pm — kvôli tomu celá krivka vznikla. */}
-          <text
-            x={x(h)}
-            y={V_VYSKA - 2}
-            textAnchor="middle"
-            fontSize="11"
-            fill="var(--app-text-4)"
-          >
-            {format12(h)}
-          </text>
-        </g>
-      ))}
-
-      <path d={plocha} fill="url(#herday-fill)" />
-      <path
-        d={ciara}
-        fill="none"
-        stroke="var(--app-accent)"
-        strokeWidth="2"
-        strokeLinejoin="round"
-        strokeLinecap="round"
-        vectorEffect="non-scaling-stroke"
-      />
-
-      {teraz2 !== null && (
-        <>
-          <line
-            x1={x(teraz2)}
-            y1={2}
-            x2={x(teraz2)}
-            y2={SPODOK}
-            stroke="var(--app-text)"
-            strokeWidth="1.5"
-            vectorEffect="non-scaling-stroke"
-          />
-          {/* `preserveAspectRatio="none"` ťahá viewBox do šírky, takže kruh by
-              bol elipsa. Krátka zvislá čiarka drží tvar pri každej šírke. */}
-          <line
-            x1={x(teraz2)}
-            y1={SPODOK - vyska(najdiBlok(bloky, teraz2)?.odozva ?? null) * (SPODOK - 8) - 4}
-            x2={x(teraz2)}
-            y2={SPODOK - vyska(najdiBlok(bloky, teraz2)?.odozva ?? null) * (SPODOK - 8) + 4}
-            stroke="var(--app-text)"
-            strokeWidth="5"
+    <div className="mt-2.5">
+      <div className="relative h-[62px]">
+        <svg
+          viewBox={`0 0 ${V_SIRKA} ${V_VYSKA}`}
+          preserveAspectRatio="none"
+          className="h-full w-full"
+          role="img"
+          aria-label="Her day — how quickly she replies through the day"
+        >
+          <defs>
+            <linearGradient id="herday-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#ffffff" stopOpacity="0.20" />
+              <stop offset="100%" stopColor="#ffffff" stopOpacity="0.02" />
+            </linearGradient>
+          </defs>
+          {hodiny.map((h) => (
+            <line
+              key={h}
+              x1={podiel(h) * V_SIRKA}
+              y1={0}
+              x2={podiel(h) * V_SIRKA}
+              y2={V_VYSKA}
+              stroke="var(--app-border)"
+              strokeWidth="1"
+              vectorEffect="non-scaling-stroke"
+            />
+          ))}
+          <path d={plocha} fill="url(#herday-fill)" />
+          <path
+            d={ciara}
+            fill="none"
+            stroke="var(--app-text-2)"
+            strokeWidth="2"
+            strokeLinejoin="round"
             strokeLinecap="round"
             vectorEffect="non-scaling-stroke"
           />
-        </>
-      )}
-    </svg>
+        </svg>
+
+        {teraz2 !== null && (
+          <div
+            className="pointer-events-none absolute inset-y-0"
+            style={{ left: `${podiel(teraz2) * 100}%` }}
+          >
+            <div className="absolute inset-y-0 -left-px w-px bg-[var(--app-text)]/70" />
+            <div
+              className="absolute -left-[3.5px] h-[7px] w-[7px] rounded-full bg-[var(--app-text)] ring-2 ring-[#0b0b0b]"
+              style={{ top: `${(1 - uroven) * 84 + 2}%` }}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* Hodiny v JEJ čase a s am/pm — kvôli tomu celá krivka vznikla. */}
+      <div className="relative mt-1 h-[13px]">
+        {hodiny.map((h) => (
+          <span
+            key={h}
+            className="absolute -translate-x-1/2 whitespace-nowrap text-[10.5px] text-[var(--app-text-4)]"
+            style={{ left: `${podiel(h) * 100}%` }}
+          >
+            {kratkaHodina(h)}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -241,6 +259,21 @@ function vyska(odozva: number | null): number {
   if (odozva === null) return 0;
   const v = 1 / (Math.max(0.1, odozva) * 2);
   return Math.min(1, Math.max(0.12, v));
+}
+
+/** Vážený kĺzavý priemer — trojuholníkové okno, takže stred váži najviac. */
+function rozmaz(hodnoty: number[], polomer: number): number[] {
+  return hodnoty.map((_, i) => {
+    let suma = 0;
+    let vaha = 0;
+    for (let k = -polomer; k <= polomer; k += 1) {
+      const j = Math.min(hodnoty.length - 1, Math.max(0, i + k));
+      const w = polomer + 1 - Math.abs(k);
+      suma += hodnoty[j] * w;
+      vaha += w;
+    }
+    return suma / vaha;
+  });
 }
 
 /** Catmull-Rom → bezier. Schody medzi blokmi tým dostanú plynulý prechod. */
@@ -323,6 +356,14 @@ export function format12(minuty: number): string {
   const m = cele % 60;
   const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
   return `${h12}:${String(m).padStart(2, "0")} ${h24 < 12 ? "AM" : "PM"}`;
+}
+
+/** „6pm" — na os pod krivkou, kde na celý tvar niet miesta. */
+function kratkaHodina(minuty: number): string {
+  const cele = ((minuty % DEN) + DEN) % DEN;
+  const h24 = Math.floor(cele / 60);
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  return `${h12}${h24 < 12 ? "am" : "pm"}`;
 }
 
 /** „Los Angeles" z „America/Los_Angeles" — pásmo s podčiarkovníkmi nie je meno. */

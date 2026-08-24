@@ -7,9 +7,11 @@ import { ModelSlots } from "@/components/app/model-slots";
 import { EmptyState, PageHeader } from "@/components/app/ui";
 import {
   getAccount,
+  getDayPlans,
   getModelStats,
   getPausedMap,
   listModels,
+  type DayPlan,
   type ModelRow,
 } from "@/lib/models";
 import { getAppConfig, isSlotExempt } from "@/lib/slots";
@@ -22,10 +24,11 @@ export const metadata: Metadata = {
 export default async function ModelsPage() {
   const models = await listModels();
   const modelIds = models.map((model) => model.id);
-  const [stats, connected, paused, account, config] = await Promise.all([
+  const [stats, connected, paused, days, account, config] = await Promise.all([
     getModelStats(modelIds),
     getConnectedMap(models),
     getPausedMap(modelIds),
+    getDayPlans(modelIds),
     getAccount(),
     getAppConfig(),
   ]);
@@ -55,7 +58,13 @@ export default async function ModelsPage() {
         </div>
       )}
 
-      <ModelsGrid models={models} stats={stats} connected={connected} paused={paused} />
+      <ModelsGrid
+        models={models}
+        stats={stats}
+        connected={connected}
+        paused={paused}
+        days={days}
+      />
     </>
   );
 }
@@ -65,11 +74,13 @@ function ModelsGrid({
   stats,
   connected,
   paused,
+  days,
 }: {
   models: ModelRow[];
   stats: Awaited<ReturnType<typeof getModelStats>>;
   connected: Awaited<ReturnType<typeof getConnectedMap>>;
   paused: Awaited<ReturnType<typeof getPausedMap>>;
+  days: Record<string, DayPlan>;
 }) {
   if (models.length === 0) {
     return (
@@ -91,6 +102,7 @@ function ModelsGrid({
           stats={stats[model.id] ?? { chats: 0, converted: 0, spentToday: 0 }}
           connected={connected[model.id] ?? false}
           aiPaused={paused[model.id] ?? false}
+          day={days[model.id] ?? null}
         />
       ))}
     </div>
