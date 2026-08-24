@@ -158,7 +158,10 @@ function DashboardStats({
   const repliesPrev = countKind(events, "chat", range.days, range.days * 2);
 
   return (
-    <div className="grid grid-cols-1 gap-3 min-[460px]:grid-cols-2 sm:gap-4 lg:grid-cols-4">
+    // Dve dlaždice vedľa seba už od najmenšieho telefónu. Pri hranici 460 px
+    // boli na každom mobile štyri pod sebou — 485 px výšky len na štyri čísla,
+    // teda pol obrazovky, kým sa človek dostal k modelkám.
+    <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
       <StatTile
         label="Replies sent"
         value={compactNumber(repliesThis)}

@@ -64,13 +64,20 @@ export function ModelCard({
         </div>
       )}
 
-      <dl className="mt-5 grid grid-cols-2 gap-5 min-[420px]:grid-cols-3 min-[420px]:gap-6">
+      {/* Tri stĺpce od najmenšieho telefónu. Hranica 420 px sa na bežnom
+          Androide (360–412) nikdy nezapla, takže „Coins today" visela sama na
+          druhom riadku — namerané na 360, 375 aj 393 px. Popisky sú krátke a
+          do ~85 px stĺpca sa zmestia. */}
+      <dl className="mt-5 grid grid-cols-3 gap-3 min-[420px]:gap-6">
         <Metric label="Chats" value={compactNumber(stats.chats)} />
         <Metric label="Converted" value={compactNumber(stats.converted)} />
         <Metric label="Coins today" value={coinsPrecise(stats.spentToday)} />
       </dl>
 
-      <div className="-mx-1.5 mt-5 flex flex-wrap items-center gap-0.5 border-t border-[var(--app-border)] pt-3">
+      {/* Na úzkych telefónoch mriežka 2×2, od 412 px jeden riadok. Predtým to
+          bol `flex-wrap`, ktorý sa pri 360–393 px zalomil na TRI riadky (2+1+1)
+          — namerané. Mriežka je symetrická v oboch prípadoch. */}
+      <div className="-mx-1.5 mt-5 grid grid-cols-2 gap-0.5 border-t border-[var(--app-border)] pt-3 min-[412px]:flex min-[412px]:flex-wrap min-[412px]:items-center">
         <QuickLink
           href={`/app/m/${model.id}/telegram`}
           icon={<Send className="h-3.5 w-3.5" strokeWidth={1.75} />}
