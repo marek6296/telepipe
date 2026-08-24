@@ -37,12 +37,17 @@ export function ModelCard({
           >
             {model.name || "Untitled model"}
           </Link>
-          <div className="mt-1.5 flex items-center gap-2.5">
+          {/* `min-w-0` na riadku aj na dlhom texte, inak sa nezmenší pod svoj
+              obsah — a keďže karta je položka mriežky (`min-width: auto`),
+              tiahla celú stránku na 454 px pri 390 px okne. Namerané: to bol
+              ten čierny pruh vpravo, prehliadač zmenšil celú stránku, aby sa
+              pretečenie zmestilo. `truncate` samo nestačí, musí mať kam. */}
+          <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
             <StatusBadge status={model.status} />
             <span className="text-[var(--app-text-4)]">·</span>
             <span className="text-[12px] text-[var(--app-text-4)]">{type.shortLabel}</span>
-            <span className="text-[var(--app-text-4)]">·</span>
-            <span className="truncate text-[12px] text-[var(--app-text-3)]">
+            <span className="hidden text-[var(--app-text-4)] min-[420px]:inline">·</span>
+            <span className="w-full min-w-0 truncate text-[12px] text-[var(--app-text-3)] min-[420px]:w-auto">
               {connected ? statusHint(status) : "Telegram not connected yet."}
             </span>
           </div>
