@@ -8,6 +8,7 @@ import { toNumber } from "@/lib/format";
 import {
   modelTypeHasSubTab,
   modelTypeHasTab,
+  tabIsSuperadminOnly,
   type ModelSubTabSlug,
   type ModelTabSlug,
 } from "@/lib/model-types";
@@ -186,7 +187,21 @@ export async function requireModelTab(
 ): Promise<ModelRow> {
   const model = await requireModel(id);
   if (!modelTypeHasTab(model.model_type, slug)) notFound();
+  await zamknuteKarty(slug);
   return model;
+}
+
+/**
+ * Karty vo výstavbe (`SUPERADMIN_TABS`) sa cudziemu účtu tvária, že neexistujú.
+ *
+ * `notFound()` a nie redirect zámerne: klient, ktorý adresu nemá poznať, sa
+ * nemá dozvedieť, že tam niečo je a je mu to odopreté. Skrytie v tab bare je
+ * len pohodlie — hranica je tu a v API routách.
+ */
+async function zamknuteKarty(slug: ModelTabSlug): Promise<void> {
+  if (!tabIsSuperadminOnly(slug)) return;
+  const { getViewerRole } = await import("@/lib/admin");
+  if ((await getViewerRole()) !== "superadmin") notFound();
 }
 
 /**
@@ -200,6 +215,7 @@ export async function requireModelSubTab(
 ): Promise<ModelRow> {
   const model = await requireModel(id);
   if (!modelTypeHasSubTab(model.model_type, tab, sub)) notFound();
+  await zamknuteKarty(tab);
   return model;
 }
 

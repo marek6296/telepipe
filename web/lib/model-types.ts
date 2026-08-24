@@ -18,7 +18,21 @@
 export type ModelType = "persona" | "business" | "private";
 
 /** Karty (taby) detailu modelky. Slug = segment v URL `/app/m/[id]/<slug>`. */
-export type ModelTabSlug = "telegram" | "fanvue" | "persona" | "voice";
+export type ModelTabSlug = "telegram" | "fanvue" | "instagram" | "persona" | "voice";
+
+/**
+ * Karty, ktoré vidí LEN superadmin.
+ *
+ * Instagram je zatiaľ vo výstavbe a testuje sa na vlastných účtoch — kým Meta
+ * neschváli appke Advanced Access, cudzí účet sa aj tak pripojiť nedá. Skrytá
+ * karta ale NIE JE hranica: rovnaká kontrola beží aj v `requireModelTab` a
+ * v obidvoch API routách, lebo adresu si vie ktokoľvek napísať sám.
+ */
+export const SUPERADMIN_TABS: readonly ModelTabSlug[] = ["instagram"];
+
+export function tabIsSuperadminOnly(slug: ModelTabSlug): boolean {
+  return SUPERADMIN_TABS.includes(slug);
+}
 
 /**
  * Podkarty jednej karty. Slug je druhý segment URL, `index` je samotná karta
@@ -89,7 +103,7 @@ export const DEFAULT_MODEL_TYPE: ModelType = "persona";
  * (žiadne Fanvue, žiadny hlas) je vidieť na jednom mieste.
  */
 export const MODEL_TYPE_TABS: Record<ModelType, readonly ModelTabSlug[]> = {
-  persona: ["telegram", "fanvue", "persona", "voice"],
+  persona: ["telegram", "fanvue", "instagram", "persona", "voice"],
   business: ["telegram", "persona"],
   private: ["telegram", "persona"],
 };
@@ -122,6 +136,9 @@ export const MODEL_TYPE_SUBTABS: Record<
   persona: {
     telegram: ["index", "settings", "bot", "photos", "chats"],
     fanvue: ["index", "settings", "photos", "chats"],
+    // Instagram má zatiaľ len pripojenie a nastavenia — konverzácie pribudnú
+    // s agentom vo workeri.
+    instagram: ["index", "settings"],
     persona: ["index", "behavior", "day"],
   },
   business: {

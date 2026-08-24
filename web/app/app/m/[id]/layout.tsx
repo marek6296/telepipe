@@ -1,5 +1,6 @@
 import { ModelHeader } from "@/components/app/model-header";
 import { ModelTabs } from "@/components/app/model-tabs";
+import { getViewerRole } from "@/lib/admin";
 import { isAiPaused, requireModel } from "@/lib/models";
 import { getTelegramConnection } from "@/lib/telegram";
 
@@ -16,7 +17,13 @@ export default async function ModelLayout({ children, params }: LayoutProps<"/ap
   // `isAiPaused` potrebuje len id, nie celý riadok modelky — nemusí teda čakať
   // na `requireModel`. Pri ~114 ms na okruh do databázy je to jeden ušetrený
   // okruh pri KAŽDOM prepnutí karty modelky.
-  const [model, aiPaused] = await Promise.all([requireModel(id), isAiPaused(id)]);
+  // Rola sa ťahá spolu so zvyškom, nie sériovo — rozhoduje len o tom, či sa
+  // vykreslí karta vo výstavbe (Instagram), a nemá za to stáť ďalší okruh.
+  const [model, aiPaused, rola] = await Promise.all([
+    requireModel(id),
+    isAiPaused(id),
+    getViewerRole(),
+  ]);
   const connection = await getTelegramConnection(model);
 
   return (
@@ -34,6 +41,7 @@ export default async function ModelLayout({ children, params }: LayoutProps<"/ap
         modelId={model.id}
         modelType={model.model_type}
         needsSetup={!connection.connected}
+        isSuperadmin={rola === "superadmin"}
       />
       {children}
     </>

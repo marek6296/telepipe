@@ -6,6 +6,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import {
   AudioLines,
   Heart,
+  Camera,
   Loader2,
   Send,
   UserRound,
@@ -19,6 +20,7 @@ import {
   asModelType,
   modelTypeSubTabs,
   subTabHref,
+  tabIsSuperadminOnly,
   type ModelSubTabSlug,
   type ModelTabSlug,
 } from "@/lib/model-types";
@@ -32,6 +34,7 @@ import { cn } from "@/lib/utils";
 const TAB_META: Record<ModelTabSlug, { label: string; icon: LucideIcon }> = {
   telegram: { label: "Telegram", icon: Send },
   fanvue: { label: "Fanvue", icon: Heart },
+  instagram: { label: "Instagram", icon: Camera },
   persona: { label: "Persona", icon: UserRound },
   voice: { label: "Voice", icon: AudioLines },
 };
@@ -56,6 +59,10 @@ const SUB_TAB_LABEL: Partial<Record<ModelTabSlug, Partial<Record<ModelSubTabSlug
       photos: "Photos",
       chats: "Chats",
     },
+    instagram: {
+      index: "Connect",
+      settings: "Settings",
+    },
     persona: {
       index: "Identity",
       behavior: "Behavior",
@@ -68,13 +75,18 @@ export function ModelTabs({
   modelId,
   modelType,
   needsSetup,
+  isSuperadmin = false,
 }: {
   modelId: string;
   modelType: string;
   needsSetup: boolean;
+  /** Karty vo výstavbe (`SUPERADMIN_TABS`) vidí len superadmin. */
+  isSuperadmin?: boolean;
 }) {
   const pathname = usePathname();
-  const tabs = MODEL_TYPE_TABS[asModelType(modelType)];
+  const tabs = MODEL_TYPE_TABS[asModelType(modelType)].filter(
+    (slug) => isSuperadmin || !tabIsSuperadminOnly(slug),
+  );
   const reduceMotion = useReducedMotion();
 
   const {
