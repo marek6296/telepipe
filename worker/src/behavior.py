@@ -608,6 +608,30 @@ def says_goodnight(text: str) -> bool:
     return bool(_GOODNIGHT_RE.search(text or ""))
 
 
+def sleep_lock_expired(
+    kind: Optional[str], now_local: datetime, start_min: int, end_min: int
+) -> bool:
+    """Má sa odložená odpoveď pustiť, hoci jej čas ešte nenastal?
+
+    Nočný zámok sa ukladá ako ABSOLÚTNY čas vypočítaný z otvorenia okna
+    v okamihu, keď modelka išla spať. Keď klient okno medzitým posunie na skorší
+    začiatok, ten starý čas drží ďalej — a fanúšik čaká, hoci je už dávno
+    „ráno". Presne to sa stalo: spánok do 12:12, klient prestavil na 10:06,
+    správa o 10:39 čakala do 12:12.
+
+    Preto platí: **sme v okne = ráno už bolo**, a nočný zámok tým stráca zmysel.
+    Náhodné odloženie (`defer`) sa nedotýka — to je „ozvem sa o dve hodiny"
+    vnútri dňa a má platiť presne.
+
+    `None` je starý riadok spred rozlíšenia. Berie sa ako nočný zámok, teda
+    tolerantne: horšie než jedno predčasne vypršané odloženie je fanúšik, ktorý
+    čaká od rána.
+    """
+    if kind == "defer":
+        return False
+    return in_active_window(now_local, start_min, end_min)
+
+
 def should_sleep_until_morning(
     now: datetime, behavior: "Behavior", her_text: str
 ) -> Optional[datetime]:

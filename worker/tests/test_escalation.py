@@ -153,7 +153,9 @@ class TestDeferredReplyFlow:
     def test_waits_until_scheduled_time(self):
         later = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
         bot, _, _, client, _ = build(
-            user_row(msg_count=5, reply_after=later),
+            # `defer` = náhodné „ozvem sa o dve hodiny" vnútri dňa. Na rozdiel
+            # od nočného zámku platí presne — viď `behavior.sleep_lock_expired`.
+            user_row(msg_count=5, reply_after=later, reply_after_kind="defer"),
             [{"role": "user", "content": "ok cool"}],
             "odpoved",
             behavior={"active_start_min": 0, "active_end_min": 0},
@@ -204,3 +206,53 @@ class TestQuickReplyFlow:
         assert client.sent, "musí odpovedať"
         assert 999 not in slept, "v pozornom režime sa nesmie čakať minúty"
         assert 1.0 in slept and 2.0 in slept, "má použiť rýchle časy"
+
+
+class TestZamokPoPrestaveniOkna:
+    """Presne prípad zo živej prevádzky: uspala sa do starého začiatku okna,
+    klient okno posunul skôr, fanúšik napísal a čakal do starého času."""
+
+    def _neskor(self, hodin=2):
+        return (datetime.now(timezone.utc) + timedelta(hours=hodin)).isoformat()
+
+    def test_nocny_zamok_v_otvorenom_okne_odpovie(self):
+        bot, db, _, client, _ = build(
+            user_row(msg_count=5, reply_after=self._neskor(), reply_after_kind="sleep"),
+            [{"role": "user", "content": "Hey Beauty Queen, you awake?"}],
+            "hey you 😄",
+            behavior={"active_start_min": 0, "active_end_min": 0},  # 24/7 = v okne
+        )
+        asyncio.run(bot.reply_to(555))
+        assert client.sent, "okno je otvorené, zámok už neplatí"
+
+    def test_a_zamok_sa_zahodi(self):
+        bot, db, _, _, _ = build(
+            user_row(msg_count=5, reply_after=self._neskor(), reply_after_kind="sleep"),
+            [{"role": "user", "content": "hey"}],
+            "hey",
+            behavior={"active_start_min": 0, "active_end_min": 0},
+        )
+        asyncio.run(bot.reply_to(555))
+        assert db.users[555].get("reply_after") is None
+        assert db.users[555].get("reply_after_kind") is None
+
+    def test_stary_riadok_bez_druhu_sa_tiez_pusti(self):
+        """Riadky spred rozlíšenia — inak by čakali do starého času naveky."""
+        bot, _, _, client, _ = build(
+            user_row(msg_count=5, reply_after=self._neskor()),
+            [{"role": "user", "content": "hey"}],
+            "hey you",
+            behavior={"active_start_min": 0, "active_end_min": 0},
+        )
+        asyncio.run(bot.reply_to(555))
+        assert client.sent
+
+    def test_nahodne_odlozenie_sa_nedotkne(self):
+        bot, _, _, client, _ = build(
+            user_row(msg_count=5, reply_after=self._neskor(), reply_after_kind="defer"),
+            [{"role": "user", "content": "hey"}],
+            "hey you",
+            behavior={"active_start_min": 0, "active_end_min": 0},
+        )
+        asyncio.run(bot.reply_to(555))
+        assert client.sent == [], "„ozvem sa neskôr“ má platiť presne"

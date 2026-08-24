@@ -557,12 +557,26 @@ class UserBot:
         # V Semi riadi tempo majiteľ — odložené odpovede aj aktívne okno sa
         # ignorujú (návrh mu má prísť hneď).
         wait_until = None if (testing or semi) else _parse_ts(user.get("reply_after"))
-        if wait_until and wait_until > datetime.now(timezone.utc):
-            mins = (wait_until - datetime.now(timezone.utc)).total_seconds() / 60
-            log.info("%s: ešte čaká, odpoveď za %.0f min", tg_id, mins)
-            return
-
         now_local = datetime.now(ZoneInfo(behavior.active_tz))
+        if wait_until and wait_until > datetime.now(timezone.utc):
+            # Nočný zámok neprežije otvorenie okna. Je to absolútny čas
+            # vypočítaný z NASTAVENIA, ktoré klient medzitým mohol posunúť —
+            # a vtedy by fanúšik čakal do starého času, hoci je už dávno ráno.
+            if bhv.sleep_lock_expired(
+                user.get("reply_after_kind"),
+                now_local,
+                behavior.active_start_min,
+                behavior.active_end_min,
+            ):
+                log.info("%s: nočný zámok už neplatí, okno je otvorené", tg_id)
+                await self._db.update_user(
+                    tg_id, {"reply_after": None, "reply_after_kind": None}
+                )
+            else:
+                mins = (wait_until - datetime.now(timezone.utc)).total_seconds() / 60
+                log.info("%s: ešte čaká, odpoveď za %.0f min", tg_id, mins)
+                return
+
         if not testing and not semi and not bhv.in_active_window(
             now_local, behavior.active_start_min, behavior.active_end_min
         ):
@@ -643,7 +657,12 @@ class UserBot:
             until = datetime.now(timezone.utc) + timedelta(seconds=deferred)
             log.info("%s: odkladám odpoveď o %.1f h (na %s)", tg_id, deferred / 3600, until)
             await self._db.update_user(
-                tg_id, {"pending_reply": True, "reply_after": until.isoformat()}
+                tg_id,
+                {
+                    "pending_reply": True,
+                    "reply_after": until.isoformat(),
+                    "reply_after_kind": "defer",
+                },
             )
             return
 
@@ -1741,7 +1760,12 @@ class UserBot:
         """
         until = datetime.now(timezone.utc) + timedelta(seconds=seconds)
         await self._db.update_user(
-            tg_id, {"pending_reply": True, "reply_after": until.isoformat()}
+            tg_id,
+            {
+                "pending_reply": True,
+                "reply_after": until.isoformat(),
+                "reply_after_kind": "defer",
+            },
         )
 
     async def _pick_voice(self, tg_id, text, part, wants_cta):
@@ -2194,6 +2218,7 @@ class UserBot:
             "pending_reply": False,
             "last_reply_at": _utc_iso(),
             "reply_after": None,
+            "reply_after_kind": None,
         }
 
         # Povedala dobrú noc na konci dňa → mlčí do ďalšieho cyklu.
@@ -2208,6 +2233,9 @@ class UserBot:
         )
         if sleep_until:
             patch["reply_after"] = sleep_until.astimezone(timezone.utc).isoformat()
+            # Druh zámku rozhoduje o tom, či prežije prestavenie okna. Nočný
+            # nesmie: počíta sa z nastavenia, ktoré klient mení.
+            patch["reply_after_kind"] = "sleep"
             log.info(
                 "%s: rozlúčila sa na noc, ďalšia odpoveď najskôr %s miestneho času",
                 tg_id,

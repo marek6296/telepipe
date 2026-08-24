@@ -2,6 +2,7 @@
 
 
 import { saveBehaviorAction } from "@/app/app/m/[id]/persona/behavior/actions";
+import { ActiveNow } from "@/components/app/active-now";
 import { AutoSaveForm } from "@/components/app/forms/auto-save";
 import {
   NumberField,
@@ -190,6 +191,13 @@ export function BehaviorForm({ behavior }: { behavior: BehaviorRow }) {
             options={tzOptions}
             help="Her local time drives the whole day — what she is doing, when she says good night."
           />
+          <div className="sm:col-span-3">
+            <ActiveNow
+              startMin={behavior.active_start_min}
+              endMin={behavior.active_end_min}
+              timeZone={behavior.active_tz}
+            />
+          </div>
           <div className="sm:col-span-3">
             <SwitchField
               name="morning_enabled"

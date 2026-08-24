@@ -509,6 +509,10 @@ export function TimeField({
         onBlur={flush}
         className="app-input"
       />
+      {/* Pole je 24-hodinové, ale na telefóne vyzerá ako obyčajný text a
+          „02:30" sa dá prečítať aj ako pol tretej poobede. Preto pod ním stojí
+          to isté po ľudsky — inak si klient nastaví noc namiesto obeda. */}
+      <p className="mt-1.5 text-[11.5px] text-[var(--app-text-4)]">{poLudsky(value)}</p>
     </Shell>
   );
 }
@@ -690,4 +694,16 @@ export function RangeField({
       </div>
     </Shell>
   );
+}
+
+
+/** „02:30" → „2:30 AM — v noci". Pre istotu aj časť dňa, nielen AM/PM. */
+function poLudsky(hhmm: string): string {
+  const [h, m] = (hhmm || "").split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return "";
+  const suffix = h < 12 ? "AM" : "PM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  const cast =
+    h < 5 ? "at night" : h < 12 ? "in the morning" : h < 17 ? "in the afternoon" : "in the evening";
+  return `${h12}:${String(m).padStart(2, "0")} ${suffix} — ${cast}`;
 }
