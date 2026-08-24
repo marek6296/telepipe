@@ -567,6 +567,23 @@ class TenantDb:
 
     # ---------- rozvrh dňa ----------
 
+    async def save_today_plan(self, local_date: str, bloky: List[Dict[str, Any]]) -> None:
+        """Zapíše jej dnešný deň tak, ako ho worker naozaj vylosoval.
+
+        Dashboard z toho ukazuje, čo modelka práve robí. Bez zápisu by vedel
+        ukázať len tvar dňa („zvyčajne býva o desiatej v posilňovni"), lebo deň
+        sa losuje Pythonom a v prehliadači sa zopakovať nedá.
+        """
+        await self._patch(
+            SCHEDULE,
+            {"model_id": self._mine},
+            {
+                "today_plan": bloky,
+                "today_date": local_date,
+                "today_written_at": _now_iso(),
+            },
+        )
+
     async def get_schedule(self) -> Dict[str, Any]:
         """Riadok `model_schedule` (migrácia 022). `{}` = modelka rozvrh nemá.
 

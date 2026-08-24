@@ -16,7 +16,15 @@ import { Card, CardHeader, EmptyState, PageHeader, StatTile } from "@/components
 import { COINS_PER_USD, coinsPrecise, toCoins } from "@/lib/coins";
 import { compactNumber, toNumber } from "@/lib/format";
 import { modelTypeHasTab } from "@/lib/model-types";
-import { getAccount, getModelStats, getPausedMap, listModels, type ModelRow } from "@/lib/models";
+import {
+  getAccount,
+  getDayPlans,
+  getModelStats,
+  getPausedMap,
+  listModels,
+  type DayPlan,
+  type ModelRow,
+} from "@/lib/models";
 import { getAppConfig } from "@/lib/slots";
 import { getConnectedMap } from "@/lib/telegram";
 import { createClient } from "@/lib/supabase/server";
@@ -62,10 +70,11 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
   const modelIds = models.map((model) => model.id);
   // Dopyty bežia paralelne, ale nová route sa vymení až ako hotový celok.
   // Používateľ tak zostáva na starej obrazovke namiesto prebliknutia skeletonov.
-  const [stats, connected, paused, events] = await Promise.all([
+  const [stats, connected, paused, days, events] = await Promise.all([
     getModelStats(modelIds),
     getConnectedMap(models),
     getPausedMap(modelIds),
+    getDayPlans(modelIds),
     recentUsage(range.days * 2, baseline),
   ]);
 
@@ -131,7 +140,13 @@ export default async function DashboardPage({ searchParams }: PageProps<"/app">)
 
       <DashboardStats models={models} range={range} stats={stats} events={events} />
       <DashboardCharts models={models} range={range} events={events} />
-      <DashboardModels models={models} stats={stats} connected={connected} paused={paused} />
+      <DashboardModels
+        models={models}
+        stats={stats}
+        connected={connected}
+        paused={paused}
+        days={days}
+      />
     </>
   );
 }
@@ -226,11 +241,13 @@ function DashboardModels({
   stats,
   connected,
   paused,
+  days,
 }: {
   models: ModelRow[];
   stats: Awaited<ReturnType<typeof getModelStats>>;
   connected: Awaited<ReturnType<typeof getConnectedMap>>;
   paused: Awaited<ReturnType<typeof getPausedMap>>;
+  days: Record<string, DayPlan>;
 }) {
   if (models.length === 0) {
     return (
@@ -264,6 +281,7 @@ function DashboardModels({
             stats={stats[model.id] ?? { chats: 0, converted: 0, spentToday: 0 }}
             connected={connected[model.id] ?? false}
             aiPaused={paused[model.id] ?? false}
+            day={days[model.id] ?? null}
           />
         ))}
       </div>

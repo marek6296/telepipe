@@ -342,3 +342,97 @@ export async function getModelStats(
 
   return stats;
 }
+
+/* --------------------------------------------------------------------------
+   Jej deň
+   
+   Worker si deň losuje deterministicky (`worker/src/den.py`), ale Pythonom —
+   v prehliadači sa to nedá zopakovať. Aby dashboard ukazoval, čo modelka
+   NAOZAJ robí, a nie odhad podľa tvaru rozvrhu, worker si svoj plán raz denne
+   zapíše do `model_schedule.today_plan` a tu ho len čítame.
+-------------------------------------------------------------------------- */
+
+export type DayBlock = {
+  od: number; // minúta dňa (môže presiahnuť 1440 — po polnoci)
+  do: number;
+  kde: string;
+  co: string;
+  odozva: number;
+};
+
+export type DayPlan = {
+  tz: string;
+  startMin: number;
+  endMin: number;
+  /** Lokálny dátum modelky, ku ktorému plán patrí — nie dátum servera. */
+  date: string | null;
+  blocks: DayBlock[];
+};
+
+const DEFAULT_TZ = "America/Los_Angeles";
+
+function readBlocks(raw: unknown): DayBlock[] {
+  if (!Array.isArray(raw)) return [];
+  const out: DayBlock[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const b = item as Record<string, unknown>;
+    const od = Number(b.od);
+    const koniec = Number(b.do);
+    // Blok bez zmysluplného rozsahu by na krivke bol neviditeľný alebo by ju
+    // celú rozhodil — radšej ho preskočiť než kresliť nezmysel.
+    if (!Number.isFinite(od) || !Number.isFinite(koniec) || koniec <= od) continue;
+    out.push({
+      od,
+      do: koniec,
+      kde: typeof b.kde === "string" ? b.kde : "",
+      co: typeof b.co === "string" ? b.co : "",
+      odozva: Number.isFinite(Number(b.odozva)) ? Number(b.odozva) : 1,
+    });
+  }
+  return out.sort((a, b) => a.od - b.od);
+}
+
+/** Minúta dňa z databázy. `null` je „nenastavené", nie polnoc. */
+function minuta(raw: unknown, inak: number): number {
+  const value = Number(raw);
+  return Number.isFinite(value) && value >= 0 && value < 1440 ? Math.round(value) : inak;
+}
+
+export async function getDayPlans(modelIds: string[]): Promise<Record<string, DayPlan>> {
+  const plans: Record<string, DayPlan> = {};
+  if (modelIds.length === 0) return plans;
+
+  const supabase = await createClient();
+  const [behavior, schedule] = await Promise.all([
+    supabase
+      .from("behavior")
+      .select("model_id, active_tz, active_start_min, active_end_min")
+      .in("model_id", modelIds),
+    supabase
+      .from("model_schedule")
+      .select("model_id, today_plan, today_date")
+      .in("model_id", modelIds),
+  ]);
+
+  const dni = new Map<string, { blocks: DayBlock[]; date: string | null }>();
+  for (const row of schedule.data ?? []) {
+    dni.set(row.model_id as string, {
+      blocks: readBlocks(row.today_plan),
+      date: (row.today_date as string | null) ?? null,
+    });
+  }
+
+  for (const row of behavior.data ?? []) {
+    const id = row.model_id as string;
+    const den = dni.get(id);
+    plans[id] = {
+      tz: (row.active_tz as string) || DEFAULT_TZ,
+      startMin: minuta(row.active_start_min, 9 * 60),
+      endMin: minuta(row.active_end_min, 2 * 60),
+      date: den?.date ?? null,
+      blocks: den?.blocks ?? [],
+    };
+  }
+  return plans;
+}

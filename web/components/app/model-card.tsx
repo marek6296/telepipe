@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { Images, MessageSquare, Send, Settings2 } from "lucide-react";
 
+import { HerDay } from "@/components/app/her-day";
 import { ModelPowerButton } from "@/components/app/model-power-button";
 import { RepliesPausedChip } from "@/components/app/replies-paused-chip";
 import { Callout, StatusBadge } from "@/components/app/ui";
 import { coinsPrecise } from "@/lib/coins";
 import { compactNumber } from "@/lib/format";
 import { modelTypeInfo } from "@/lib/model-types";
-import type { ModelRow, ModelStats } from "@/lib/models";
+import type { DayPlan, ModelRow, ModelStats } from "@/lib/models";
 import { asStatus, statusHint, statusReasonText } from "@/lib/status";
 
 /** Karta modelky — stav, mini štatistiky a skratky do jej nastavení. */
@@ -16,12 +17,15 @@ export function ModelCard({
   stats,
   connected,
   aiPaused = false,
+  day,
 }: {
   model: ModelRow;
   stats: ModelStats;
   connected: boolean;
   /** `settings.ai_paused` — beží, ale mlčí. Viď `RepliesPausedChip`. */
   aiPaused?: boolean;
+  /** Jej dnešok. `null` = táto modelka deň nemá (iný typ agenta, chýbajúci riadok). */
+  day?: DayPlan | null;
 }) {
   const status = asStatus(model.status);
   const reason = statusReasonText(model.status_reason);
@@ -68,6 +72,10 @@ export function ModelCard({
           <Callout tone={status === "error" ? "danger" : "neutral"}>{reason}</Callout>
         </div>
       )}
+
+      {/* Kde je v dni. Až za dôvodom výpadku (`reason`) — keď je niečo
+          rozbité, je to dôležitejšie než to, že práve varí. */}
+      {day && <HerDay plan={day} className="mt-4" />}
 
       {/* Tri stĺpce od najmenšieho telefónu. Hranica 420 px sa na bežnom
           Androide (360–412) nikdy nezapla, takže „Coins today" visela sama na

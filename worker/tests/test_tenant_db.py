@@ -84,6 +84,7 @@ CALLS = {
     "set_control_bot_setting": (("notify_hot_lead", True), {}),
     "ensure_short_link": ((42,), {}),
     "fresh_clicks": ((), {}),
+    "save_today_plan": (("2026-08-24", []), {}),
     "sleeping_until": ((), {}),
     "flood_until": ((), {}),
     "set_flood_until": ((None,), {}),

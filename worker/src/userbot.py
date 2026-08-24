@@ -2565,6 +2565,47 @@ class UserBot:
             oslovenych.add(int(tg_id))
         await self._reply_batch(vybrati, behavior, morning=True)
 
+    async def _zapis_dnesok(self, behavior: Behavior, now_local) -> None:
+        """Uloží jej dnešný plán, keď sa deň zmenil. Raz za deň, jeden zápis.
+
+        Robí to sweeper, nie odpisovanie: plán sa nemá zapisovať pri každej
+        správe a modelka, ktorej dnes nikto nenapísal, ho má mať tiež — na
+        dashboarde je to jediné miesto, kde vidno, čo práve robí.
+        """
+        try:
+            rozvrh = await self._rozvrh()
+            row = await self._db.get_schedule()
+            dnes = now_local.date().isoformat()
+            if str(row.get("today_date") or "") == dnes:
+                return
+
+            seed = self._cfg.supabase_schema
+            dnes_date = now_local.date()
+
+            def _tvar(b, posun: int = 0) -> dict:
+                return {
+                    "od": b.od - posun,
+                    "do": b.do - posun,
+                    "kde": b.kde,
+                    "co": b.co,
+                    "odozva": b.odozva,
+                }
+
+            # Po polnoci ešte dobieha VČERAJŠÍ večer — presne ako `den.block_at`,
+            # ktorý sa pozerá aj o deň dozadu. Bez tohto by dashboard medzi
+            # polnocou a pol treťou tvrdil, že spí, kým modelka práve odpisuje.
+            # Presah prepočítame do dnešných minút, takže vyjde záporné `od`.
+            bloky = [
+                _tvar(b, 1440)
+                for b in den.plan(dnes_date - timedelta(days=1), seed, rozvrh)
+                if b.do > 1440
+            ]
+            bloky += [_tvar(b) for b in den.plan(dnes_date, seed, rozvrh)]
+            await self._db.save_today_plan(dnes, bloky)
+            log.info("Dnešný deň zapísaný (%s blokov)", len(bloky))
+        except Exception:  # noqa: BLE001 - zápis dňa nesmie zhodiť sweeper
+            log.exception("Zápis dnešného dňa zlyhal")
+
     async def _tidy_up(self) -> None:
         """Nočné čistenie faktov. Soft-delete: staré sa označia, nikdy nemažú."""
         cutoff = (datetime.now(timezone.utc) - timedelta(hours=20)).isoformat()
@@ -2623,6 +2664,7 @@ class UserBot:
         await self._hlasi_kliky()
         behavior = await self._behavior()
         now_local = datetime.now(ZoneInfo(behavior.active_tz))
+        await self._zapis_dnesok(behavior, now_local)
         if not bhv.in_active_window(
             now_local, behavior.active_start_min, behavior.active_end_min
         ):
