@@ -412,33 +412,44 @@ def build_system_prompt(
             "Ak sa ťa spýta, koľko je u teba hodín, povedz to normálne ako človek "
             "(napr. „almost 9pm here\u201c), nikdy nie na minútu presne ako hodinky."
         )
-        # Situácia sa pridáva až keď sa trochu poznajú. Na prvý kontakt by ju
-        # model použil rovno v odpovedi a vysypal by, čo robí a kde je.
+        # KDE JE, VIE OD PRVEJ SPRÁVY.
+        #
+        # Predtým sa situácia pridávala až od štvrtej správy, aby model na prvý
+        # kontakt nevysypal, čo robí a kde je. Lenže on sa nespýta, či to má
+        # vedieť — keď mu to nepovieme, VYMYSLÍ SI to. Naostro: o 16:36 jej
+        # rozvrh hovoril „sedí v kaviarni po fotení", ona napísala „just chillin
+        # after gym pretty lazy day", a o osem minút, keď sa brána otvorila,
+        # „just sat down in a cafe after some photos". Dve rôzne miesta v jednom
+        # rozhovore sú horšie než čokoľvek, čomu mala brána zabrániť.
+        #
+        # Vysypaniu bráni pravidlo hneď pod tým („nehovor sama od seba"), nie
+        # zamlčanie. Zamlčať sa oplatí len OZNÁMENIE presunu (`arrival`) — to je
+        # jediná časť, ktorá modelku nabáda povedať to sama, a tá naozaj patrí
+        # až niekomu, s kým si už chvíľu píše.
         #
         # Zdroj je denný rozvrh, nie návrh podľa hodiny: rozvrh na seba
         # nadväzuje, takže o pol hodiny je stále tam, kde bola. Predtým si
         # každá hodina vyberala nezávisle a deň nedával dokopy zmysel.
-        if int(user.get("msg_count") or 0) > 3:
-            teraz = situation or behaviour_mod.situation_hint(now_local)
-            time_lines.append(f"Práve: {teraz}.")
+        teraz = situation or behaviour_mod.situation_hint(now_local)
+        time_lines.append(f"Práve: {teraz}.")
+        time_lines.append(
+            "Toto NEHOVOR sama od seba — použi to len ak sa spýta, čo robíš. "
+            "Ak si mu už povedala niečo iné, drž sa toho a nikdy si neprotireč."
+        )
+        if arrival and int(user.get("msg_count") or 0) > 3:
             time_lines.append(
-                "Toto NEHOVOR sama od seba — použi to len ak sa spýta, čo robíš. "
-                "Ak si mu už povedala niečo iné, drž sa toho a nikdy si neprotireč."
+                f"PRÁVE SA TO ZMENILO: {arrival}. Keď ste si písali aj "
+                "predtým, povedz to sama a mimochodom — človek napíše "
+                "„just got out of the gym“ alebo „im in the car now“, "
+                "nečaká, kým sa ho niekto spýta. Jednou vetou, bez "
+                "vysvetľovania, a hneď pokračuj v rozhovore."
             )
-            if arrival:
-                time_lines.append(
-                    f"PRÁVE SA TO ZMENILO: {arrival}. Keď ste si písali aj "
-                    "predtým, povedz to sama a mimochodom — človek napíše "
-                    "„just got out of the gym“ alebo „im in the car now“, "
-                    "nečaká, kým sa ho niekto spýta. Jednou vetou, bez "
-                    "vysvetľovania, a hneď pokračuj v rozhovore."
-                )
-            if busy:
-                time_lines.append(
-                    "Teraz si zaneprázdnená — odpovedaj kratšie a daj to najavo, "
-                    "že máš ruky plné práce a píšeš medzi tým. Neospravedlňuj sa "
-                    "za to a nesľubuj, kedy sa ozveš."
-                )
+        if busy:
+            time_lines.append(
+                "Teraz si zaneprázdnená — odpovedaj kratšie a daj to najavo, "
+                "že máš ruky plné práce a píšeš medzi tým. Neospravedlňuj sa "
+                "za to a nesľubuj, kedy sa ozveš."
+            )
         if weather:
             time_lines.append(
                 f"Počasie u teba práve teraz: {weather}. Je to skutočný údaj, "

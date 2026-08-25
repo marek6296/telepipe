@@ -408,7 +408,10 @@ class UserBot:
             return
 
         text = (event.raw_text or "").strip()
-        if event.photo:
+        # Fotka poslaná ako SÚBOR nie je `event.photo` — Telegram ju doručí ako
+        # dokument. Bez tejto vetvy by sa nikdy nepozrela na fotku, ktorú niekto
+        # poslal „bez kompresie", a odpovedala by naslepo.
+        if event.photo or _je_obrazok_subor(event):
             seen = await self._look_at_photo(event)
             text = f"{seen} {text}".strip() if text else seen
             # Srdiečko alebo plamienok priamo na fotku. Odloží sa na chvíľu,
@@ -421,7 +424,11 @@ class UserBot:
             povedal = await self._hear_voice(event)
             text = f"{povedal} {text}".strip() if text else povedal
         elif not text and event.media:
-            text = "[poslal médium bez textu]"
+            # Video, nálepka, GIF… Doteraz z toho bolo „[poslal médium bez
+            # textu]" a modelka odpovedala, akoby neprišlo nič — naostro poslal
+            # niekto médium a dostal „hey u 😄 whats up". Aspoň povedzme ČO to
+            # bolo, nech na to vie reagovať ako človek.
+            text = _co_to_prislo(event)
         if not text:
             log.info("Preskakujem %s: prázdna správa bez média", tg_id)
             return
@@ -2892,6 +2899,40 @@ def _strip_urls(text: str) -> str:
     out = re.sub(r"[ \t]{2,}", " ", out)
     out = re.sub(r" +([,.!?…])", r"\1", out)
     return "\n\n".join(part.strip() for part in re.split(r"\n{2,}", out) if part.strip())
+
+
+def _je_obrazok_subor(event) -> bool:
+    """Fotka poslaná ako súbor (bez kompresie) — Telegram ju dá ako dokument."""
+    document = getattr(event, "document", None)
+    if not document:
+        return False
+    mime = str(getattr(document, "mime_type", "") or "")
+    # GIF chodí ako `image/gif`, ale je to animácia — na tú vision nemá čo
+    # povedať a popis prvého snímku by bol zavádzajúci.
+    return mime.startswith("image/") and mime != "image/gif"
+
+
+def _co_to_prislo(event) -> str:
+    """Médium, ktoré nevieme prečítať — aspoň ho pomenuj.
+
+    „[poslal médium bez textu]" nedávalo modelke šancu reagovať; človek na
+    video alebo nálepku odpovie inak než na nič.
+    """
+    if getattr(event, "sticker", None):
+        # Nálepka nesie emoji, ktoré ju vystihuje — to je celý jej obsah.
+        emoji = ""
+        for attribute in getattr(getattr(event, "sticker", None), "attributes", []) or []:
+            emoji = str(getattr(attribute, "alt", "") or "") or emoji
+        return f"[poslal nálepku {emoji}]".replace(" ]", "]")
+    if getattr(event, "video_note", None):
+        return "[poslal krátke video z kamery (video note)]"
+    if getattr(event, "gif", None):
+        return "[poslal GIF]"
+    if getattr(event, "video", None):
+        return "[poslal video]"
+    if getattr(event, "document", None):
+        return "[poslal súbor]"
+    return "[poslal médium bez textu]"
 
 
 def message_id_of(event) -> int:
