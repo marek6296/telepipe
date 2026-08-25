@@ -232,7 +232,7 @@ class TenantFanvueDb:
             USERS,
             {
                 "model_id": self._mine,
-                "select": "tg_id,first_name,username,link_sent_at,funnel_stage",
+                "select": "tg_id,first_name,username,link_sent_at,link_clicked_at,funnel_stage",
                 "order": "last_incoming_at.desc.nullslast",
                 "limit": str(limit),
             },

@@ -81,8 +81,22 @@ def is_payment(event: Dict[str, Any]) -> bool:
 
 
 def fan_of(event: Dict[str, Any]) -> Dict[str, str]:
+    """Kto je za udalosťou. Prázdne `uuid` = nevieme a nič sa nezaznamená.
+
+    `purchaser` je tu draho zaplatená lekcia: pri platbe a pri odbere Fanvue
+    fanúšika NEPOSIELA ako `fan`, ale ako `purchaser`. Kým tu ten kľúč chýbal,
+    `_record_payment` skončil na prvom riadku a predplatné za 9,99 $ aj dva
+    nákupy po ňom sa nezapísali nikde — modelka nevedela, že jej ten človek
+    práve zaplatil, a ďalej sa k nemu správala ako k neplatiacemu.
+    """
     data = (event.get("payload") or {}).get("data") or {}
-    fan = data.get("fan") or data.get("user") or data.get("subscriber") or {}
+    fan = (
+        data.get("fan")
+        or data.get("purchaser")
+        or data.get("user")
+        or data.get("subscriber")
+        or {}
+    )
     return {
         "uuid": str(fan.get("uuid") or ""),
         "handle": str(fan.get("handle") or ""),
@@ -93,8 +107,15 @@ def fan_of(event: Dict[str, Any]) -> Dict[str, str]:
 
 
 def paid_cents(event: Dict[str, Any]) -> int:
+    """Koľko fanúšik zaplatil, v centoch.
+
+    `gross` je prvé zámerne: to je suma, ktorú zaplatil ON. `net` (bez
+    poplatkov Fanvue) je to, čo zostane modelke — ako miera toho, koľko je
+    fanúšik ochotný minúť, by podhodnocovala o tretinu. Berie sa až keď nič
+    iné nie je.
+    """
     data = (event.get("payload") or {}).get("data") or {}
-    for key in ("amount", "amount_cents", "price"):
+    for key in ("gross", "amount", "amount_cents", "price", "net"):
         try:
             value = int(data.get(key) or 0)
         except (TypeError, ValueError):
@@ -613,6 +634,12 @@ class FanvueAgent:
         if row is None:
             row = await self._ensure_fan(fan)
 
+        # Toto je najlepší okamih na spojenie s Telegramom: človek pred pár
+        # minútami klikol na SVOJ odkaz a hneď zaplatil. O hodinu už bude ten
+        # klik len jeden z mnohých.
+        if not row.get("tg_id"):
+            await self._try_link(fan, row, klik_plati=True)
+
         kupene = int(row.get("bought_count") or 0) + 1
         teraz = datetime.now(timezone.utc).isoformat()
         await self._db.update_fan(
@@ -761,7 +788,10 @@ class FanvueAgent:
         semi = reply_mode == "semi"
 
         if not row.get("tg_id"):
-            await self._try_link(fan, row)
+            # Prvá správa od neznámeho = práve prišiel, takže čerstvý klik
+            # ukazuje na neho. Starý fanúšik mohol napísať hocikedy a klik
+            # medzitým patrí niekomu inému.
+            await self._try_link(fan, row, klik_plati=not int(row.get("msg_count") or 0))
 
         # Skutočný stav chatu má prednosť pred frontou: Marek mohol odpísať
         # ručne, doručenie sa mohlo stratiť a poradie Fanvue nezaručuje.
@@ -1215,14 +1245,19 @@ class FanvueAgent:
         except Exception as exc:  # noqa: BLE001 - pamäť je bonus, nie podmienka
             log.warning("Pamäť sa nepodarilo doplniť: %s", exc)
 
-    async def _try_link(self, fan: Dict[str, Any], row: Dict[str, Any]) -> None:
+    async def _try_link(
+        self, fan: Dict[str, Any], row: Dict[str, Any], klik_plati: bool = False
+    ) -> None:
         """Skúsi zistiť, či to nie je niekto, s kým si už písala.
 
         Checkout odkaz s Telegram id je istota, ale nie každý ňou prejde —
         odkaz sa dá otvoriť inokedy alebo z iného zariadenia. Vtedy ostáva
-        meno a to, komu sme odkaz nedávno poslali. Keď to nestačí na istotu,
-        radšej sa nespojí nič: neznámemu sa prihovorí ako novému a nič sa
-        nestane, ale zle spojenému by pripomínala cudzie zážitky.
+        meno, komu sme odkaz nedávno poslali, a čerstvý klik na krátky odkaz.
+        Keď to nestačí na istotu, radšej sa nespojí nič: neznámemu sa prihovorí
+        ako novému a nič sa nestane, ale zle spojenému by pripomínala cudzie
+        zážitky.
+
+        `klik_plati` zapína dôkaz z kliku — viď `fanmatch.best`.
         """
         try:
             chats = await self._db.link_candidates()
@@ -1231,7 +1266,7 @@ class FanvueAgent:
             log.warning("Kandidátov sa nepodarilo načítať: %s", exc)
             return
 
-        hit = fanmatch.best(fan, chats, taken=taken)
+        hit = fanmatch.best(fan, chats, taken=taken, klik_plati=klik_plati)
         if not hit:
             log.info("Fanúšik %s ostáva nespojený", fan["uuid"][:8])
             return

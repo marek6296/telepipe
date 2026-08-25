@@ -213,7 +213,7 @@ class FanvueDb:
         return await self._get(
             "/dm_users",
             {
-                "select": "tg_id,first_name,username,link_sent_at,funnel_stage",
+                "select": "tg_id,first_name,username,link_sent_at,link_clicked_at,funnel_stage",
                 "order": "last_incoming_at.desc.nullslast",
                 "limit": str(limit),
             },

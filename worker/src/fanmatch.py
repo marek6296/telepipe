@@ -29,6 +29,12 @@ THRESHOLD = 6
 # dobre, nespája sa ani jeden — hádať sa tu nesmie.
 MARGIN = 3
 
+# Ako čerstvý musí byť klik na krátky odkaz, aby platil ako dôkaz. Krátky
+# odkaz je pre každého iný, takže klik hovorí presne, KTO otvoril stránku —
+# a človek, ktorý si na nej o pár minút kupuje predplatné, je ten istý človek.
+# Naostro to bol rozdiel troch minút: klik 07:19, predplatné 07:22.
+KLIK_OKNO_MIN = 45
+
 
 def normalise(text: Any) -> str:
     """Meno na porovnateľný tvar: bez diakritiky, bez ozdôb, malé písmená."""
@@ -54,7 +60,12 @@ def _ts(value: Any) -> Optional[datetime]:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-def score(fan: Dict[str, Any], chat: Dict[str, Any], now: datetime) -> Tuple[int, List[str]]:
+def score(
+    fan: Dict[str, Any],
+    chat: Dict[str, Any],
+    now: datetime,
+    klik_plati: bool = False,
+) -> Tuple[int, List[str]]:
     """Koľko toho svedčí, že tento Fanvue fanúšik je tento Telegram človek."""
     body = 0
     preco: List[str] = []
@@ -76,10 +87,26 @@ def score(fan: Dict[str, Any], chat: Dict[str, Any], now: datetime) -> Tuple[int
             body += 3
             preco.append("sedí krstné meno")
 
-    # Meno je PODMIENKA, nie jeden z bodov. Že niekomu nedávno odišiel odkaz,
-    # samo osebe nehovorí nič — odkaz dostalo veľa ľudí a prísť mohol
+    # Čerstvý klik na vlastný krátky odkaz. Toto je jediná stopa, ktorá
+    # nepotrebuje meno: odkaz je pre každého iný, takže hovorí priamo, kto
+    # stránku otvoril. Fanvue navyše väčšine ľudí pridelí anonymnú prezývku
+    # („living-earthworm-713"), takže na mene by sa spojenie nemalo o čo
+    # oprieť — a práve taký človek si kúpil predplatné tri minúty po kliku.
+    klik = _ts(chat.get("link_clicked_at")) if klik_plati else None
+    if klik:
+        minut = (now - klik).total_seconds() / 60
+        if 0 <= minut <= KLIK_OKNO_MIN:
+            body += 7
+            preco.append(f"klikol na svoj odkaz pred {int(minut)} min")
+
+    # Meno je inak PODMIENKA, nie jeden z bodov. Že niekomu nedávno odišiel
+    # odkaz, samo osebe nehovorí nič — odkaz dostalo veľa ľudí a prísť mohol
     # ktokoľvek. Bez zhody v mene by sa čerstvosť odkazu sama prehupla cez
     # hranicu a spojila by úplne cudzích ľudí.
+    #
+    # Dvaja ľudia, ktorí klikli v tom istom okne, dostanú rovnaké body a
+    # `MARGIN` v `best()` ich oboch zahodí. To je správne: vtedy naozaj
+    # nevieme, ktorý z nich to bol.
     if body == 0:
         return 0, []
 
@@ -105,11 +132,16 @@ def best(
     chats: List[Dict[str, Any]],
     now: Optional[datetime] = None,
     taken: Optional[set] = None,
+    klik_plati: bool = False,
 ) -> Optional[Dict[str, Any]]:
     """Najlepší návrh, alebo None keď si nie sme dosť istí.
 
     `taken` sú Telegram id, ktoré už patria inému fanúšikovi — jeden človek
     nemôže byť dvaja.
+
+    `klik_plati` zapína dôkaz z kliku na krátky odkaz. Volajúci ho zapne len
+    tam, kde klik naozaj ukazuje na tohto človeka: pri platbe a pri fanúšikovi,
+    ktorý sa práve objavil prvýkrát.
     """
     now = now or datetime.now(timezone.utc)
     taken = taken or set()
@@ -119,7 +151,7 @@ def best(
         tg_id = chat.get("tg_id")
         if tg_id is None or int(tg_id) in taken:
             continue
-        body, preco = score(fan, chat, now)
+        body, preco = score(fan, chat, now, klik_plati=klik_plati)
         if body > 0:
             hodnotenia.append((body, preco, chat))
 

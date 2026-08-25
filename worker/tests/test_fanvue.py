@@ -196,3 +196,79 @@ class TestFanUdalosti:
 
     def test_chybajuci_fanusik_nepadne(self):
         assert fa.fan_of(_event())["uuid"] == ""
+
+
+class TestSkutocnaPlatbaZFanvue:
+    """Presne tie payloady, ktoré nám Fanvue naozaj poslal 25. 8. 2026.
+
+    Prečo doslova: fanúšik si kúpil predplatné za 9,99 $ a dva balíčky po ňom
+    a NEZAPÍSALO sa nič. `fan_of` hľadalo `fan`, `user`, `subscriber` — lenže
+    pri platbe posiela Fanvue `purchaser`, takže `_record_payment` skončil na
+    prvom riadku. `paid_cents` zase hľadalo `amount`/`price`, ktoré v platbe
+    nie sú — je tam `gross`. Vymyslený payload by ani jednu z tých chýb
+    neodhalil, lebo by ho písal ten istý omyl.
+    """
+
+    PLATBA = {
+        "type": "creator.payment.succeeded",
+        "payload": {
+            "type": "creator.payment.succeeded",
+            "data": {
+                "id": "FVE-20260825-31077",
+                "net": 799,
+                "fees": {"fanvue_fee": 255, "transaction_fee": 55},
+                "gross": 999,
+                "object": "payment",
+                "source": "subscription",
+                "status": "succeeded",
+                "metadata": {},
+                "tracking": None,
+                "purchaser": {
+                    "uuid": "6594d9e9-c10c-48aa-9d5b-a0938d2e3aa3",
+                    "email": None,
+                    "handle": "living-earthworm-713",
+                    "display_name": "Living Earthworm",
+                },
+                "billing_reason": "subscription_initial",
+                "client_reference_id": None,
+            },
+        },
+    }
+
+    ODBER = {
+        "type": "creator.subscription.activated",
+        "payload": {
+            "type": "creator.subscription.activated",
+            "data": {
+                "id": "FVE-20260825-31077",
+                "price": 999,
+                "object": "subscription",
+                "status": "active",
+                "tracking": None,
+                "purchaser": {
+                    "uuid": "6594d9e9-c10c-48aa-9d5b-a0938d2e3aa3",
+                    "handle": "living-earthworm-713",
+                    "display_name": "Living Earthworm",
+                },
+                "client_reference_id": None,
+            },
+        },
+    }
+
+    def test_platba_pozna_kupujuceho(self):
+        assert fa.fan_of(self.PLATBA)["uuid"] == "6594d9e9-c10c-48aa-9d5b-a0938d2e3aa3"
+        assert fa.fan_of(self.PLATBA)["handle"] == "living-earthworm-713"
+
+    def test_odber_pozna_kupujuceho(self):
+        assert fa.fan_of(self.ODBER)["uuid"] == "6594d9e9-c10c-48aa-9d5b-a0938d2e3aa3"
+
+    def test_suma_je_to_co_zaplatil_on(self):
+        """`gross`, nie `net` — 9,99 $ zaplatil fanúšik, 7,99 $ dostane ona."""
+        assert fa.paid_cents(self.PLATBA) == 999
+
+    def test_odber_ma_sumu_v_price(self):
+        assert fa.paid_cents(self.ODBER) == 999
+
+    def test_bez_kupujuceho_sa_nic_nevymysla(self):
+        prazdna = {"type": "creator.payment.succeeded", "payload": {"data": {"gross": 999}}}
+        assert fa.fan_of(prazdna)["uuid"] == ""
