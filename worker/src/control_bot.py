@@ -33,6 +33,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 from telethon import Button, TelegramClient, events
+from telethon.tl import functions, types
 
 import behavior as bhv
 import coiny
@@ -118,6 +119,73 @@ CIARA = "───────────────"
 # Jedna šípka späť pre celý bot. Tri rôzne pôsobili, akoby každú obrazovku
 # písal niekto iný.
 SPAT = "‹ Back"
+
+# --------------------------------------------------------------------------
+# Trvalá klávesnica
+# --------------------------------------------------------------------------
+#
+# Inline tlačidlá žijú na správe: keď sa správa stratí v histórii, stratí sa
+# s ňou aj ovládanie a človek hľadá staré menu. Trvalá klávesnica sedí nad
+# vstupom stále a je to prvá vec, ktorá na botovi vyzerá ako appka.
+#
+# POZOR NA JEDNU VEC: ťuknutie POŠLE OBYČAJNÝ TEXT. Bot ho preto musí
+# rozpoznať skôr, než ho spracuje čokoľvek iné — inak sa „👤 Persona" uloží
+# ako nová persona, alebo odíde modelke do skúšobného chatu.
+#
+# Popisky sú zároveň kľúče, takže sa nesmú meniť bez `KLAVESNICA_AKCIE`.
+KLAVESNICA: Tuple[Tuple[str, ...], ...] = (
+    ("⌂ Menu", "👤 Persona"),
+    ("🎭 Behaviour", "🕘 Times"),
+    ("💬 Chats", "📊 Stats"),
+    ("✍️ Generator", "🧪 Test chat"),
+)
+
+# Popisok → callback, ktorý by poslalo to isté inline tlačidlo. Vďaka tomu
+# klávesnica nemá vlastnú logiku: iba stlačí to, čo už existuje.
+KLAVESNICA_AKCIE: Dict[str, str] = {
+    "⌂ Menu": "m",
+    "👤 Persona": "pm",
+    "🎭 Behaviour": "bm",
+    "🕘 Times": "tm",
+    "💬 Chats": "cv",
+    "📊 Stats": "st",
+    "✍️ Generator": "mg",
+    "🧪 Test chat": "try",
+}
+
+VSTUP_PLACEHOLDER = "Tap a button or type…"
+
+
+class _KlavesovyKlik:
+    """Ťuknutie na trvalú klávesnicu prezlečené za kliknutie na tlačidlo.
+
+    Obrazovky bota sú písané pre callback udalosť: volajú `answer()` (potvrď
+    kliknutie) a `edit()` (prekresli TÚ ISTÚ správu). Ťuknutie na klávesnicu
+    ale žiadnu takú správu nemá — prišla obyčajná správa od majiteľa a
+    prepisovať sa dá nanajvýš ona sama, čo by bolo mätúce.
+
+    Preto tento prezlek: `answer` je ticho a `edit` pošle NOVÚ správu. Vďaka
+    nemu nemusí mať klávesnica vlastnú vetvu v žiadnej obrazovke — a nemôže
+    sa stať, že sa Persona z menu a Persona z klávesnice rozídu.
+    """
+
+    def __init__(self, event: Any) -> None:
+        self._event = event
+        self.chat_id = event.chat_id
+        self.message_id = int(getattr(event, "id", 0) or 0)
+
+    async def answer(self, *_args: Any, **_kwargs: Any) -> None:
+        """Callback sa potvrdzuje, správa nie. Ticho je správna odpoveď."""
+
+    async def edit(self, *args: Any, **kwargs: Any) -> Any:
+        kwargs.pop("link_preview", None)
+        return await self._event.respond(*args, link_preview=False, **kwargs)
+
+    async def respond(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._event.respond(*args, **kwargs)
+
+    async def reply(self, *args: Any, **kwargs: Any) -> Any:
+        return await self._event.reply(*args, **kwargs)
 
 
 def _hhmm12(minutes: int) -> str:
@@ -378,8 +446,10 @@ class ControlBot:
 
         await event.reply(
             "✅ *Paired*\n\nFrom now on you'll get alerts about new "
-            "followers here, and you control her from here. The menu is always at `/menu`.",
+            "followers here, and you control her from here. The buttons below "
+            "the keyboard stay there — `/menu` opens everything else.",
             link_preview=False,
+            buttons=self._klavesnica(),
         )
         await self._send_main(event)
         return True
@@ -429,6 +499,14 @@ class ControlBot:
                 # Menu je aj cesta von zo skúšky. Bez toho by každá ďalšia
                 # správa majiteľa išla modelke namiesto nastavení.
                 self._skuska.vypni(event.chat_id)
+                # Klávesnica sa posiela LEN so `/start`, nie s každým `/menu`:
+                # Telegram ju musí niesť správa, takže by inak pribudla druhá
+                # správa zakaždým. Kto si ju zavrel, vráti ju cez `/start`.
+                if command == "/start":
+                    await event.reply(
+                        "⌨️ *Ready.* The buttons below stay with you.",
+                        buttons=self._klavesnica(),
+                    )
                 await self._send_main(event)
             elif command == "/cancel":
                 self._awaiting.pop(event.chat_id, None)
@@ -622,6 +700,32 @@ class ControlBot:
 
     # ---------- prijatie hodnoty ----------
 
+    async def _klavesnica_klik(self, event: events.NewMessage.Event) -> bool:
+        """Ťukol na trvalú klávesnicu? Vtedy sa otvorí príslušná obrazovka.
+
+        Vracia True, keď sa o správu postaral — volajúci vtedy končí.
+
+        Klávesnica nemá vlastnú logiku: pretlmočí sa na ten istý callback,
+        aký posiela inline tlačidlo (`_route`). Vďaka tomu nemôže vzniknúť
+        obrazovka, ktorá sa z klávesnice správa inak než z menu.
+        """
+        akcia = KLAVESNICA_AKCIE.get((event.raw_text or "").strip())
+        if not akcia:
+            return False
+        chat_id = event.chat_id
+        # Rozpísaná hodnota sa zahadzuje — tak ako pri /cancel. Uložiť
+        # „🎭 Behaviour" ako hodnotu poľa by bolo horšie než ju stratiť.
+        self._awaiting.pop(chat_id, None)
+        # `⌂ Menu` je aj cesta von zo skúšky, presne ako príkaz /menu.
+        if akcia == "m":
+            self._skuska.vypni(chat_id)
+        try:
+            await self._route(_KlavesovyKlik(event), akcia)
+        except Exception as exc:  # noqa: BLE001 - klávesnica nesmie zhodiť bota
+            log.exception("klávesnica: akcia %s zlyhala", akcia)
+            await event.reply(f"⚠️ {exc}"[:190])
+        return True
+
     async def _on_value(self, event: events.NewMessage.Event) -> None:
         chat_id = event.chat_id
         if not self._is_owner(chat_id):
@@ -631,6 +735,13 @@ class ControlBot:
                 await self._try_pair(event)
             except Exception:  # noqa: BLE001 — pokazené párovanie nezhodí bota
                 log.exception("párovanie zlyhalo")
+            return
+        # TRVALÁ KLÁVESNICA IDE PRVÁ, pred rozpísaným nastavením aj pred
+        # skúšobným chatom. Ťuknutie na ňu pošle obyčajný text, takže inak by
+        # sa „👤 Persona" uložilo ako nová persona alebo odišlo modelke do
+        # skúšky — a človek by netušil, prečo tlačidlo nefunguje. Navigácia
+        # vždy vyhráva; rozpísaná hodnota sa zahodí ako pri /cancel.
+        if await self._klavesnica_klik(event):
             return
         # Skúšobný chat má prednosť pred „nič sa nečaká" — ale NIE pred
         # rozpísaným nastavením. Kto práve píše novú personu, nesmie ju omylom
@@ -1082,6 +1193,47 @@ class ControlBot:
         self._chat_ctx[mid] = dict(ctx)
         while len(self._chat_ctx) > _MAX_CHAT_CTX:
             self._chat_ctx.pop(next(iter(self._chat_ctx)))
+
+    def _klavesnica(self) -> "types.ReplyKeyboardMarkup":
+        """Trvalá klávesnica nad vstupom.
+
+        `persistent` znamená, že sa po odoslaní správy nezbalí; `resize`, že
+        tlačidlá majú výšku textu a nie pol obrazovky. Bez `placeholder` je vo
+        vstupe „Write a message" a vyzerá to, akoby sa čakalo na text.
+        """
+        return types.ReplyKeyboardMarkup(
+            rows=[
+                types.KeyboardButtonRow(
+                    [types.KeyboardButton(text) for text in riadok]
+                )
+                for riadok in KLAVESNICA
+            ],
+            resize=True,
+            persistent=True,
+            placeholder=VSTUP_PLACEHOLDER,
+        )
+
+    async def nastav_prikazy(self) -> None:
+        """Modré tlačidlo „Menu" pri vstupe — to je zoznam príkazov bota.
+
+        Volá to runner po štarte. Zlyhanie sa iba zaloguje: bot bez zoznamu
+        príkazov funguje ďalej, len má o jedno pohodlie menej.
+        """
+        prikazy = [
+            types.BotCommand("menu", "Open the menu"),
+            types.BotCommand("den", "What she is doing today"),
+            types.BotCommand("reset", "Wipe the test chat"),
+            types.BotCommand("cancel", "Cancel what you were typing"),
+            types.BotCommand("help", "How this bot works"),
+        ]
+        try:
+            await self._client(
+                functions.bots.SetBotCommandsRequest(
+                    scope=types.BotCommandScopeDefault(), lang_code="", commands=prikazy
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - pohodlie, nie podmienka
+            log.warning("Zoznam príkazov sa nepodarilo nastaviť: %s", exc)
 
     async def _pinning_on(self) -> bool:
         """Má sa pripínať? Chyba čítania = áno — je to pohodlie, nie riziko."""

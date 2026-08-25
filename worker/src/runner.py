@@ -339,6 +339,9 @@ class TenantRunner:
                 userbot.set_control(control)
                 control.register_sender("telegram", userbot)
                 await control.recover_cards()
+                # Modré tlačidlo „Menu" pri vstupe = zoznam príkazov bota.
+                # Nastavuje sa raz po štarte; zlyhanie si rieši samo vnútri.
+                await control.nastav_prikazy()
             sweeper = userbot.start_sweeper()
             voice_jobs = userbot.start_voice_jobs()
             fallback = control.start_fallback_poller() if bot_ready else None
