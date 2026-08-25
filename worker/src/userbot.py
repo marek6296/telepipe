@@ -2902,7 +2902,15 @@ def _strip_urls(text: str) -> str:
 
 
 def _je_obrazok_subor(event) -> bool:
-    """Fotka poslaná ako súbor (bez kompresie) — Telegram ju dá ako dokument."""
+    """Fotka poslaná ako súbor (bez kompresie) — Telegram ju dá ako dokument.
+
+    NÁLEPKA JE TIEŽ DOKUMENT a statická má `image/webp`, takže bez tejto
+    výnimky by každá nálepka išla na vision model: stálo by to peniaze a
+    modelka by dostala opis kreslenej postavičky namiesto toho, že jej niekto
+    pomahal. Nálepku vystihuje jej emoji, nie popis obrázka.
+    """
+    if getattr(event, "sticker", None):
+        return False
     document = getattr(event, "document", None)
     if not document:
         return False

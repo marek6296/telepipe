@@ -129,6 +129,46 @@ class TestMediumSaPomenuje:
 
         assert userbot._je_obrazok_subor(E()) is False
 
+    def test_nalepka_nejde_na_vision(self):
+        """Statická nálepka má `image/webp`, takže by inak skončila na vision
+        modeli — stálo by to peniaze a vrátilo opis kreslenej postavičky
+        namiesto toho, že jej niekto pomahal."""
+        import userbot
+
+        class Dok:
+            mime_type = "image/webp"
+
+        class E:
+            sticker = Dok()
+            document = Dok()
+
+        assert userbot._je_obrazok_subor(E()) is False
+
+    def test_nalepka_sa_pomenuje_emojim(self):
+        import userbot
+
+        class Alt:
+            alt = "👋"
+
+        class Sticker:
+            attributes = [Alt()]
+
+        class E:
+            sticker = Sticker()
+
+        assert userbot._co_to_prislo(E()) == "[poslal nálepku 👋]"
+
+    def test_nalepka_bez_emoji_nema_medzeru_navyse(self):
+        import userbot
+
+        class Sticker:
+            attributes = []
+
+        class E:
+            sticker = Sticker()
+
+        assert userbot._co_to_prislo(E()) == "[poslal nálepku]"
+
     def test_bez_dokumentu_nespadne(self):
         import userbot
 
