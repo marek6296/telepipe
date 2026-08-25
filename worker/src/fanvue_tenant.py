@@ -398,6 +398,23 @@ class TenantFanvueDb:
 
     # ---------- obsah z vaultu ----------
 
+    async def recent_chats(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Fanvue chaty od najnovšieho. Pre menu control bota.
+
+        Radí sa podľa poslednej PRIJATEJ správy, nie podľa `first_seen`: koho
+        má majiteľ najskôr na očiach, je ten, kto sa naposledy ozval.
+        """
+        return await self._get(
+            FV_USERS,
+            {
+                "model_id": self._mine,
+                "select": "fan_uuid,handle,display_name,msg_count,spent_cents,"
+                          "last_incoming_at,human_takeover",
+                "order": "last_incoming_at.desc.nullslast",
+                "limit": str(limit),
+            },
+        )
+
     async def has_media(self) -> bool:
         """Je v trezore vôbec niečo? Jeden riadok stačí — nepočítame, pýtame sa.
 

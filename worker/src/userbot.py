@@ -2083,6 +2083,17 @@ class UserBot:
         )
         return {"suggestions": suggestions}
 
+    async def recent_chats(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Chaty pre menu control bota — rovnaký tvar ako na Fanvue."""
+        out: List[Dict[str, Any]] = []
+        for row in await self._db.recent_conversations(limit):
+            meno = str(row.get("first_name") or row.get("tg_id") or "")
+            popis = f"{int(row.get('msg_count') or 0)} msgs · {row.get('funnel_stage') or ''}"
+            out.append(
+                {"conv_key": str(row.get("tg_id") or ""), "name": meno, "hint": popis.strip(" ·")}
+            )
+        return [chat for chat in out if chat["conv_key"]]
+
     async def context_card(self, conv_key: str) -> str:
         """Kto je tento človek a o čom si píšu. Volá control bot cez „Context".
 

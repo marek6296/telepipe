@@ -146,6 +146,10 @@ def _short(value: Any, limit: int = 28) -> str:
 # viac chatov, ďalšie sa nepripnú a majiteľ ich nájde v chate ako doteraz.
 MAX_PIN = 4
 
+# Koľko chatov si bot pamätá pre tlačidlo „Send more". Päťdesiat kariet
+# dozadu je viac, než sa kedy niekomu zíde.
+_MAX_CHAT_CTX = 50
+
 
 def _card_lines(
     channel: str,
@@ -196,6 +200,14 @@ class ControlBot:
         # len ospravedlní, namiesto toho aby bot spadol.
         self._llm: Any = None
         self._skuska = skuska_mod.Skuska()
+        # message_id → {channel, conv_key, name}. Toto je to, čo z karty
+        # ZOSTANE po rozhodnutí: kým existuje, dá sa tomu istému človeku
+        # poslať ďalšia vec bez toho, aby musel znova napísať on. Karta
+        # (`_cards`) žije len po rozhodnutie, kontext dlhšie.
+        self._chat_ctx: Dict[int, Dict[str, Any]] = {}
+        # chat_id → posledný vypísaný zoznam chatov. Callback dáta majú strop
+        # 64 bajtov a fanvue uuid má 36 znakov, takže tlačidlo nesie index.
+        self._chat_list: Dict[int, Dict[str, Any]] = {}
         # Posledné zadanie generátora podľa chatu — drží ho „Regenerate".
         # Prežije aj odchod do menu a späť; nový vstup ho prepíše.
         self._gen: Dict[int, Dict[str, Any]] = {}
@@ -397,6 +409,54 @@ class ControlBot:
                 [Button.inline("🔄 Start over", b"tryr"), Button.inline("🛑 End test", b"try")],
             ],
         )
+
+    # ---------- písanie do chatu z menu ----------
+
+    async def _zoznam_chatov(self, event, channel: str) -> None:
+        """Posledné chaty daného kanála ako tlačidlá."""
+        sender = self._senders.get(channel)
+        plat = "Fanvue" if channel == "fanvue" else "Telegram"
+        if not sender or not hasattr(sender, "recent_chats"):
+            await event.answer(f"{plat} is not connected", alert=True)
+            return
+        try:
+            chats = await sender.recent_chats(8)
+        except Exception as exc:  # noqa: BLE001 - menu nesmie zhodiť bota
+            log.warning("Zoznam chatov (%s) zlyhal: %s", channel, exc)
+            await event.answer("Could not load the chats", alert=True)
+            return
+        if not chats:
+            await self._render(
+                event, f"*{plat}*\nNobody has written yet.",
+                [[Button.inline("← Back", b"m")]], True,
+            )
+            return
+        # Kľúč ide do callback dát, ktoré majú strop 64 bajtov — fanvue uuid
+        # má 36 znakov, takže sa posiela index do zoznamu, nie kľúč.
+        self._chat_list[event.chat_id] = {"channel": channel, "chats": chats}
+        rows = [
+            [Button.inline(f"{c['name']} · {c['hint']}"[:60], f"oc:{i}".encode())]
+            for i, c in enumerate(chats)
+        ]
+        rows.append([Button.inline("← Back", b"m")])
+        await self._render(event, f"*{plat} chats*\n_Pick one to write._", rows, True)
+
+    async def _otvor_chat(self, event, arg: str) -> None:
+        """Otvorí composer pre vybraný chat zo zoznamu."""
+        stav = self._chat_list.get(event.chat_id) or {}
+        chats = stav.get("chats") or []
+        try:
+            chat = chats[int(arg)]
+        except (TypeError, ValueError, IndexError):
+            await event.answer("That list is stale — open it again", alert=True)
+            return
+        mid = int(event.message_id)
+        self._zapamataj_chat(
+            mid, channel=stav["channel"], conv_key=chat["conv_key"], name=chat["name"]
+        )
+        self._wizard.pop(mid, None)
+        await event.answer()
+        await self._composer(event, mid)
 
     # ---------- generátor správ ----------
 
@@ -628,7 +688,7 @@ class ControlBot:
     _APPROVAL_HEADS = frozenset({
         "ap", "ac", "as", "ax", "af", "afd", "afi", "afree", "apaid",
         "acap", "acapn", "acapw", "av", "avc", "avok", "avno", "aback",
-        "ar", "ab", "ai",
+        "ar", "ab", "ai", "an", "ad",
     })
 
     async def _route(self, event: events.CallbackQuery.Event, data: str) -> None:
@@ -649,6 +709,12 @@ class ControlBot:
             await self._db.set_paused(not paused)
             await event.answer("AI on" if paused else "AI off")
             await self._send_main(event, edit=True)
+        elif head == "fc":
+            await self._zoznam_chatov(event, "fanvue")
+        elif head == "tc":
+            await self._zoznam_chatov(event, "telegram")
+        elif head == "oc":
+            await self._otvor_chat(event, arg)
         elif head == "mg":
             await self._generator_vyzva(event)
         elif head == "mgr":
@@ -921,11 +987,25 @@ class ControlBot:
             return False
         await self._db.mark_pending(pid, "awaiting", control_msg_id=int(msg.id))
         self._cards[int(msg.id)] = pid
+        self._zapamataj_chat(
+            int(msg.id), channel=channel, conv_key=conv_key, name=display_name
+        )
         self._wizard.pop(int(msg.id), None)
         # Pripnutie až tu: pripínať sa má len karta, ktorá naozaj visí a čaká.
         if await self._pinning_on():
             await self._pin_card(int(msg.id))
         return True
+
+    def _zapamataj_chat(self, mid: int, **ctx: Any) -> None:
+        """Priradí karte chat a zároveň drží mapu krátku.
+
+        Kontext prežíva rozhodnutie karty (kvôli „Send more"), takže by inak
+        rástol donekonečna — jeden záznam za každú kartu, čo kedy prišla.
+        Staršie sa zahadzujú: k správe spred dvoch dní sa nikto nevracia.
+        """
+        self._chat_ctx[mid] = dict(ctx)
+        while len(self._chat_ctx) > _MAX_CHAT_CTX:
+            self._chat_ctx.pop(next(iter(self._chat_ctx)))
 
     async def _pinning_on(self) -> bool:
         """Má sa pripínať? Chyba čítania = áno — je to pohodlie, nie riziko."""
@@ -1020,17 +1100,37 @@ class ControlBot:
         return pid, await self._db.get_pending(pid)
 
     async def _route_approval(self, event, head: str, arg: str) -> None:
+        """Tlačidlá na karte — aj po tom, ako sa už raz rozhodlo.
+
+        DVA REŽIMY. S čakajúcim riadkom (`pid`) je to schvaľovanie: odpoveď sa
+        doručí a riadok sa uzavrie. Bez neho je to obyčajné písanie do toho
+        istého chatu — „pošli mu ešte fotku", alebo písanie z menu. Rozdiel je
+        JEDINE v tom, či sa niečo zapíše do `pending_replies`; doručovanie,
+        výber fotky aj hlasovka sú tá istá cesta.
+
+        Bez druhého režimu sa dalo poslať práve jedno médium na jednu správu
+        od fanúšika — a keď chcel majiteľ napísať vetu a hneď za ňou fotku,
+        musel čakať, kým fanúšik napíše znova.
+        """
         mid = int(event.message_id)
         pid, row = await self._pending_for(event)
-        if not row or row.get("status") != "awaiting":
+        ctx = self._chat_ctx.get(mid) or {}
+        if row and row.get("status") == "awaiting":
+            channel, conv = row["channel"], row["conv_key"]
+            suggestions = row.get("suggestions") or []
+        elif ctx:
+            # Karta je vybavená, ale chat poznáme. `pid=None` znamená „nič sa
+            # neuzatvára, len sa posiela".
+            pid, row = None, None
+            channel, conv = ctx["channel"], ctx["conv_key"]
+            suggestions = []
+        else:
             await event.answer("This message is no longer current", alert=True)
             return
-        channel, conv = row["channel"], row["conv_key"]
         sender = self._senders.get(channel)
         if not sender:
             await event.answer("Channel not connected", alert=True)
             return
-        suggestions = row.get("suggestions") or []
 
         if head == "ap":
             idx = int(arg or 0)
@@ -1077,14 +1177,32 @@ class ControlBot:
             self._awaiting[event.chat_id] = ("semi_caption", str(mid))
             await event.answer()
             await event.respond("✍️ Type the caption for the photo. /cancel to cancel.")
+        elif head == "an":
+            await self._composer(event, mid)
+        elif head == "ad":
+            self._chat_ctx.pop(mid, None)
+            self._wizard.pop(mid, None)
+            await event.answer()
+            try:
+                await event.edit(buttons=None)
+            except Exception:  # noqa: BLE001 - tlačidlá mohli zmiznúť už predtým
+                pass
         elif head == "ai":
-            await self._show_context(event, sender, row, suggestions)
+            await self._show_context(event, sender, conv, suggestions, bool(row))
         elif head == "ar":
+            # Pregenerovanie aj zadanie témy prepisujú KARTU. Bez nej niet čo
+            # prepisovať a na samostatnú vetu je v menu generátor.
+            if not row:
+                await event.answer("Use ✍️ Message generator in the menu", alert=True)
+                return
             await event.answer("Writing new ones…")
             problem = await self._new_suggestions(mid, pid, row)
             if problem:
                 await event.respond(problem)
         elif head == "ab":
+            if not row:
+                await event.answer("Use ✍️ Message generator in the menu", alert=True)
+                return
             self._awaiting[event.chat_id] = ("semi_brief", str(mid))
             await event.answer()
             await event.respond(
@@ -1094,7 +1212,10 @@ class ControlBot:
                 "/cancel to cancel."
             )
         elif head == "aback":
-            await self._restore_card(event, row)
+            if row:
+                await self._restore_card(event, row)
+            else:
+                await self._composer(event, mid)
         elif head == "av":
             idx = int(arg or 0)
             text = suggestions[idx] if 0 <= idx < len(suggestions) else (suggestions[0] if suggestions else "")
@@ -1112,26 +1233,93 @@ class ControlBot:
             await event.answer("Voice note discarded")
 
     async def _finish_text(self, event, pid, sender, conv, channel, text) -> None:
+        """Odošle text. `pid=None` = nič sa neuzatvára, len sa píše."""
         if not (text or "").strip():
             await event.answer("Empty text")
             return
-        if not await self._db.claim_pending(pid):
+        if pid and not await self._db.claim_pending(pid):
             await event.answer("Already handled", alert=True)
             return
         ok = await sender.deliver_text(conv, text)
         mid = int(event.message_id)
         await self._forget_card(mid)
         if ok:
-            await self._db.mark_pending(pid, "sent", chosen_text=text, kind="text")
-            await event.edit(f"✅ _Sent:_ {_short(text, 200)}", buttons=None)
+            if pid:
+                await self._db.mark_pending(pid, "sent", chosen_text=text, kind="text")
+            await self._hotovo(event, mid, f"✅ _Sent:_ {_short(text, 200)}")
         else:
-            await self._db.mark_pending(pid, "awaiting")
+            if pid:
+                await self._db.mark_pending(pid, "awaiting")
             if channel == "telegram":
                 try:
                     await self._db.update_user(int(conv), {"pending_reply": True})
                 except Exception:  # noqa: BLE001
                     pass
             await event.answer("Sending failed — try again", alert=True)
+
+    async def _hotovo(self, event, mid: int, text: str) -> None:
+        """Odoslané — a hneď ponúkne poslať tomu istému človeku ešte niečo.
+
+        PREČO. Dovtedy sa dalo na jednu správu od fanúšika odpovedať práve raz.
+        Kto chcel napísať vetu a hneď za ňou fotku, musel čakať, kým fanúšik
+        napíše znova — a to je presne to, čo skutočný človek nerobí.
+
+        Kontext chatu (`_chat_ctx`) tu ostáva zámerne: bez neho by ďalšie
+        tlačidlo nemalo komu poslať.
+        """
+        meno = (self._chat_ctx.get(mid) or {}).get("name") or "them"
+        buttons = [[
+            Button.inline("➕ Send more", b"an"),
+            Button.inline("✓ Done", b"ad"),
+        ]]
+        try:
+            await event.edit(f"{text}\n\n_Anything else for {_short(meno, 40)}?_",
+                             buttons=buttons)
+        except Exception as exc:  # noqa: BLE001 - odoslané už je
+            log.info("Kartu po odoslaní sa nepodarilo prepísať: %s", exc)
+
+    async def _po_odoslani(self, mid: int, text: str) -> None:
+        """Ako `_hotovo`, ale keď odoslanie prišlo napísanou správou.
+
+        Vtedy nemáme callback event, ktorý by kartu prepísal — ide sa priamo
+        cez klienta. Ponuka „ešte niečo?" musí byť rovnaká, inak by sa
+        napísaná odpoveď správala inak než kliknutá.
+        """
+        meno = (self._chat_ctx.get(mid) or {}).get("name") or "them"
+        try:
+            await self._client.edit_message(
+                self._cfg.owner_chat_id, mid,
+                f"{text}\n\n_Anything else for {_short(meno, 40)}?_",
+                buttons=[[
+                    Button.inline("➕ Send more", b"an"),
+                    Button.inline("✓ Done", b"ad"),
+                ]],
+            )
+        except Exception as exc:  # noqa: BLE001 - odoslané už je
+            log.info("Kartu po odoslaní sa nepodarilo prepísať: %s", exc)
+
+    async def _composer(self, event, mid: int) -> None:
+        """Obrazovka „čo pošleme" pre jeden chat. Rovnaká pre kartu aj menu."""
+        ctx = self._chat_ctx.get(mid) or {}
+        if not ctx:
+            await event.answer("This chat is no longer open", alert=True)
+            return
+        sender = self._senders.get(ctx.get("channel"))
+        if not sender:
+            await event.answer("Channel not connected", alert=True)
+            return
+        plat = "Fanvue" if ctx.get("channel") == "fanvue" else "Telegram"
+        buttons = [
+            [Button.inline("✍️ Write a message", b"ac")],
+            [Button.inline("📷 Photo", b"af"), Button.inline("🎤 Voice note", b"av")],
+            [Button.inline("🧠 Context", b"ai")],
+            [Button.inline("✓ Done", b"ad")],
+        ]
+        await event.edit(
+            f"💬 *{plat} · {ctx.get('name') or ctx.get('conv_key')}*\n"
+            "_What do you want to send?_",
+            buttons=buttons,
+        )
 
     async def _show_folders(self, event, sender, conv, mid) -> None:
         folders = await sender.photo_folders(conv)
@@ -1201,20 +1389,22 @@ class ControlBot:
         if not media_ref:
             await event.answer("No photo selected", alert=True)
             return
-        if not await self._db.claim_pending(pid):
+        if pid and not await self._db.claim_pending(pid):
             await event.answer("Already handled", alert=True)
             return
         ok = await sender.deliver_photo(conv, media_ref, caption, price)
         await self._forget_card(mid)
         if ok:
-            await self._db.mark_pending(
-                pid, "sent", chosen_text=caption, kind="photo",
-                media_ref=str(media_ref), price_cents=price,
-            )
+            if pid:
+                await self._db.mark_pending(
+                    pid, "sent", chosen_text=caption, kind="photo",
+                    media_ref=str(media_ref), price_cents=price,
+                )
             tag = f" for ${price // 100}" if price else ""
-            await event.edit(f"✅ _Photo sent{tag}._", buttons=None)
+            await self._hotovo(event, mid, f"✅ _Photo sent{tag}._")
         else:
-            await self._db.mark_pending(pid, "awaiting")
+            if pid:
+                await self._db.mark_pending(pid, "awaiting")
             await event.answer("Could not send the photo", alert=True)
 
     async def _restore_card(self, event, row) -> None:
@@ -1229,7 +1419,9 @@ class ControlBot:
         )
         await event.edit("\n".join(lines), buttons=self._approval_buttons(len(suggestions)))
 
-    async def _show_context(self, event, sender, row, suggestions) -> None:
+    async def _show_context(
+        self, event, sender, conv: str, suggestions, je_karta: bool = True
+    ) -> None:
         """Zhrnutie chatu NAMIESTO karty, aj s návrhmi a tlačidlami.
 
         Návrhy ostávajú na obrazovke zámerne: kto si prečíta, kto to je, chce
@@ -1241,7 +1433,7 @@ class ControlBot:
             return
         await event.answer()
         try:
-            text = await sender.context_card(row["conv_key"])
+            text = await sender.context_card(conv)
         except Exception as exc:  # noqa: BLE001 - prehľad nesmie zhodiť kartu
             log.warning("Prehľad chatu zlyhal: %s", exc)
             await event.respond("⚠️ Could not load the context.")
@@ -1253,7 +1445,16 @@ class ControlBot:
         lines = [text, ""]
         for i, sug in enumerate(suggestions):
             lines.append(f"*{i + 1}️⃣* {sug}")
-        buttons = self._approval_buttons(len(suggestions))
+        # Bez karty (písanie z menu) nemá zmysel ponúkať čísla návrhov —
+        # žiadne nie sú. Ostáva písanie, fotka a hlasovka.
+        buttons = (
+            self._approval_buttons(len(suggestions))
+            if je_karta
+            else [
+                [Button.inline("✍️ Write a message", b"ac")],
+                [Button.inline("📷 Photo", b"af"), Button.inline("🎤 Voice note", b"av")],
+            ]
+        )
         buttons.append([Button.inline("« Back", b"aback")])
         try:
             await event.edit("\n".join(lines), buttons=buttons, link_preview=False)
@@ -1374,10 +1575,16 @@ class ControlBot:
         mid = int(field) if field.isdigit() else 0
         pid = self._cards.get(mid)
         row = await self._db.get_pending(pid) if pid else None
-        if not row or row.get("status") != "awaiting":
+        ctx = self._chat_ctx.get(mid) or {}
+        if row and row.get("status") == "awaiting":
+            channel, conv = row["channel"], row["conv_key"]
+        elif ctx:
+            # Písanie do chatu bez čakajúcej karty — viď `_route_approval`.
+            pid, row = None, None
+            channel, conv = ctx["channel"], ctx["conv_key"]
+        else:
             await event.reply("This message is no longer current.")
             return
-        channel, conv = row["channel"], row["conv_key"]
         sender = self._senders.get(channel)
         if not sender:
             await event.reply("Channel not connected.")
@@ -1385,21 +1592,28 @@ class ControlBot:
         st = self._wizard.setdefault(mid, {})
 
         if kind == "semi_custom":
-            if not await self._db.claim_pending(pid):
+            if pid and not await self._db.claim_pending(pid):
                 await self._forget_card(mid)
                 await event.reply("Already handled.")
                 return
             ok = await sender.deliver_text(conv, value)
             await self._forget_card(mid)
             if ok:
-                await self._db.mark_pending(pid, "sent", chosen_text=value, kind="text")
-                await self._clear_card(mid, f"✅ _Sent:_ {_short(value, 150)}")
+                if pid:
+                    await self._db.mark_pending(pid, "sent", chosen_text=value, kind="text")
+                await self._po_odoslani(mid, f"✅ _Sent:_ {_short(value, 150)}")
                 await event.reply("✅ Sent.")
             else:
-                await self._db.mark_pending(pid, "awaiting")
+                if pid:
+                    await self._db.mark_pending(pid, "awaiting")
                 await event.reply("⚠️ Sending failed, try again.")
 
         elif kind == "semi_brief":
+            if not row:
+                await event.reply(
+                    "That card is gone — use ✍️ Message generator in the menu instead."
+                )
+                return
             await event.reply("🗒 Writing it in her style…")
             problem = await self._new_suggestions(mid, pid, row, brief=value)
             if problem:
@@ -1420,20 +1634,22 @@ class ControlBot:
             if not media_ref:
                 await event.reply("No photo selected.")
                 return
-            if not await self._db.claim_pending(pid):
+            if pid and not await self._db.claim_pending(pid):
                 await event.reply("Already handled.")
                 return
             ok = await sender.deliver_photo(conv, media_ref, value, price)
             await self._forget_card(mid)
             if ok:
-                await self._db.mark_pending(
-                    pid, "sent", chosen_text=value, kind="photo",
-                    media_ref=str(media_ref), price_cents=price,
-                )
-                await self._clear_card(mid, "✅ _Photo sent._")
+                if pid:
+                    await self._db.mark_pending(
+                        pid, "sent", chosen_text=value, kind="photo",
+                        media_ref=str(media_ref), price_cents=price,
+                    )
+                await self._po_odoslani(mid, "✅ _Photo sent._")
                 await event.reply("✅ Photo sent.")
             else:
-                await self._db.mark_pending(pid, "awaiting")
+                if pid:
+                    await self._db.mark_pending(pid, "awaiting")
                 await event.reply("⚠️ Could not send the photo.")
 
         elif kind == "semi_voice":
@@ -1476,16 +1692,18 @@ class ControlBot:
         if not ogg or not text:
             await event.answer("Voice note not ready", alert=True)
             return
-        if not await self._db.claim_pending(pid):
+        if pid and not await self._db.claim_pending(pid):
             await event.answer("Already handled", alert=True)
             return
         ok = await sender.deliver_voice(conv, text, ogg)
         await self._forget_card(mid)
         if ok:
-            await self._db.mark_pending(pid, "sent", chosen_text=text, kind="voice")
-            await event.edit("✅ _Voice note sent._", buttons=None)
+            if pid:
+                await self._db.mark_pending(pid, "sent", chosen_text=text, kind="voice")
+            await self._hotovo(event, mid, "✅ _Voice note sent._")
         else:
-            await self._db.mark_pending(pid, "awaiting")
+            if pid:
+                await self._db.mark_pending(pid, "awaiting")
             await event.answer("Could not send the voice note", alert=True)
 
     async def _send_main(self, event, edit: bool = False) -> None:
@@ -1542,6 +1760,10 @@ class ControlBot:
             # skutočný účet z vlastného Telegramu. To robí `🧪 Test chat`, ktorý
             # sa premazáva sám a žiadnu konverzáciu nezanecháva.
             [Button.inline("✍️ Message generator", b"mg")],
+            # Písanie do chatu bez toho, aby najprv napísal fanúšik. Dovtedy
+            # sa dalo odpovedať len na kartu, ktorá práve prišla.
+            [Button.inline("💬 Fanvue chats", b"fc"),
+             Button.inline("💬 Telegram chats", b"tc")],
             [
                 Button.inline(
                     "🛑 End test chat" if self._skuska.bezi(self._cfg.owner_chat_id)

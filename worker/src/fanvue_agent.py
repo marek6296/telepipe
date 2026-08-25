@@ -1125,6 +1125,22 @@ class FanvueAgent:
         )
         return {"suggestions": suggestions, "hint": "" if brief else sit.tip}
 
+    async def recent_chats(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Chaty pre menu control bota: kľúč, meno a krátky popis do tlačidla."""
+        out: List[Dict[str, Any]] = []
+        for row in await self._db.recent_chats(limit):
+            meno = str(row.get("display_name") or row.get("handle") or "fan")
+            minul = int(row.get("spent_cents") or 0)
+            popis = f"{int(row.get('msg_count') or 0)} msgs"
+            if minul:
+                popis += f" · ${minul / 100:.0f}"
+            if row.get("human_takeover"):
+                popis += " · ✋"
+            out.append(
+                {"conv_key": str(row.get("fan_uuid") or ""), "name": meno, "hint": popis}
+            )
+        return [chat for chat in out if chat["conv_key"]]
+
     async def context_card(self, conv_key: str) -> str:
         """Kto je tento fanúšik a o čom si píšu. Volá control bot cez „Context".
 
