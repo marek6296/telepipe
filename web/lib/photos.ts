@@ -44,6 +44,8 @@ export type PhotoRow = {
   model_id: string;
   url: string;
   caption: string;
+  /** Kedy sa fotka hodí — poznámka pre modelku, nie text do chatu. */
+  situation: string;
   folder: string;
   spicy: boolean;
   active: boolean;
@@ -52,4 +54,4 @@ export type PhotoRow = {
 };
 
 export const PHOTO_COLUMNS =
-  "id, model_id, url, caption, folder, spicy, active, sent_count, created_at";
+  "id, model_id, url, caption, situation, folder, spicy, active, sent_count, created_at";

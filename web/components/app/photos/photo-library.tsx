@@ -12,6 +12,7 @@ import {
   Loader2,
   Plus,
   Send,
+  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
@@ -20,6 +21,7 @@ import { saveBehaviorAction } from "@/app/app/m/[id]/persona/behavior/actions";
 import {
   createPhotoAction,
   deletePhotoAction,
+  generateFolderCaptionsAction,
   updatePhotoAction,
 } from "@/app/app/m/[id]/telegram/photos/actions";
 import { AutoSaveForm } from "@/components/app/forms/auto-save";
@@ -131,6 +133,7 @@ export function PhotoLibrary({
       {FOLDERS.map((folder) => (
         <FolderSection
           key={folder}
+          modelId={modelId}
           folder={folder}
           photos={byFolder.get(folder) ?? []}
           uploading={busyFolder === folder}
@@ -213,12 +216,14 @@ function SendPhotosToggle({
 /* -------------------------------------------------------------------------- */
 
 function FolderSection({
+  modelId,
   folder,
   photos,
   uploading,
   onUpload,
   onOpen,
 }: {
+  modelId: string;
   folder: Folder;
   photos: PhotoRow[];
   uploading: boolean;
@@ -227,6 +232,31 @@ function FolderSection({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
+  const router = useRouter();
+  const [writing, startWriting] = useTransition();
+  const [note, setNote] = useState("");
+  const [noteBad, setNoteBad] = useState(false);
+
+  // Popisky sa píšu celému albumu naraz — v jednom albume má modelka spravidla
+  // to isté oblečenie aj prostredie, a po jednej by z toho vyšli tri rôzne
+  // pyžamá v jednom večeri.
+  const bezPopisu = photos.filter((photo) => !(photo.caption || "").trim()).length;
+
+  function writeCaptions(overwrite: boolean) {
+    setNote("");
+    setNoteBad(false);
+    startWriting(async () => {
+      const result = await generateFolderCaptionsAction(modelId, folder, { overwrite });
+      if (result.error) {
+        setNote(result.error);
+        setNoteBad(true);
+        return;
+      }
+      const warnings = result.warnings?.length ? ` ${result.warnings.join(" ")}` : "";
+      setNote(`Described ${result.written} photo(s).${warnings}`);
+      router.refresh();
+    });
+  }
 
   return (
     <div
@@ -258,20 +288,52 @@ function FolderSection({
           <p className="mt-1 text-[12px] leading-relaxed text-[var(--app-text-4)]">
             {FOLDER_HINT[folder]}
           </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          disabled={uploading}
-          className="app-btn app-btn-ghost h-9 shrink-0 px-3"
-        >
-          {uploading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Plus className="h-4 w-4" />
+          {note && (
+            <p
+              className={cn(
+                "mt-1.5 text-[12px]",
+                noteBad ? "text-[#fca5a5]" : "text-[var(--app-text-3)]",
+              )}
+            >
+              {note}
+            </p>
           )}
-          Add
-        </button>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          {photos.length > 0 && (
+            <button
+              type="button"
+              onClick={() => writeCaptions(bezPopisu === 0)}
+              disabled={writing}
+              title={
+                bezPopisu === 0
+                  ? "Rewrite every caption in this album"
+                  : "Look at these photos and describe them for her"
+              }
+              className="app-btn app-btn-ghost h-9 px-3"
+            >
+              {writing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              {bezPopisu === 0 ? "Redescribe" : `Describe ${bezPopisu}`}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            className="app-btn app-btn-ghost h-9 px-3"
+          >
+            {uploading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Plus className="h-4 w-4" />
+            )}
+            Add
+          </button>
+        </div>
         <input
           ref={inputRef}
           type="file"
@@ -434,12 +496,21 @@ function PhotoEditor({
               defaultValue={photo.folder}
               options={FOLDERS.map((f) => ({ value: f, label: FOLDER_LABEL[f] }))}
             />
+            {/* Popisky sú POZNÁMKY PRE ŇU, nie text do chatu — vetu k fotke
+                si napíše sama, keď ju posiela. Preto sú vecné. */}
             <TextField
               name="caption"
-              label="Caption"
+              label="What is in the picture"
               defaultValue={photo.caption}
-              placeholder="just got out of the shower"
-              help="What she says when she sends it — also how she knows what is in the picture."
+              placeholder="black silk slip, sitting on the edge of the bed, warm lamp light"
+              help="How she knows what she just sent. Never shown to anyone — she writes her own line."
+            />
+            <TextField
+              name="situation"
+              label="When it fits"
+              defaultValue={photo.situation}
+              placeholder="late evening, already in bed, talking softly"
+              help="Helps her pick a photo that suits the moment."
             />
             <SwitchField
               name="spicy"

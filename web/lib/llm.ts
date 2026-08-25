@@ -17,6 +17,13 @@
 const DEFAULT_BASE_URL = "https://api.atlascloud.ai/v1";
 const DEFAULT_MODEL = "xai/grok-4.5";
 
+/**
+ * Na obrázky iný model — Grok ich neberie. Ten istý, aký na videnie fotiek
+ * používa worker (`Llm._vision_model`); keby sa rozišli, popis fotky by písal
+ * niekto iný než ten, kto ju v chate vidí.
+ */
+const DEFAULT_VISION_MODEL = "google/gemini-3.5-flash";
+
 /** Reasoning tokeny sa počítajú do `max_tokens` — worker drží „low" z rovnakého dôvodu. */
 const DEFAULT_REASONING_EFFORT = "low";
 
@@ -35,6 +42,10 @@ export type LlmResult = {
 
 export function llmModel(): string {
   return process.env.LLM_MODEL?.trim() || DEFAULT_MODEL;
+}
+
+export function llmVisionModel(): string {
+  return process.env.LLM_VISION_MODEL?.trim() || DEFAULT_VISION_MODEL;
 }
 
 function llmKey(): string {
@@ -58,6 +69,11 @@ function endpoint(): string {
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
+/** Kus správy pre model, ktorý vidí. Text a obrázok v jednom poli. */
+export type VisionPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+
 /**
  * Jedno logické volanie s vynúteným JSON výstupom.
  *
@@ -70,6 +86,36 @@ export async function chatJson(
   messages: ChatMessage[],
   options: { maxTokens?: number; temperature?: number } = {},
 ): Promise<LlmResult> {
+  return callJson(messages, llmModel(), options);
+}
+
+/**
+ * To isté, ale s obrázkami — a preto iným modelom (`llmVisionModel`).
+ *
+ * Obrázky sa posielajú ako URL, nie base64: bucket `photos` je verejný, takže
+ * model si ich stiahne sám a my nemusíme ťahať megabajty cez server action
+ * (a naraziť na 1 MB limit tela).
+ */
+export async function chatVisionJson(
+  system: string,
+  parts: VisionPart[],
+  options: { maxTokens?: number; temperature?: number } = {},
+): Promise<LlmResult> {
+  return callJson(
+    [
+      { role: "system", content: system },
+      { role: "user", content: parts as unknown as string },
+    ],
+    llmVisionModel(),
+    options,
+  );
+}
+
+async function callJson(
+  messages: ChatMessage[],
+  model: string,
+  options: { maxTokens?: number; temperature?: number } = {},
+): Promise<LlmResult> {
   const key = llmKey();
   const usage: LlmUsage = { input: 0, output: 0 };
   if (!key) {
@@ -77,7 +123,7 @@ export async function chatJson(
   }
 
   const payload: Record<string, unknown> = {
-    model: llmModel(),
+    model,
     messages,
     max_tokens: options.maxTokens ?? 4000,
     temperature: options.temperature ?? 0.8,
