@@ -140,6 +140,36 @@ def _short(value: Any, limit: int = 28) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+def _card_lines(
+    channel: str,
+    display_name: str,
+    incoming_preview: str,
+    suggestions: List[str],
+    hint: str = "",
+    brief: str = "",
+) -> List[str]:
+    """Text schvaľovacej karty. Jedno miesto pre všetky tri cesty, ktorými
+    karta vzniká (nová správa, „Regenerate", „Say this") — inak sa rozídu a
+    po návrate z foto-wizardu zmizne polovica informácií.
+
+    Tip nad návrhmi je tu preto, že kód UŽ VIE, či sa práve hodí fotka alebo
+    ponuka (`fvflow.tip`). Bez neho sa majiteľ rozhoduje z troch textov a na
+    fotku si musí spomenúť sám.
+    """
+    plat = "Fanvue" if channel == "fanvue" else "Telegram"
+    lines = [f"💬 *{plat} · {display_name}*"]
+    if incoming_preview:
+        lines.append(f"„{_short(incoming_preview, 220)}“")
+    if hint:
+        lines.append(f"\n{hint}")
+    if brief:
+        lines.append(f"\n🗒 _Your brief: {_short(brief, 160)}_")
+    lines.append("")
+    for i, sug in enumerate(suggestions):
+        lines.append(f"*{i + 1}️⃣* {sug}")
+    return lines
+
+
 def _parse_iso(value: Optional[str]) -> Optional[datetime]:
     if not value:
         return None
@@ -159,9 +189,9 @@ class ControlBot:
         # len ospravedlní, namiesto toho aby bot spadol.
         self._llm: Any = None
         self._skuska = skuska_mod.Skuska()
-        # chat_id → ("persona"|"behavior"|"time"|"semi_custom"|"semi_price"|
-        # "semi_caption", field) — čaká sa na hodnotu. Pri semi_* field nesie
-        # message_id karty (str).
+        # chat_id → ("persona"|"behavior"|"time"|"semi_custom"|"semi_brief"|
+        # "semi_price"|"semi_caption", field) — čaká sa na hodnotu. Pri semi_*
+        # field nesie message_id karty (str).
         self._awaiting: Dict[int, Tuple[str, str]] = {}
         # Semi-auto: doručovatelia odpovedí podľa kanála (dopĺňa runner).
         self._senders: Dict[str, Any] = {}
@@ -500,6 +530,7 @@ class ControlBot:
     _APPROVAL_HEADS = frozenset({
         "ap", "ac", "as", "ax", "af", "afd", "afi", "afree", "apaid",
         "acap", "acapn", "acapw", "av", "avc", "avok", "avno", "aback",
+        "ar", "ab",
     })
 
     async def _route(self, event: events.CallbackQuery.Event, data: str) -> None:
@@ -755,6 +786,7 @@ class ControlBot:
     async def post_approval(
         self, *, channel: str, conv_key: str, display_name: str,
         incoming_preview: str, suggestions: List[str],
+        hint: str = "", prompt: str = "",
     ) -> bool:
         """Založí pending, pošle kartu majiteľovi. True = poslané."""
         if not self._cfg.owner_chat_id:
@@ -767,17 +799,12 @@ class ControlBot:
         row = await self._db.create_pending(
             channel=channel, conv_key=conv_key,
             suggestions=suggestions, incoming_preview=incoming_preview,
+            hint=hint, prompt=prompt,
         )
         if not row:
             return False
         pid = row["id"]
-        plat = "Fanvue" if channel == "fanvue" else "Telegram"
-        lines = [f"💬 *{plat} · {display_name}*"]
-        if incoming_preview:
-            lines.append(f"„{_short(incoming_preview, 220)}“")
-        lines.append("")
-        for i, sug in enumerate(suggestions):
-            lines.append(f"*{i + 1}️⃣* {sug}")
+        lines = _card_lines(channel, display_name, incoming_preview, suggestions, hint)
         try:
             msg = await self._client.send_message(
                 self._cfg.owner_chat_id, "\n".join(lines),
@@ -795,6 +822,12 @@ class ControlBot:
         nums = [Button.inline(f"{i + 1}️⃣", f"ap:{i}".encode()) for i in range(n)]
         return [
             nums or [Button.inline("✍️ Write", b"ac")],
+            # „Regenerate" dá tie isté tri ťahy inak; „Say this" ich napíše na
+            # tému, ktorú zadáš vlastnými slovami. Sú vedľa seba zámerne: keď
+            # sa nepáči ani jeden návrh, buď chceš iné, alebo už vieš, čo tam
+            # má byť.
+            [Button.inline("🔄 Regenerate", b"ar"),
+             Button.inline("🗒 Say this", b"ab")],
             [Button.inline("✍️ Write my own", b"ac")],
             [Button.inline("📷 Photo", b"af"), Button.inline("🎤 Voice note", b"av")],
             [Button.inline("⏭️ Skip", b"as"), Button.inline("✋ Take over", b"ax")],
@@ -884,6 +917,20 @@ class ControlBot:
             self._awaiting[event.chat_id] = ("semi_caption", str(mid))
             await event.answer()
             await event.respond("✍️ Type the caption for the photo. /cancel to cancel.")
+        elif head == "ar":
+            await event.answer("Writing new ones…")
+            problem = await self._new_suggestions(mid, pid, row)
+            if problem:
+                await event.respond(problem)
+        elif head == "ab":
+            self._awaiting[event.chat_id] = ("semi_brief", str(mid))
+            await event.answer()
+            await event.respond(
+                "🗒 What should she say? Describe it in your own words — she'll "
+                "write it in her style and in the language of the chat.\n"
+                "_Example: thank him for being here and ask who he is._\n"
+                "/cancel to cancel."
+            )
         elif head == "aback":
             await self._restore_card(event, row)
         elif head == "av":
@@ -1013,14 +1060,68 @@ class ControlBot:
     async def _restore_card(self, event, row) -> None:
         """« Späť z foto-wizardu na pôvodnú kartu s návrhmi."""
         suggestions = row.get("suggestions") or []
-        plat = "Fanvue" if row.get("channel") == "fanvue" else "Telegram"
-        lines = [f"💬 *{plat} · {row.get('conv_key')}*"]
-        if row.get("incoming_preview"):
-            lines.append(f"„{_short(row['incoming_preview'], 220)}“")
-        lines.append("")
-        for i, sug in enumerate(suggestions):
-            lines.append(f"*{i + 1}️⃣* {sug}")
+        lines = _card_lines(
+            row.get("channel") or "",
+            str(row.get("conv_key") or ""),
+            str(row.get("incoming_preview") or ""),
+            suggestions,
+            str(row.get("hint") or ""),
+        )
         await event.edit("\n".join(lines), buttons=self._approval_buttons(len(suggestions)))
+
+    async def _new_suggestions(
+        self, mid: int, pid: str, row: Dict[str, Any], brief: str = ""
+    ) -> str:
+        """Prepíše kartu novými návrhmi. Prázdny `brief` = to isté, len inak.
+
+        Vracia krátku hlášku pre majiteľa (prázdna = všetko prebehlo a nová
+        karta je na mieste). Nepracuje s callback eventom zámerne: to isté volá
+        aj tlačidlo, aj napísaná téma, a tá prichádza obyčajnou správou.
+        """
+        sender = self._senders.get(row.get("channel"))
+        if not sender or not hasattr(sender, "regenerate"):
+            return "This channel can't write new suggestions."
+        try:
+            # Seed z počtu pokusov: bez neho by model na rovnaký vstup vrátil
+            # rovnaké vety a tlačidlo by vyzeralo pokazené.
+            st = self._wizard.setdefault(mid, {})
+            pokus = int(st.get("regen", 1)) + 1
+            st["regen"] = pokus
+            out = await sender.regenerate(
+                row["conv_key"], seed=str(pokus), brief=brief
+            ) or {}
+        except Exception as exc:  # noqa: BLE001 - karta musí prežiť zlyhanie
+            log.warning("Nové návrhy zlyhali: %s", exc)
+            return "⚠️ Could not write new suggestions. Try again."
+
+        suggestions = [text for text in (out.get("suggestions") or []) if text]
+        if not suggestions:
+            return "⚠️ Nothing came back. Try again."
+
+        # Karta sa medzitým mohla rozhodnúť (klik, nová správa, fallback).
+        fresh = await self._db.get_pending(pid)
+        if not fresh or fresh.get("status") != "awaiting":
+            return "That card is no longer current."
+
+        hint = str(out.get("hint") or row.get("hint") or "")
+        await self._db.replace_suggestions(pid, suggestions, hint)
+        lines = _card_lines(
+            row.get("channel") or "",
+            str(row.get("conv_key") or ""),
+            str(row.get("incoming_preview") or ""),
+            suggestions,
+            hint,
+            brief=brief,
+        )
+        try:
+            await self._client.edit_message(
+                self._cfg.owner_chat_id, mid, "\n".join(lines),
+                buttons=self._approval_buttons(len(suggestions)), link_preview=False,
+            )
+        except Exception as exc:  # noqa: BLE001 - text mohol vyjsť rovnaký
+            log.info("Kartu sa nepodarilo prepísať: %s", exc)
+            return "⚠️ Could not update the card."
+        return ""
 
     async def _voice_preview(self, event, pid, sender, mid, text) -> None:
         if not (text or "").strip():
@@ -1071,7 +1172,13 @@ class ControlBot:
             pass
 
     async def _apply_semi(self, event, kind: str, field: str, value: str) -> None:
-        """Free-text kroky semi wizardu (vlastná správa / cena / popis / hlas)."""
+        """Free-text kroky semi wizardu.
+
+        Vlastná správa, zadanie témy („Say this"), cena, popis fotky, text
+        hlasovky. Rozdiel medzi „Write my own" a „Say this" je zásadný: prvé
+        odošle presne to, čo majiteľ napísal, druhé mu z toho urobí zadanie a
+        vetu napíše modelka svojím štýlom a v jazyku chatu.
+        """
         mid = int(field) if field.isdigit() else 0
         pid = self._cards.get(mid)
         row = await self._db.get_pending(pid) if pid else None
@@ -1100,6 +1207,12 @@ class ControlBot:
             else:
                 await self._db.mark_pending(pid, "awaiting")
                 await event.reply("⚠️ Sending failed, try again.")
+
+        elif kind == "semi_brief":
+            await event.reply("🗒 Writing it in her style…")
+            problem = await self._new_suggestions(mid, pid, row, brief=value)
+            if problem:
+                await event.reply(problem)
 
         elif kind == "semi_price":
             digits = "".join(ch for ch in value if ch.isdigit())

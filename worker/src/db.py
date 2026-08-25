@@ -733,8 +733,15 @@ class TenantDb:
         conv_key: str,
         suggestions: List[str],
         incoming_preview: str = "",
+        hint: str = "",
+        prompt: str = "",
     ) -> Optional[Dict[str, Any]]:
-        """Zapíše nový čakajúci návrh. Vráti riadok (s `id`) alebo None."""
+        """Zapíše nový čakajúci návrh. Vráti riadok (s `id`) alebo None.
+
+        `prompt` je snímka sveta, v ktorom návrhy vznikli — z nej vie karta
+        vyrobiť ďalšie („Regenerate", „Say this") bez toho, aby ho skladala
+        odznova. Karta žije len kým nepríde nová správa, takže snímka platí.
+        """
         rows = await self._post(
             PENDING,
             {
@@ -743,9 +750,42 @@ class TenantDb:
                 "conv_key": str(conv_key),
                 "suggestions": suggestions,
                 "incoming_preview": incoming_preview[:400],
+                "hint": hint[:300],
+                "prompt": prompt,
             },
         )
         return rows[0] if rows else None
+
+    async def get_pending_for(self, conv_key: str) -> Optional[Dict[str, Any]]:
+        """Čakajúca karta pre tento chat. None = žiadna nevisí."""
+        rows = await self._get(
+            PENDING,
+            {
+                "model_id": self._mine,
+                "conv_key": f"eq.{conv_key}",
+                "status": "eq.awaiting",
+                "select": "id,prompt,hint,conv_key,channel",
+                "order": "created_at.desc",
+                "limit": "1",
+            },
+        )
+        return rows[0] if rows else None
+
+    async def replace_suggestions(
+        self, pending_id: str, suggestions: List[str], hint: str = ""
+    ) -> None:
+        """Prepíše návrhy na čakajúcej karte („Regenerate" / „Say this").
+
+        Píše sa LEN do `awaiting` — kým sa generovalo, mohol majiteľ kliknúť
+        na starý návrh alebo mohla prísť nová správa. Prepis rozhodnutej karty
+        by nič nezmenil na tom, čo už odišlo, ale poprel by, čo sa naozaj
+        stalo.
+        """
+        await self._patch(
+            PENDING,
+            {"model_id": self._mine, "id": f"eq.{pending_id}", "status": "eq.awaiting"},
+            {"suggestions": suggestions, "hint": hint[:300]},
+        )
 
     async def get_pending(self, pending_id: str) -> Optional[Dict[str, Any]]:
         rows = await self._get(

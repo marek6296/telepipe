@@ -85,6 +85,8 @@ CALLS = {
     "ensure_short_link": ((42,), {}),
     "fresh_clicks": ((), {}),
     "save_today_plan": (("2026-08-24", []), {}),
+    "get_pending_for": (("123",), {}),
+    "replace_suggestions": (("pid", ["a"]), {}),
     "sleeping_until": ((), {}),
     "flood_until": ((), {}),
     "set_flood_until": ((None,), {}),

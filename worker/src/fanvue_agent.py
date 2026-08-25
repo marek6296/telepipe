@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -34,6 +35,7 @@ import fvsync
 import fvvoice
 import ludskost
 import oznamy
+import zadanie
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +45,48 @@ log = logging.getLogger(__name__)
 POLL_S = 5.0
 
 ODPOVEDA_NA = "creator.message.received"
+
+# Tri ťahy, medzi ktorými si majiteľ vyberá v poloautomate na Fanvue.
+#
+# PREČO PRÁVE TIETO. Fanvue nie je Telegram: tu už zaplatil, píše sa horúcejšie
+# a predáva sa obsah. Ale kupuje ďalej len ten, kto má pocit, že je s ňou
+# v kontakte — takže jeden z troch ťahov musí vždy patriť JEMU, nie predaju.
+# Keby boli všetky tri predajné, bola by z toho pokladňa s emoji.
+UHLY = [
+    "choď priamo s ním v tom, čo práve chce — najhorúcejšia verzia, akú si "
+    "dovolíš, bez predaja",
+    "to isté, ale natiahni to k obsahu — nadviaž na to, čo preňho máš "
+    "(len ak to pokyn vyššie dovoľuje; inak len naznač)",
+    "vráť loptičku jemu — daj najavo, že ťa teší, že je tu, a dostaň z neho "
+    "niečo o ňom",
+]
+
+# Uhly pre zadanie od majiteľa („napíš mu, že…"). Tému nemení ani jeden — mení
+# sa len to, ako ju povie.
+UHLY_ZADANIE = [
+    "povedz to krátko a priamo",
+    "povedz to hravejšie, s náznakom",
+    "povedz to vrúcnejšie a osobnejšie",
+]
+
+
+@dataclass(frozen=True)
+class Situacia:
+    """Kontext jednej chvíle. Viď `FanvueAgent._situacia`."""
+
+    persona: Dict[str, Any]
+    behavior: Dict[str, Any]
+    teraz: Optional[datetime]
+    blok: Any
+    kde: str
+    pyta_fotku: bool
+    pyta_ostre: bool
+    moment: str
+    foto_ok: bool
+    dlzi: bool
+    prompt: str
+    tip: str
+
 NOVY_ODBERATEL = ("creator.subscription.activated", "subscription.activated")
 PLATBA = ("creator.payment.succeeded", "payment.succeeded")
 
@@ -322,6 +366,14 @@ def build_prompt(
         "Pozvať ho tam, kde stojí, je najrýchlejší spôsob, ako sa prezradiť.",
         "- Je platiaci zákazník. Správaj sa k nemu tak — má mať pocit, že si "
         "ho vážiš a že má niečo, čo iní nemajú.",
+        # Bez tohto to skĺzne do „ďalšia ponuka, ďalšia ponuka". Kupuje ten,
+        # kto má pocit, že je s ňou v kontakte — nie ten, komu sa lepšie
+        # predáva. Vďačnosť je preto pravidlo, nie ozdoba.
+        "- Teší ťa, že ťa podporuje. Nie ako fráza a nie v každej správe — "
+        "raz za čas mu daj najavo, že to vidíš a že to niečo znamená, a hneď "
+        "sa vráť k rozhovoru. Nikdy sa neponižuj a nikdy nežobri.",
+        "- Chceš, aby tu ostal. To znamená aj rozhovor, nielen obsah: pamätaj "
+        "si, čo ti povedal, a vráť sa k tomu.",
         "- Píš krátko, ako do chatu. Žiadne odstavce.",
     ]
 
@@ -770,6 +822,76 @@ class FanvueAgent:
         await self._db.update_fan(fan["uuid"], {"greeted": True})
         log.info("Privítaný nový predplatiteľ %s", fan["uuid"][:8])
 
+    async def _situacia(
+        self, fan: Dict[str, Any], row: Dict[str, Any], settings: Dict[str, Any]
+    ) -> "Situacia":
+        """Celý kontext jednej chvíle: kde je, koľko je u nej, čo s obsahom.
+
+        Je to na jednom mieste zámerne. Automat aj poloautomat aj tlačidlo
+        „Regenerate" musia vidieť ten istý svet — dve kópie tohto výpočtu by sa
+        rozišli a majiteľ by dostával návrhy podľa iných pravidiel, než podľa
+        akých modelka píše sama.
+        """
+        persona = await self._db.persona()
+        behavior = await self._db.behavior()
+        teraz = local_now(behavior)
+
+        # Rozvrh je ten istý ako na Telegrame (jeden človek, jeden deň); seed
+        # ostáva meno, takže Fanvue si losuje vlastnú variantu toho dňa.
+        rozvrh = None
+        try:
+            rozvrh = den.Rozvrh.from_row(await self._db.schedule())
+        except Exception as exc:  # noqa: BLE001 - bez rozvrhu platí šablóna
+            log.warning("Rozvrh dňa sa nenačítal: %s", exc)
+        blok = (
+            den.block_at(teraz, seed=str(persona.get("name") or ""), rozvrh=rozvrh)
+            if teraz
+            else None
+        )
+
+        tg = None
+        if row.get("tg_id"):
+            try:
+                tg = await self._db.telegram_context(int(row["tg_id"]))
+            except Exception as exc:  # noqa: BLE001 - kontext je bonus
+                log.warning("Kontext z Telegramu sa nenačítal: %s", exc)
+
+        # O tom, ČI niečo odíde, rozhoduje kód. Model rieši len AKO to povie —
+        # keby rozhodoval on, posielal by fotky v každej druhej správe.
+        kde = den.where(blok) if blok is not None else "home"
+        text = str(fan.get("text") or "")
+        pyta_fotku = fvmedia.asked_for_photo(text)
+        pyta_ostre = fvmedia.wants_spicy(text)
+        moment = fvflow.paid_moment(row, settings, pyta_ostre)
+        foto_ok = fvflow.free_photo_ok(row, settings, pyta_fotku, kde)
+        dlzi = fvflow.owes_photo(row)
+
+        prompt = build_prompt(
+            persona,
+            settings,
+            fan,
+            row,
+            tg,
+            teraz,
+            blok,
+            fvflow.guidance(row, settings, moment, foto_ok, pyta_fotku, kde, dlzi),
+            behavior=behavior,
+        )
+        return Situacia(
+            persona=persona,
+            behavior=behavior,
+            teraz=teraz,
+            blok=blok,
+            kde=kde,
+            pyta_fotku=pyta_fotku,
+            pyta_ostre=pyta_ostre,
+            moment=moment,
+            foto_ok=foto_ok,
+            dlzi=dlzi,
+            prompt=prompt,
+            tip=fvflow.tip(moment, foto_ok, pyta_fotku, dlzi, kde),
+        )
+
     async def _reply(self, event: Dict[str, Any], settings: Dict[str, Any]) -> None:
         fan = fan_of(event)
         if not fan["uuid"]:
@@ -798,62 +920,22 @@ class FanvueAgent:
         if not await self._reconcile(fan, row):
             return
 
-        persona = await self._db.persona()
-        behavior = await self._db.behavior()
-        teraz = local_now(behavior)
+        sit = await self._situacia(fan, row, settings)
+        persona, behavior, teraz, blok = sit.persona, sit.behavior, sit.teraz, sit.blok
+        kde, moment, foto_ok, dlzi = sit.kde, sit.moment, sit.foto_ok, sit.dlzi
+        pyta_fotku, pyta_ostre, prompt = sit.pyta_fotku, sit.pyta_ostre, sit.prompt
+
         # V Semi riadi tempo majiteľ — návrh mu má prísť hneď, aj mimo aktívnych
         # hodín (rovnako ako na Telegrame). Auto naďalej rešpektuje rozvrh.
         if not semi and not within_hours(settings, teraz):
             log.info("Mimo času na Fanvue — %s ostáva bez odpovede", fan["uuid"][:8])
             return
 
-        # Rozvrh je ten istý ako na Telegrame (jeden človek, jeden deň); seed
-        # ostáva meno, takže Fanvue si losuje vlastnú variantu toho dňa.
-        rozvrh = None
-        try:
-            rozvrh = den.Rozvrh.from_row(await self._db.schedule())
-        except Exception as exc:  # noqa: BLE001 - bez rozvrhu platí šablóna
-            log.warning("Rozvrh dňa sa nenačítal: %s", exc)
-        blok = (
-            den.block_at(teraz, seed=str(persona.get("name") or ""), rozvrh=rozvrh)
-            if teraz
-            else None
-        )
-
-        tg = None
-        if row.get("tg_id"):
-            try:
-                tg = await self._db.telegram_context(int(row["tg_id"]))
-            except Exception as exc:  # noqa: BLE001 - kontext je bonus
-                log.warning("Kontext z Telegramu sa nenačítal: %s", exc)
-
-        # O tom, ČI niečo odíde, rozhoduje kód. Model rieši len AKO to povie —
-        # keby rozhodoval on, posielal by fotky v každej druhej správe.
-        kde = den.where(blok) if blok is not None else "home"
-        pyta_fotku = fvmedia.asked_for_photo(fan["text"])
-        pyta_ostre = fvmedia.wants_spicy(fan["text"])
-        moment = fvflow.paid_moment(row, settings, pyta_ostre)
-        foto_ok = fvflow.free_photo_ok(row, settings, pyta_fotku, kde)
-        dlzi = fvflow.owes_photo(row)
-
-        prompt = build_prompt(
-            persona,
-            settings,
-            fan,
-            row,
-            tg,
-            teraz,
-            blok,
-            fvflow.guidance(
-                row, settings, moment, foto_ok, pyta_fotku, kde, dlzi
-            ),
-            behavior=behavior,
-        )
         history = await self._db.history(fan["uuid"])
 
         # Semi: namiesto odoslania vygeneruj návrhy a pošli majiteľovi kartu.
         if semi:
-            await self._handoff_semi(fan, row, prompt, history)
+            await self._handoff_semi(fan, row, prompt, history, sit.tip)
             return
 
         text = (await self._llm.reply(prompt, history)).strip()
@@ -943,13 +1025,13 @@ class FanvueAgent:
 
     # ---------- semi-auto: handoff + doručovanie (volá control bot) ----------
 
-    async def _handoff_semi(self, fan, row, prompt, history) -> None:
+    async def _handoff_semi(self, fan, row, prompt, history, tip: str = "") -> None:
         """Vygeneruj návrhy a pošli majiteľovi kartu (supersede rieši control)."""
         if not self._control:
             log.warning("Fanvue semi: control bot nie je pripojený — %s bez karty", fan["uuid"][:8])
             return
         try:
-            suggestions = await self._llm.suggest(prompt, history)
+            suggestions = await self._llm.suggest(prompt, history, angles=UHLY)
         except Exception as exc:  # noqa: BLE001
             log.warning("Fanvue návrhy zlyhali: %s", exc)
             return
@@ -962,8 +1044,51 @@ class FanvueAgent:
             display_name=name,
             incoming_preview=fan.get("text") or "",
             suggestions=suggestions,
+            hint=tip,
         )
         log.info("Fanvue semi: karta pre %s %s", fan["uuid"][:8], "poslaná" if ok else "NEposlaná")
+
+    async def regenerate(
+        self, conv_key: str, seed: str = "", brief: str = ""
+    ) -> Dict[str, Any]:
+        """Nové návrhy pre ten istý chat. Volá control bot cez „Regenerate".
+
+        `brief` je zadanie od majiteľa vlastnými slovami („poďakuj mu, že tu je,
+        a opýtaj sa, kto to je"). Nie je to text na odoslanie — modelka ho
+        povie po svojom a v jazyku, ktorým si s tým človekom píše. Majiteľ ho
+        smie napísať po slovensky; na výstup to nemá vplyv.
+
+        Stav sa počíta ODZNOVA, nie z toho, čo viselo na karte: kým sa majiteľ
+        rozhodoval, mohol prísť čas na fotku, mohol niečo kúpiť alebo sa mohla
+        zmeniť hodina u nej. Prepísať len text a nechať starý kontext by
+        znamenalo ponúkať mu odpovede na svet, ktorý už nie je.
+        """
+        row = await self._db.fan(conv_key)
+        if not row:
+            return {}
+        settings = await self._db.settings()
+        history = await self._db.history(conv_key)
+        posledna = ""
+        for message in reversed(history):
+            if message.get("role") == "user":
+                posledna = str(message.get("content") or "")
+                break
+        fan = {
+            "uuid": conv_key,
+            "handle": str(row.get("handle") or ""),
+            "display_name": str(row.get("display_name") or ""),
+            "avatar_url": str(row.get("avatar_url") or ""),
+            "text": posledna,
+        }
+        sit = await self._situacia(fan, row, settings)
+        prompt = sit.prompt + zadanie.do_promptu(brief)
+        suggestions = await self._llm.suggest(
+            prompt,
+            history,
+            angles=UHLY_ZADANIE if brief else UHLY,
+            seed=seed or "2",
+        )
+        return {"suggestions": suggestions, "hint": "" if brief else sit.tip}
 
     async def deliver_text(self, conv_key: str, text: str) -> bool:
         sent = await self._api.send(conv_key, text)

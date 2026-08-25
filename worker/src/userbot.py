@@ -31,6 +31,7 @@ import odkazy
 import memory
 import photos
 import recall
+import zadanie
 import speech
 import taper as taper_mod
 import tyzdenny
@@ -49,6 +50,25 @@ from persona import build_system_prompt
 log = logging.getLogger(__name__)
 
 _URL_RE = re.compile(r"https?://\S+|\b[\w-]+\.(com|net|org|io|co|vue|me|link)\b\S*", re.IGNORECASE)
+# Tri ťahy, medzi ktorými si majiteľ vyberá v poloautomate.
+#
+# PREČO NIE „hravá / vrúcna / dráždivá". To boli nálady, nie ťahy, a model na
+# ne vrátil tri verzie tej istej vety s iným emoji — naostro tri varianty
+# „hey, just chillin in bed". Ťah je rozhodnutie, kam sa rozhovor pohne, a to
+# sa napísať rovnako nedá.
+UHLY_SEMI = [
+    "nadviaž priamo na to, čo napísal — bez odbočky",
+    "posuň to o krok ďalej, smelšie a osobnejšie",
+    "vráť loptičku jemu — dostaň z neho niečo o ňom",
+]
+
+# Uhly pre zadanie od majiteľa („napíš mu, že…"). Tému nemení ani jeden.
+UHLY_ZADANIE = [
+    "povedz to krátko a priamo",
+    "povedz to hravejšie, s náznakom",
+    "povedz to vrúcnejšie a osobnejšie",
+]
+
 _SWEEP_INTERVAL_S = 180
 # Po restarte sa nečaká celý interval — nech nikto nevisí bez odpovede.
 _SWEEP_FIRST_S = 45
@@ -1963,7 +1983,7 @@ class UserBot:
             await self._db.update_user(tg_id, {"pending_reply": True})
             return
         try:
-            suggestions = await self._llm.suggest(system, history)
+            suggestions = await self._llm.suggest(system, history, angles=UHLY_SEMI)
         except Exception as exc:  # noqa: BLE001
             log.error("%s: návrhy zlyhali (%s) — nechávam na sweeper", tg_id, exc)
             await self._db.update_user(tg_id, {"pending_reply": True})
@@ -1978,9 +1998,45 @@ class UserBot:
             display_name=name,
             incoming_preview=last_user_text,
             suggestions=suggestions,
+            # Snímka sveta pre „Regenerate" a „Say this". Na Telegrame sa
+            # neskladá odznova ako na Fanvue: do tohto promptu vstupuje počasie,
+            # fakty, epizódy, vybraná fotka aj hlasovka — teda tridsať vecí,
+            # ktoré by druhá kópia výpočtu skôr či neskôr počítala inak.
+            # Karta žije len kým nepríde nová správa, takže snímka platí.
+            prompt=system,
         )
         # Karta drží pending; dm_users.pending_reply nech sweeper znovu nespustí.
         await self._db.update_user(tg_id, {"pending_reply": not ok})
+
+    async def regenerate(
+        self, conv_key: str, seed: str = "", brief: str = ""
+    ) -> Dict[str, Any]:
+        """Nové návrhy pre čakajúcu kartu. Volá control bot.
+
+        Prompt sa berie z karty (`pending_replies.prompt`), nie zo skladania
+        odznova — viď poznámku v `_handoff_semi`. Keď tam z akéhokoľvek dôvodu
+        nie je, radšej sa nevráti nič než návrhy postavené na chudobnejšom
+        kontexte: majiteľ by nespoznal rozdiel a modelka by odrazu písala
+        plochšie.
+        """
+        try:
+            tg_id = int(conv_key)
+        except (TypeError, ValueError):
+            return {}
+        row = await self._db.get_pending_for(conv_key)
+        system = str((row or {}).get("prompt") or "")
+        if not system:
+            log.warning("%s: karta nemá uložený prompt, nové návrhy nerobím", tg_id)
+            return {}
+        rows = await self._db.recent_messages(tg_id, self._cfg.context_messages)
+        history = memory.to_chat_history(rows)
+        suggestions = await self._llm.suggest(
+            system + zadanie.do_promptu(brief),
+            history,
+            angles=UHLY_ZADANIE if brief else UHLY_SEMI,
+            seed=seed or "2",
+        )
+        return {"suggestions": suggestions}
 
     async def _semi_post_update(self, tg_id: int, text: str) -> None:
         """Po schválenom odoslaní dorob plný kontext-update (pamäť, summary,

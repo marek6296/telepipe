@@ -161,20 +161,58 @@ class Llm:
         return await self._chat(self._model, messages, max_tokens=1200, temperature=0.9)
 
     async def suggest(
-        self, system_prompt: str, history: List[Dict[str, str]], n: int = 3
+        self,
+        system_prompt: str,
+        history: List[Dict[str, str]],
+        n: int = 3,
+        angles: Optional[List[str]] = None,
+        seed: str = "",
     ) -> List[str]:
-        """Semi-auto: `n` alternatívnych odpovedí modelky v jej hlase, zoradených
-        od najlepšej (prvú pošle časový fallback). Jedno volanie, oddelené
-        markerom `~~~`. Používa ten istý persona prompt ako `reply`, len požiada
-        o viac variantov na výber pre majiteľa v control bote."""
+        """Semi-auto: `n` alternatívnych odpovedí v jej hlase, prvá je najlepšia
+        (tú pošle časový fallback).
+
+        PREČO `angles`. Pôvodne sa pýtalo na „iný uhol/nálada (hravá, vrúcna,
+        dráždivá)" a výsledkom boli tri takmer identické správy — naostro
+        prišli tri verzie vety „hey, just chillin in bed". Nálada nie je ťah:
+        keď model dostane rovnaké zadanie trikrát, napíše ho trikrát rovnako,
+        len s iným emoji. `angles` sú preto TŘI RÔZNE ŤAHY v konverzácii (choď
+        s ním ďalej / natiahni to k obsahu / nechaj hovoriť jeho) a volajúci
+        ich volí podľa kanála: na Fanvue sa predáva, na Telegrame nie.
+
+        Všetky tri musia sedieť na to isté, čo prišlo — sú to alternatívy tej
+        istej chvíle, nie tri nezávislé nápady.
+
+        `seed` mení zadanie pri pregenerovaní. Bez neho by model na rovnaký
+        vstup vrátil to isté a tlačidlo „Regenerate" by nerobilo nič.
+        """
         marker = "~~~"
+        uhly = angles or [
+            "nadviaž priamo na to, čo napísal",
+            "posuň to o krok ďalej, smelšie",
+            "vráť loptičku jemu — nech povie viac",
+        ]
+        rozpis = "\n".join(f"{i + 1}. {u}" for i, u in enumerate(uhly[:n]))
         instruction = (
-            f"\n\n[REŽIM NÁVRHOV] Napíš PRESNE {n} rôzne verzie svojej ďalšej "
-            f"odpovede — každá v tvojom hlase, ale iný uhol/nálada (napr. hravá, "
-            f"vrúcna, dráždivá). Zoraď ich od NAJLEPŠEJ po najslabšiu. Oddeľ ich "
-            f"riadkom, ktorý obsahuje len „{marker}“. Žiadne číslovanie, nadpisy "
-            f"ani vysvetlenia — len tie {n} odpovedí."
+            f"\n\n[REŽIM NÁVRHOV] Napíš PRESNE {n} verzie svojej ďalšej odpovede. "
+            f"Každá je INÝ ŤAH v tejto konverzácii:\n{rozpis}\n"
+            "Pravidlá, ktoré platia pre všetky tri:\n"
+            "— všetky reagujú na TO ISTÉ, čo práve napísal, a na to, o čom ste sa "
+            "bavili; žiadny variant nesmie byť veta, ktorá by sedela do "
+            "hocijakého chatu\n"
+            "— aspoň jedna z nich sa oprie o niečo konkrétne z posledných správ\n"
+            "— pokyny vyššie (kde si, čo práve robíš, čo máš robiť s obsahom) "
+            "platia pre všetky tri rovnako; líšia sa ťahom, nie tým, či ich "
+            "poslúchnu\n"
+            "— nesmú byť tri verzie tej istej vety s inými emoji\n"
+            f"Zoraď ich od NAJLEPŠEJ po najslabšiu. Oddeľ riadkom, ktorý obsahuje "
+            f"len „{marker}“. Žiadne číslovanie, nadpisy ani vysvetlenia."
         )
+        if seed:
+            instruction += (
+                f"\n[NOVÝ POKUS {seed}] Predchádzajúce návrhy sa nepáčili. "
+                "Napíš iné — iné otvorenie, iná dĺžka, iný spôsob, ako to uchopiť. "
+                "Nezopakuj tie isté vety."
+            )
         messages = [{"role": "system", "content": system_prompt + instruction}] + history
         raw = await self._chat(self._model, messages, max_tokens=1400, temperature=0.95)
         parts = [p.strip() for p in raw.split(marker)]

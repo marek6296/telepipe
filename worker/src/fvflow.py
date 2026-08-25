@@ -385,3 +385,45 @@ HOT = """KEĎ TO IDE DO SEXU:
 - Striedaj tempo — raz jedno slovo, raz dlhšia veta. Nie odsek.
 - Pýtaj sa, čo chce on, a potom to použi.
 - Nikdy nepopisuj samu seba zvonku ako v erotickej poviedke."""
+
+
+# --------------------------------------------------------------------------
+# Poloautomatický režim — čo ponúknuť majiteľovi
+# --------------------------------------------------------------------------
+#
+# Karta v control bote ukazuje tri návrhy. Sama o sebe nepovie, či práve teraz
+# nie je lepší ťah fotka než ďalšia veta — a to je pritom informácia, ktorú
+# kód UŽ MÁ (`paid_moment`, `free_photo_ok`, `owes_photo`). Bez nej sa majiteľ
+# rozhoduje z troch textov a o možnosti poslať fotku sa dozvie len tak, že si
+# na ňu spomenie sám.
+
+
+def tip(
+    moment: str,
+    photo_ok: bool,
+    asked_photo: bool,
+    owed: bool,
+    where: str = "home",
+) -> str:
+    """Jedna veta pre majiteľa nad návrhmi. Prázdna = netreba nič radiť.
+
+    Anglicky, ako celý control bot. Vždy hovorí AJ prečo — rada bez dôvodu sa
+    po tretí raz preskakuje.
+    """
+    if owed:
+        return "📷 You promised him content and it never went out — send it now."
+    if asked_photo and not can_take_photo(where):
+        return f"⏳ He asked for a photo but she's {where} — promise it for later, don't send one."
+    if moment == "asked":
+        return "💰 He's asking for something spicy — this is the moment for a paid photo."
+    if moment == "visi":
+        return "🔒 He still has an unlocked one waiting — remind him, don't send another."
+    if moment == "after_buy":
+        return "💬 He just bought — ask what he wants next and send that."
+    if moment == "nudge":
+        return "💰 Content hasn't come up in a while — good time to offer one."
+    if asked_photo and not photo_ok:
+        return "🙅 He asked for a photo but free ones are used up — steer it to a paid one."
+    if photo_ok:
+        return "📷 A normal photo would fit here — proof she's real, not a reward."
+    return ""
