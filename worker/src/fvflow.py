@@ -136,8 +136,29 @@ def guidance(
     asked_photo: bool,
     where: str = "home",
     owed: bool = False,
+    ma_media: bool = True,
 ) -> str:
-    """Pokyn do promptu — čo má práve teraz robiť s obsahom."""
+    """Pokyn do promptu — čo má práve teraz robiť s obsahom.
+
+    `ma_media=False` znamená, že v trezore NIE JE ČO poslať. Vtedy sa o obsahu
+    nesmie hovoriť ako o niečom, čo príde: opísať fotku, ktorú nemá, a povedať
+    k nej cenu je sľub, ktorý sa nedá splniť. Na Telegrame to isté robila
+    naostro („maybe i send u one later if u earn it") a nikdy nič neposlala.
+    """
+    if not ma_media:
+        return (
+            "NEMÁŠ ČO POSLAŤ\n"
+            "V trezore nie je žiadny obsah, takže sa o ňom nesmieš zmieniť ako "
+            "o niečom, čo pošleš:\n"
+            "- NEPONÚKAJ fotky ani videá a nesľubuj ich — ani „neskôr“, ani "
+            "„keď si zaslúžiš“, ani „práve som nejaké nafotila“.\n"
+            "- Nehovor ceny a neopisuj, čo preňho máš.\n"
+            "- Keď si niečo vypýta, nevyhováraj sa ani neklam — odveď reč na "
+            "neho a na to, o čom ste sa bavili.\n"
+            "Rozhovor tým nekončí: píš ďalej tak, ako píšeš vždy. Chýba len "
+            "obsah, nie chuť sa s ním baviť."
+        )
+
     riadky = []
 
     if owed:

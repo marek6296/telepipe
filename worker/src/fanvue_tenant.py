@@ -398,6 +398,16 @@ class TenantFanvueDb:
 
     # ---------- obsah z vaultu ----------
 
+    async def has_media(self) -> bool:
+        """Je v trezore vôbec niečo? Jeden riadok stačí — nepočítame, pýtame sa.
+
+        Bez tejto otázky prompt sľuboval obsah, ktorý neexistuje.
+        """
+        rows = await self._get(
+            FV_MEDIA, {"model_id": self._mine, "select": "media_uuid", "limit": "1"}
+        )
+        return bool(rows)
+
     async def folders(self) -> List[Dict[str, Any]]:
         return await self._get(
             FV_FOLDERS, {"model_id": self._mine, "select": "*", "order": "name.asc"}

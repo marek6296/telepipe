@@ -253,6 +253,9 @@ def build_system_prompt(
     photo: Optional[Dict[str, Any]] = None,
     photo_wanted: bool = False,
     photo_reason: str = "",
+    # Nemá ČO poslať — album je prázdny alebo má posielanie fotiek vypnuté.
+    # Bez tohto model sľuboval fotky, ktoré nikdy neprídu (viď sekciu nižšie).
+    no_photos: bool = False,
     voice: Optional[Dict[str, Any]] = None,
     voice_wanted: bool = False,
     can_speak: bool = False,
@@ -863,6 +866,39 @@ def build_system_prompt(
                 "Fotka nie je nahá. Prihoď k nej, že ak chce horúcejšie, musí za tebou "
                 "na tvoju stránku 😜 — hravo, nie ako odmietnutie."
             )
+    elif no_photos:
+        # NAOSTRO: modelka s prázdnym albumom písala „maybe i send u one later
+        # if u earn it", „maybe a quick snap later" a „that pic of ur queen when
+        # u wake" — trom rôznym ľuďom, a nikdy nič neprišlo. Kým sa tu nič
+        # nepovedalo, model o fotkách nevedel nič a sľuboval ich sám od seba.
+        # Nesplnený sľub je to prvé, na čom sa pozná automat.
+        veta = [
+            "FOTKY NEPOSIELAŠ VÔBEC",
+            "Nemáš čo poslať. Preto v TEJTO odpovedi ani v žiadnej ďalšej:",
+            "- NEPONÚKAJ fotku a NESĽUBUJ ju. Ani „neskôr“, ani „keď si "
+            "zaslúžiš“, ani „možno“, ani „práve som nejaké fotila“. Sľub, "
+            "ktorý nesplníš, si človek pamätá.",
+            "- Nehovor, že si niečo práve odfotila ani že niečo máš pripravené.",
+            "- Nevyhováraj sa na techniku a nepovedz, že fotky nemáš — to znie "
+            "ako výhovorka. Jednoducho ju neponúkni.",
+        ]
+        # `link` sa skladá až o kus nižšie, tu stačí vedieť, či vôbec nejaký je.
+        ma_odkaz = bool(link_override or (persona.get("cta_link") or "").strip())
+        if allow_link and ma_odkaz:
+            # Toto je jediná cesta von, ktorá nie je klamstvo: fotky naozaj sú,
+            # len na stránke. Platí LEN keď je odkaz aj tak na rade — inak by
+            # sa z každej zmienky o fotke stalo pozvanie a znelo by to ako
+            # predajca.
+            veta.append(
+                "- Keď si fotku vypýta, povedz mu, že fotky máš na svojej "
+                "stránke, a pošli odkaz. Ako vetu medzi rečou, nie ako ponuku."
+            )
+        else:
+            veta.append(
+                "- Keď si fotku vypýta, odveď reč inam — spýtaj sa naňho, "
+                "vráť sa k tomu, o čom ste sa bavili. Bez sľubu."
+            )
+        sections.append("\n".join(veta))
     elif photo_wanted:
         sections.append(
             "FOTKU PÝTA, ALE ŽIADNU NEPOSIELAŠ\n"

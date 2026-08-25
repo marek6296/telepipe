@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import random
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
@@ -44,6 +45,10 @@ log = logging.getLogger(__name__)
 # vyberá — priama cesta by znamenala písať odpoveď v tej istej požiadavke
 # a Fanvue by ju medzitým vyhodnotil ako nedoručenú.
 POLL_S = 5.0
+
+# Ako dlho platí zistenie „v trezore niečo je". Klient obsah nahráva raz za
+# čas, nie každú minútu.
+_MEDIA_TTL_S = 300.0
 
 ODPOVEDA_NA = "creator.message.received"
 
@@ -491,6 +496,12 @@ class FanvueAgent:
         # Control bot pre semi-auto schvaľovanie (Fanvue karty chodia do toho
         # istého Telegram bota). Dopĺňa supervisor; bez neho semi len mlčí.
         self._control = control
+        # Je v trezore čo poslať? Zisťuje sa raz za `_MEDIA_TTL_S`. `-inf`
+        # zámerne: `time.monotonic()` beží od štartu stroja, takže nula by
+        # v čerstvom kontajneri znamenala, že prvé volanie uverí prednastavenej
+        # hodnote namiesto toho, aby sa spýtalo databázy.
+        self._media = True
+        self._media_at = float("-inf")
 
     async def run(self) -> None:
         log.info("Fanvue agent beží, kontroluje frontu každých %.0f s", POLL_S)
@@ -823,6 +834,26 @@ class FanvueAgent:
         await self._db.update_fan(fan["uuid"], {"greeted": True})
         log.info("Privítaný nový predplatiteľ %s", fan["uuid"][:8])
 
+    async def _ma_media(self, settings: Dict[str, Any]) -> bool:
+        """Je v trezore čo poslať? Vypnuté posielanie = to isté ako prázdny trezor.
+
+        Chyba čítania vráti `True` — zbytočne potlačená ponuka nič nepokazí,
+        ale zákaz odvodený z výpadku siete by modelke zakázal predávať obsah,
+        ktorý naozaj má.
+        """
+        if not settings.get("send_photos"):
+            return False
+        teraz = time.monotonic()
+        if teraz - self._media_at < _MEDIA_TTL_S:
+            return self._media
+        try:
+            self._media = await self._db.has_media()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Trezor sa nepodarilo overiť: %s", exc)
+            return True
+        self._media_at = teraz
+        return self._media
+
     async def _situacia(
         self, fan: Dict[str, Any], row: Dict[str, Any], settings: Dict[str, Any]
     ) -> "Situacia":
@@ -875,7 +906,10 @@ class FanvueAgent:
             tg,
             teraz,
             blok,
-            fvflow.guidance(row, settings, moment, foto_ok, pyta_fotku, kde, dlzi),
+            fvflow.guidance(
+                row, settings, moment, foto_ok, pyta_fotku, kde, dlzi,
+                ma_media=await self._ma_media(settings),
+            ),
             behavior=behavior,
         )
         return Situacia(

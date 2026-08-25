@@ -181,6 +181,9 @@ class InstagramAgent:
             foreign=humanize.looks_foreign(posledny_text),
             bare_greeting=humanize.is_bare_greeting(posledny_text),
             his_question=humanize.last_question(posledny_text),
+            # Na Instagrame neodchádza žiadne médium (viď `instagram_pravidla`),
+            # takže sľúbená fotka je sľub, ktorý sa nedá splniť ani omylom.
+            no_photos=True,
         )
         system += "\n\n" + pravidla.blok(
             nastavenia,

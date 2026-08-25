@@ -108,6 +108,10 @@ class Skuska:
             foreign=humanize.looks_foreign(text),
             bare_greeting=humanize.is_bare_greeting(text),
             his_question=humanize.last_question(text),
+            # V skúške sa žiadna fotka neposiela, takže by ju nemala ani
+            # ponúkať — a keď má posielanie vypnuté, nemá čo ponúkať ani
+            # v ostrom chate. Klient má v skúške vidieť to, čo dostane naozaj.
+            no_photos=not behavior.photos_enabled,
         )
         raw = await llm.reply(system, historia)
 

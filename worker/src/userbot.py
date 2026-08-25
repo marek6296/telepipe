@@ -6,6 +6,7 @@ import io
 import logging
 import random
 import re
+import time
 from collections import deque
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Deque, Dict, List, Optional
@@ -69,6 +70,11 @@ UHLY_ZADANIE = [
     "povedz to hravejšie, s náznakom",
     "povedz to vrúcnejšie a osobnejšie",
 ]
+
+# Ako dlho platí zistenie „v albumoch niečo je". Klient fotky nahráva raz za
+# čas, nie každú minútu, takže päť minút starý údaj nikomu neublíži — a dotaz
+# pri každej správe by bol zbytočný.
+_FOTKY_TTL_S = 300.0
 
 _SWEEP_INTERVAL_S = 180
 # Po restarte sa nečaká celý interval — nech nikto nevisí bez odpovede.
@@ -151,6 +157,15 @@ class UserBot:
         # Control bot pre semi-auto schvaľovanie. Dopĺňa runner cez set_control;
         # bez neho (bez tokenu bota) semi-auto len necháva správu čakať.
         self._control = None
+        # Má vôbec nejakú fotku? Zisťuje sa raz za `_FOTKY_TTL_S`, nie pri
+        # každej správe. `True` na štarte je opatrnejšia strana — viď
+        # `_ma_co_poslat`.
+        self._fotky = True
+        # `-inf`, nie nula: `time.monotonic()` beží od štartu STROJA, takže
+        # v čerstvom kontajneri vráti pár sekúnd — a nula by znamenala, že
+        # prvé volanie uverí prednastavenej hodnote namiesto toho, aby sa
+        # spýtalo databázy.
+        self._fotky_at = float("-inf")
         self._debounce: Dict[int, asyncio.Task] = {}
         self._locks: Dict[int, asyncio.Lock] = {}
         self._reply_times: Deque[datetime] = deque()
@@ -976,6 +991,7 @@ class UserBot:
 
         # --- fotka: len keď je zapnuté, je dôvod, a nikdy tá istá dvakrát ---
         chosen_photo = None
+        ma_fotky = await self._ma_co_poslat(behavior)
         # Gate `photos_enabled`: klient musí posielanie fotiek zapnúť na stránke
         # (a to sa dá až keď v albumoch fotky sú). Bez toho sa fotka nepošle
         # nikdy. Testovací účet dostáva výhradne hlasovky — ani fotku, inak sa
@@ -1101,6 +1117,9 @@ class UserBot:
                 )
             ),
             photo_wanted=photo_reason == "asked",
+            # Bez fotiek v albume sa o nich nesmie ani zmieniť ako o niečom,
+            # čo pošle. Naostro sľúbila fotku trom ľuďom a neposlala ani jednu.
+            no_photos=not ma_fotky,
             photo_reason=photo_reason or "",
             link_already_sent=int(user.get("link_push_count") or 0) > 0,
             closing=zatvara_sa,
@@ -1665,6 +1684,31 @@ class UserBot:
         if seen.get("explicit"):
             return f"[poslal EXPLICITNÚ fotku: {description}]"
         return f"[poslal fotku: {description}]"
+
+    async def _ma_co_poslat(self, behavior) -> bool:
+        """Má vôbec nejakú fotku, ktorú by mohla poslať?
+
+        Vypnutý prepínač je jasná odpoveď a nestojí nič. Zapnutý ešte
+        neznamená, že v albumoch niečo je — klient ich mohol vyprázdniť —
+        takže sa raz za čas overí aj knižnica.
+
+        Chyba čítania vráti `True`: to je opatrnejšia strana. Zbytočne
+        potlačená ponuka fotky nič nepokazí, ale zákaz odvodený z výpadku
+        siete by modelke zakázal ponúkať fotky, ktoré naozaj má.
+        """
+        if not behavior.photos_enabled:
+            return False
+        teraz = time.monotonic()
+        if teraz - self._fotky_at < _FOTKY_TTL_S:
+            return self._fotky
+        try:
+            library = await self._db.photo_library()
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Fotoknižnicu sa nepodarilo spočítať: %s", exc)
+            return True
+        self._fotky = bool(library)
+        self._fotky_at = teraz
+        return self._fotky
 
     async def _pick_photo(
         self,
