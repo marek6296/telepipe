@@ -162,7 +162,7 @@ class TestVypisVBotovi:
         asyncio.run(bot._send_day(FakeEvent()))
 
         assert odpovede, "príkaz musí niečo odpovedať"
-        assert "Today" in odpovede[0]
+        assert "Her day" in odpovede[0]
         assert "Replies:" in odpovede[0]
 
 

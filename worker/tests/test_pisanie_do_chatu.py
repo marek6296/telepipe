@@ -65,8 +65,8 @@ class TestPosielanieBezKarty:
 
 class TestOtvorenieChatuZMenu:
     def test_menu_ma_oba_kanaly(self):
-        assert 'Button.inline("💬 Fanvue chats", b"fc")' in SRC
-        assert 'Button.inline("💬 Telegram chats", b"tc")' in SRC
+        assert 'b"fc"' in SRC and "Write · Fanvue" in SRC
+        assert 'b"tc"' in SRC and "Write · Telegram" in SRC
 
     def test_tlacidlo_nesie_index_nie_kluc(self):
         """Callback dáta majú strop 64 bajtov a fanvue uuid má 36 znakov —

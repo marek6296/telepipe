@@ -102,6 +102,68 @@ def _hhmm(minutes: int) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
+# --------------------------------------------------------------------------
+# Vizuálny jazyk menu
+# --------------------------------------------------------------------------
+#
+# Menu bolo funkčné, ale vyzeralo ako zoznam prepínačov: každá obrazovka mala
+# vlastný tvar nadpisu, šípka späť sa písala tromi spôsobmi („←", „«") a stav
+# sa miešal do vety. Toto je jedno miesto, kde sa rozhoduje, ako to vyzerá —
+# nie čo to robí. Callback hodnoty tlačidiel sa nemenia ani o bajt.
+
+# Tenká linka pod nadpisom. Telegram nemá oddeľovač, toto je najbližšie k nemu
+# a nerozpadne sa ani na úzkom telefóne.
+CIARA = "───────────────"
+
+# Jedna šípka späť pre celý bot. Tri rôzne pôsobili, akoby každú obrazovku
+# písal niekto iný.
+SPAT = "‹ Back"
+
+
+def _hhmm12(minutes: int) -> str:
+    """09:00 → „9:00 AM". Z 24-hodinového tvaru sa nedá poznať ráno od večera —
+    presne na tom sa raz naostro pomýlilo nastavenie aktívneho okna."""
+    cele = ((int(minutes) % 1440) + 1440) % 1440
+    h24, m = divmod(cele, 60)
+    h12 = h24 % 12 or 12
+    return f"{h12}:{m:02d} {'AM' if h24 < 12 else 'PM'}"
+
+
+def _okno12(start_min: int, end_min: int) -> str:
+    if start_min == end_min:
+        return "24/7"
+    return f"{_hhmm12(start_min)} – {_hhmm12(end_min)}"
+
+
+def _mesto(tz_name: str) -> str:
+    """„America/Los_Angeles" → „Los Angeles". Pásmo s podčiarkovníkmi nie je meno."""
+    kus = str(tz_name or "").split("/")[-1]
+    return kus.replace("_", " ") or str(tz_name or "")
+
+
+def _bez_schemy(url: Any) -> str:
+    """Odkaz bez „https://www." — protokol na obrazovke nikomu nič nepovie."""
+    text = str(url or "").strip()
+    for predpona in ("https://", "http://"):
+        if text.startswith(predpona):
+            text = text[len(predpona):]
+    return text[4:] if text.startswith("www.") else text
+
+
+def _hlavicka(nadpis: str, podnadpis: str = "") -> str:
+    """Nadpis + linka. Rovnaký tvar na každej obrazovke."""
+    riadky = [f"*{nadpis}*"]
+    if podnadpis:
+        riadky.append(f"_{podnadpis}_")
+    riadky.append(CIARA)
+    return "\n".join(riadky)
+
+
+def _polozka(ikona: str, popis: str, hodnota: str) -> str:
+    """Riadok stavu: ikona, čo to je, a čo je nastavené."""
+    return f"{ikona} *{popis}* · {hodnota}"
+
+
 def _hhmm_z_iso(value: str, tz_name: str) -> str:
     """Čas z ISO značky v pásme MODELKY — majiteľ myslí v jej čase.
 
@@ -428,7 +490,7 @@ class ControlBot:
         if not chats:
             await self._render(
                 event, f"*{plat}*\nNobody has written yet.",
-                [[Button.inline("← Back", b"m")]], True,
+                [[Button.inline(SPAT, b"m")]], True,
             )
             return
         # Kľúč ide do callback dát, ktoré majú strop 64 bajtov — fanvue uuid
@@ -438,7 +500,7 @@ class ControlBot:
             [Button.inline(f"{c['name']} · {c['hint']}"[:60], f"oc:{i}".encode())]
             for i, c in enumerate(chats)
         ]
-        rows.append([Button.inline("← Back", b"m")])
+        rows.append([Button.inline(SPAT, b"m")])
         await self._render(event, f"*{plat} chats*\n_Pick one to write._", rows, True)
 
     async def _otvor_chat(self, event, arg: str) -> None:
@@ -474,7 +536,7 @@ class ControlBot:
             "_Example: napíš správu že jooj konečne si ma tu našiel, dlho som "
             "tu nikoho nemala_\n\n"
             "/cancel to cancel.",
-            buttons=[[Button.inline("← Back", b"m")]],
+            buttons=[[Button.inline(SPAT, b"m")]],
         )
 
     async def _generator_znova(self, event) -> None:
@@ -524,7 +586,7 @@ class ControlBot:
             riadky.append("")
         buttons = [
             [Button.inline("🔄 Regenerate", b"mgr"), Button.inline("🗒 New brief", b"mg")],
-            [Button.inline("← Back", b"m")],
+            [Button.inline(SPAT, b"m")],
         ]
         text = "\n".join(riadky)
         if edit:
@@ -996,6 +1058,20 @@ class ControlBot:
             await self._pin_card(int(msg.id))
         return True
 
+    def _nadviaz(self, zdroj: int, novy: int, pid: Optional[str]) -> None:
+        """Follow-up správa (náhľad hlasovky, otázka na popis) dedí kontext.
+
+        Tlačidlá na nej musia vedieť to isté, čo vedela pôvodná karta — a keď
+        sa píše z menu, `pid` neexistuje a jediné, čo ich drží pri chate, je
+        `_chat_ctx`. Bez zdedenia by „Send to fan" na náhľade hlásilo, že
+        správa už nie je aktuálna.
+        """
+        if pid:
+            self._cards[novy] = pid
+        ctx = self._chat_ctx.get(zdroj)
+        if ctx:
+            self._zapamataj_chat(novy, **ctx)
+
     def _zapamataj_chat(self, mid: int, **ctx: Any) -> None:
         """Priradí karte chat a zároveň drží mapu krátku.
 
@@ -1219,7 +1295,15 @@ class ControlBot:
         elif head == "av":
             idx = int(arg or 0)
             text = suggestions[idx] if 0 <= idx < len(suggestions) else (suggestions[0] if suggestions else "")
-            await self._voice_preview(event, pid, sender, mid, text)
+            if not text:
+                # Písanie z menu: návrhy neexistujú, takže niet čo nahovoriť.
+                # Bez tejto vetvy tlačidlo len oznámilo „First pick some text"
+                # a nedalo sa dostať ďalej.
+                self._awaiting[event.chat_id] = ("semi_voice", str(mid))
+                await event.answer()
+                await event.respond("🎤 Type what she should say. /cancel to cancel.")
+            else:
+                await self._voice_preview(event, pid, sender, mid, text)
         elif head == "avc":
             self._awaiting[event.chat_id] = ("semi_voice", str(mid))
             await event.answer()
@@ -1328,7 +1412,7 @@ class ControlBot:
             return
         self._wizard.setdefault(mid, {})
         rows = [[Button.inline(f["label"], f"afd:{f['id']}".encode())] for f in folders[:8]]
-        rows.append([Button.inline("« Back", b"aback")])
+        rows.append([Button.inline(SPAT, b"aback")])
         await event.edit("📷 *Pick a folder:*", buttons=rows)
 
     async def _show_items(self, event, sender, conv, mid, folder_id) -> None:
@@ -1343,7 +1427,7 @@ class ControlBot:
         for i, it in enumerate(items):
             label = _short(it.get("caption") or f"Photo {i + 1}", 40)
             rows.append([Button.inline(f"{i + 1}. {label}", f"afi:{i}".encode())])
-        rows.append([Button.inline("« Back", b"af")])
+        rows.append([Button.inline(SPAT, b"af")])
         await event.edit("🖼 *Pick a photo:*", buttons=rows)
 
     async def _chosen_item(self, event, sender, channel, mid, idx) -> None:
@@ -1455,7 +1539,7 @@ class ControlBot:
                 [Button.inline("📷 Photo", b"af"), Button.inline("🎤 Voice note", b"av")],
             ]
         )
-        buttons.append([Button.inline("« Back", b"aback")])
+        buttons.append([Button.inline(SPAT, b"aback")])
         try:
             await event.edit("\n".join(lines), buttons=buttons, link_preview=False)
         except Exception as exc:  # noqa: BLE001
@@ -1530,14 +1614,19 @@ class ControlBot:
         buf.name = "preview.ogg"
         msg = await self._client.send_file(
             self._cfg.owner_chat_id, buf, voice_note=True,
-            buttons=[[
-                Button.inline("✅ Send to fan", b"avok"),
-                Button.inline("❌ Discard", b"avno"),
-            ]],
+            buttons=[
+                [
+                    Button.inline("✅ Send to fan", b"avok"),
+                    Button.inline("❌ Discard", b"avno"),
+                ],
+                # `avc` mal obsluhu od prvého dňa, ale nikdy tlačidlo — takže
+                # sa nedalo nahovoriť nič iné než návrh, ktorý napísal model.
+                [Button.inline("✍️ Say something else", b"avc")],
+            ],
         )
         # Náhľad je NOVÁ správa s vlastným message_id — napoj ju na to isté
         # pending a prenes stav, nech avok/avno na náhľade fungujú.
-        self._cards[int(msg.id)] = pid
+        self._nadviaz(mid, int(msg.id), pid)
         self._wizard[int(msg.id)] = {"voice_ogg": ogg, "voice_text": text}
 
     async def _cycle_reply_mode(self, event) -> None:
@@ -1683,7 +1772,7 @@ class ControlBot:
         head = "📝 *Photo caption:*" + (f" (price ${price // 100})" if price else "")
         msg = await event.respond(head, buttons=rows)
         # Napoj follow-up správu na to isté pending a zdieľaj stav wizardu.
-        self._cards[int(msg.id)] = pid
+        self._nadviaz(mid, int(msg.id), pid)
         self._wizard[int(msg.id)] = st
 
     async def _voice_send(self, event, pid, sender, conv, mid) -> None:
@@ -1711,9 +1800,11 @@ class ControlBot:
         persona = await self._db.get_persona()
         behavior = Behavior.from_row(await self._db.get_behavior())
 
-        window = bhv.format_window(behavior.active_start_min, behavior.active_end_min)
         mode = "real person" if behavior.mode == bhv.REAL else "disclosed AI"
         labels = {"off": "⛔️ Off", "auto": "🤖 Automatic", "semi": "✋ Semi-automatic"}
+        # Na tlačidle musí byť krátky tvar: Telegram dlhý text oreže a z
+        # „💜 Fanvue · ✋ Semi-automatic" ostane na telefóne polovica.
+        kratke = {"off": "Off", "auto": "Auto", "semi": "Semi"}
         reply = await self._db.tg_reply_mode()
         rmode = reply.get("mode", "auto")
         rmode_label = labels.get(rmode, rmode)
@@ -1721,49 +1812,62 @@ class ControlBot:
         fv_connected = bool(fv.get("connected"))
         fvmode_label = labels.get(fv.get("mode", "auto"), fv.get("mode", "auto"))
 
-        fv_line = f"Replies (Fanvue): *{fvmode_label}*\n" if fv_connected else ""
-        # Spí na čas? Vtedy sa v hlavičke píše DOKEDY. „PAUSED" bez konca a
-        # „PAUSED do 14:30" sú dva úplne iné stavy a klient musí vidieť, ktorý má.
+        # Spí na čas? Vtedy sa v hlavičke píše DOKEDY. „Paused" bez konca a
+        # „asleep until 14:30" sú dva úplne iné stavy a klient musí vidieť, ktorý má.
         spi_do = await self._db.sleeping_until()
         if spi_do:
-            stav = f"😴 asleep until {_hhmm_z_iso(spi_do, behavior.active_tz)}"
+            stav = f"😴 Asleep until {_hhmm_z_iso(spi_do, behavior.active_tz)}"
         elif paused:
-            stav = "⏸ PAUSED"
+            stav = "⏸ Paused"
         else:
-            stav = "✅ running"
-        text = (
-            f"*{persona.get('name') or 'Model'}* · {stav}\n\n"
-            f"Replies (Telegram): *{rmode_label}*\n"
-            f"{fv_line}"
-            f"Mode: *{mode}*\n"
-            f"Active: *{window}* ({behavior.active_tz})\n"
-            f"Link: {_short(persona.get('cta_link'), 40)}"
-        )
-        buttons = [
-            [Button.inline(f"🔁 Telegram: {rmode_label}", b"rm")],
+            stav = "🟢 Live"
+
+        # Stav ako zoznam, nie ako veta. Klient hľadá jednu hodnotu, nie text
+        # na čítanie — a v zozname ju nájde bez toho, aby čokoľvek čítal.
+        riadky = [
+            f"*{persona.get('name') or 'Model'}*  ·  {stav}",
+            CIARA,
+            _polozka("💬", "Telegram", rmode_label),
+        ]
+        if fv_connected:
+            riadky.append(_polozka("💜", "Fanvue", fvmode_label))
+        riadky += [
+            _polozka("🕘", "Active", f"{_okno12(behavior.active_start_min, behavior.active_end_min)}"),
+            _polozka("🌍", "Her time zone", _mesto(behavior.active_tz)),
+            _polozka("🎭", "Plays", mode),
+            _polozka("🔗", "Link", _short(_bez_schemy(persona.get("cta_link")), 38)),
+        ]
+        text = "\n".join(riadky)
+
+        # Tlačidlá v dvojiciach: Telegram má rovnako široké tlačidlá v riadku,
+        # takže párne riadky vyzerajú ako mriežka a nepárne ako zoznam zvyškov.
+        prepinace = [
+            Button.inline(f"💬 Telegram · {kratke.get(rmode, rmode)}", b"rm")
         ]
         # Fanvue prepínač len keď je Fanvue pripojené — inak nemá čo prepínať.
         if fv_connected:
-            buttons.append([Button.inline(f"🔁 Fanvue: {fvmode_label}", b"rmf")])
+            prepinace.append(
+                Button.inline(
+                    f"💜 Fanvue · {kratke.get(fv.get('mode', 'auto'), '')}", b"rmf"
+                )
+            )
+        buttons = [prepinace]
         buttons += [
-            [Button.inline("▶️ Turn AI on" if paused else "⏸ Turn AI off", b"pz")],
             [
+                Button.inline("▶️ Turn on" if paused else "⏸ Turn off", b"pz"),
                 Button.inline("⏰ Wake her up", b"wake")
                 if spi_do
-                else Button.inline("😴 Sleep 2h", b"nap:2")
+                else Button.inline("😴 Sleep 2h", b"nap:2"),
             ],
             [Button.inline("👤 Persona", b"pm"), Button.inline("🎭 Behaviour", b"bm")],
-            [Button.inline("⏰ Times", b"tm"), Button.inline("📊 Stats", b"st")],
-            [Button.inline("💬 Conversations", b"cv"), Button.inline("💰 Top up", b"tu")],
-            [Button.inline("🔔 Notifications", b"nt")],
-            # „Wipe my test chat" tu bolo dovtedy, kým sa skúšalo písaním na jej
-            # skutočný účet z vlastného Telegramu. To robí `🧪 Test chat`, ktorý
-            # sa premazáva sám a žiadnu konverzáciu nezanecháva.
-            [Button.inline("✍️ Message generator", b"mg")],
+            [Button.inline("🕘 Times", b"tm"), Button.inline("📊 Stats", b"st")],
+            [Button.inline("💬 Conversations", b"cv"), Button.inline("🔔 Alerts", b"nt")],
             # Písanie do chatu bez toho, aby najprv napísal fanúšik. Dovtedy
             # sa dalo odpovedať len na kartu, ktorá práve prišla.
-            [Button.inline("💬 Fanvue chats", b"fc"),
-             Button.inline("💬 Telegram chats", b"tc")],
+            [Button.inline("📨 Write · Fanvue", b"fc"),
+             Button.inline("📨 Write · Telegram", b"tc")],
+            [Button.inline("✍️ Message generator", b"mg"),
+             Button.inline("💰 Top up", b"tu")],
             [
                 Button.inline(
                     "🛑 End test chat" if self._skuska.bezi(self._cfg.owner_chat_id)
@@ -1815,12 +1919,12 @@ class ControlBot:
                     )
                 ]
             )
-        riadky.append([Button.inline("← Back", b"m")])
+        riadky.append([Button.inline(SPAT, b"m")])
 
         text = (
-            "*Notifications*\n\n"
-            "What I tell you about. Tap to switch one on or off — it applies "
-            "right away and matches the website.\n\n"
+            _hlavicka("Alerts", "what I tell you about") + "\n\n"
+            "Tap to switch one on or off — it applies right away and matches "
+            "the website.\n\n"
             "_The daily summary costs a little credit each day (it reads her "
             "chats). Everything else is free._"
         )
@@ -1850,7 +1954,7 @@ class ControlBot:
         """
         zostatok = await self._db.account_balance_usd()
         text = (
-            "*Top up Pipe Coins*\n\n"
+            _hlavicka("Top up", "Pipe Coins are shared by all your models") + "\n\n"
             f"{coiny.popis(zostatok * 1000)}\n\n"
             "Paid with Telegram Stars. Coins land on your account the moment "
             "the payment goes through and work for every model you have.\n\n"
@@ -1860,7 +1964,7 @@ class ControlBot:
             [Button.inline(f"⭐ {stars:,}".replace(",", " "), f"tu:{stars}".encode())]
             for stars in coiny.tlacidla_balikov()
         ]
-        buttons.append([Button.inline("« Back", b"m")])
+        buttons.append([Button.inline(SPAT, b"m")])
         await self._render(event, text, buttons, edit)
 
     async def _send_topup_invoice(self, event, arg: str) -> None:
@@ -1884,7 +1988,7 @@ class ControlBot:
                 "*Top up Pipe Coins*\n\n"
                 "Could not open the payment right now. Top up on the website "
                 "instead — it also has the cheaper crypto option.",
-                [[Button.inline("« Back", b"tu")]],
+                [[Button.inline(SPAT, b"tu")]],
                 True,
             )
             return
@@ -1897,7 +2001,7 @@ class ControlBot:
         )
         buttons = [
             [Button.url(f"Pay {data['stars']:,} ⭐".replace(",", " "), data["url"])],
-            [Button.inline("« Back", b"tu")],
+            [Button.inline(SPAT, b"tu")],
         ]
         await self._render(event, text, buttons, True)
 
@@ -1913,7 +2017,7 @@ class ControlBot:
                 pair = []
         if pair:
             rows.append(pair)
-        rows.append([Button.inline("← Back", b"m")])
+        rows.append([Button.inline(SPAT, b"m")])
 
         lines = [f"*Persona* — tap a field and send a new value\n"]
         for field in PERSONA_FIELDS:
@@ -1924,8 +2028,8 @@ class ControlBot:
         behavior = Behavior.from_row(await self._db.get_behavior())
         mode_label = "real person" if behavior.mode == bhv.REAL else "disclosed AI"
         text = (
-            "*Chovanie*\n\n"
-            f"Mode: *{mode_label}*\n"
+            _hlavicka("Behaviour", "how she writes and how fast") + "\n\n"
+            f"🎭 *Plays* · {mode_label}\n"
             f"{'Does not admit being AI.' if behavior.mode == bhv.REAL else 'Admits being AI when asked.'}\n\n"
             f"Diacritics: *{'off' if behavior.no_diacritics else 'on'}*\n"
             f"Slang: *{behavior.slang}*\n\n"
@@ -1998,7 +2102,7 @@ class ControlBot:
             [Button.inline("🎙 When she may voice", b"vx")],
             [Button.inline("⏱ Timing", b"ti"), Button.inline("🎲 Randomness", b"ra")],
             [Button.inline("🛡 Telegram safety", b"sf")],
-            [Button.inline("← Back", b"m")],
+            [Button.inline(SPAT, b"m")],
         ]
         await self._render(event, text, buttons, edit)
 
@@ -2020,26 +2124,27 @@ class ControlBot:
                 pair = []
         if pair:
             rows.append(pair)
-        rows.append([Button.inline("← Back", back.encode())])
+        rows.append([Button.inline(SPAT, back.encode())])
         await self._render(event, "\n".join(lines), rows, True)
 
     async def _send_times(self, event, edit: bool = False) -> None:
         behavior = Behavior.from_row(await self._db.get_behavior())
         text = (
-            "*Times*\n\n"
-            f"Active from *{_hhmm(behavior.active_start_min)}* "
-            f"do *{_hhmm(behavior.active_end_min)}*\n"
-            f"Zone: *{behavior.active_tz}*\n\n"
-            "Outside this window she doesn't reply — messages are deferred and caught up "
-            "when the window opens."
+            _hlavicka("Times", "when she is awake, in her own time zone") + "\n\n"
+            + _polozka("🕘", "Active", _okno12(behavior.active_start_min, behavior.active_end_min))
+            + "\n"
+            + _polozka("🌍", "Time zone", _mesto(behavior.active_tz))
+            + "\n\n"
+            "Outside this window she doesn't reply — messages wait and she catches "
+            "up when the window opens."
         )
         buttons = [
             [
-                Button.inline(f"⏰ Od {_hhmm(behavior.active_start_min)}", b"t:active_start_min"),
-                Button.inline(f"🌙 Do {_hhmm(behavior.active_end_min)}", b"t:active_end_min"),
+                Button.inline(f"⏰ From {_hhmm12(behavior.active_start_min)}", b"t:active_start_min"),
+                Button.inline(f"🌙 Until {_hhmm12(behavior.active_end_min)}", b"t:active_end_min"),
             ],
             [Button.inline(f"🌍 {behavior.active_tz}", b"t:active_tz")],
-            [Button.inline("← Back", b"m")],
+            [Button.inline(SPAT, b"m")],
         ]
         await self._render(event, text, buttons, edit)
 
@@ -2051,11 +2156,11 @@ class ControlBot:
         """
         b = Behavior.from_row(await self._db.get_behavior())
         naraz = (
-            f"*{b.max_active_chats}* naraz" if b.max_active_chats > 0
-            else "*bez obmedzenia*"
+            f"*{b.max_active_chats}* at a time" if b.max_active_chats > 0
+            else "*no limit*"
         )
         text = (
-            "*Telegram safety*\n\n"
+            _hlavicka("Telegram safety", "what keeps her account off Telegram's radar") + "\n\n"
             f"Chats at once: {naraz}\n"
             f"A slot frees up after *{b.chat_slot_min} min* of silence\n\n"
             "When many people write, she only chats with so many at once. The rest wait "
@@ -2085,7 +2190,7 @@ class ControlBot:
                 pair = []
         if pair:
             rows.append(pair)
-        rows.append([Button.inline("← Back", b"bm")])
+        rows.append([Button.inline(SPAT, b"bm")])
         await self._render(event, text, rows, edit)
 
     async def _send_voice_exceptions(self, event, edit: bool = False) -> None:
@@ -2098,7 +2203,8 @@ class ControlBot:
         row = await self._db.get_behavior()
         behavior = bhv.Behavior.from_row(row)
         text = (
-            "*When she may send voice* — outside the usual rules\n\n"
+            _hlavicka("Voice notes", "when she may send one outside the usual rules")
+            + "\n\n"
             f"Normally: from message {6} on and with a {behavior.voice_chance:.0%} chance.\n"
             "Enabled exceptions bypass that — then it goes right away.\n\n"
             f"Voice notes overall: {'on' if behavior.voices_enabled else '*OFF*'}"
@@ -2113,7 +2219,7 @@ class ControlBot:
             ]
             for pole in bhv.VOICE_EXCEPTIONS
         ]
-        buttons.append([Button.inline("← Back", b"bm")])
+        buttons.append([Button.inline(SPAT, b"bm")])
         await self._render(event, text, buttons, edit)
 
     async def _send_day(self, event) -> None:
@@ -2137,7 +2243,11 @@ class ControlBot:
         blok = den_mod.block_at(teraz, self._cfg.supabase_schema, rozvrh)
         riadky = den_mod.summary(teraz.date(), self._cfg.supabase_schema, rozvrh)
         text = (
-            f"*Today* — {teraz.strftime('%A %d.%m.')} her time {teraz.strftime('%H:%M')}\n\n"
+            _hlavicka(
+                "Her day",
+                f"{teraz.strftime('%A')} · {_hhmm12(teraz.hour * 60 + teraz.minute)} her time",
+            )
+            + "\n\n"
             + "\n".join(f"`{r}`" for r in riadky)
             + f"\n\n*Now:* {den_mod.describe(blok) or 'off schedule (asleep)'}"
             + f"\n*Replies:* ×{den_mod.pace(blok):.1f}"
@@ -2149,21 +2259,22 @@ class ControlBot:
         stats = await self._db.stats()
         total = max(stats["users"], 1)
         text = (
-            "*Funnel*\n\n"
-            f"Conversations: {stats['users']}\n"
-            f"Warm: {stats['warm']}\n"
-            f"Link sent: {stats['link_sent']}\n"
-            f"Subscribers: {stats['converted']}\n"
-            f"Taken over by you: {stats['takeover']}\n\n"
-            f"Conversion: *{stats['converted'] / total * 100:.1f} %*"
+            _hlavicka("Funnel", "how far people get") + "\n\n"
+            f"💬 *Conversations* · {stats['users']}\n"
+            f"🔥 *Warm* · {stats['warm']}\n"
+            f"🔗 *Link sent* · {stats['link_sent']}\n"
+            f"💚 *Subscribers* · {stats['converted']}\n"
+            f"✋ *Taken over by you* · {stats['takeover']}\n"
+            f"{CIARA}\n"
+            f"📈 *Conversion* · {stats['converted'] / total * 100:.1f} %"
         )
-        await self._render(event, text, [[Button.inline("← Back", b"m")]], True)
+        await self._render(event, text, [[Button.inline(SPAT, b"m")]], True)
 
     async def _send_conversations(self, event) -> None:
         rows = await self._db.recent_conversations(10)
         if not rows:
             await self._render(
-                event, "Nobody has written yet.", [[Button.inline("← Back", b"m")]], True
+                event, "Nobody has written yet.", [[Button.inline(SPAT, b"m")]], True
             )
             return
         buttons = [
@@ -2176,8 +2287,11 @@ class ControlBot:
             ]
             for r in rows
         ]
-        buttons.append([Button.inline("← Back", b"m")])
-        await self._render(event, "*Conversations*", buttons, True)
+        buttons.append([Button.inline(SPAT, b"m")])
+        await self._render(
+            event, _hlavicka("Conversations", "who is talking to her right now"),
+            buttons, True,
+        )
 
     async def _send_conversation(self, event, tg_id: int) -> None:
         user = await self._db.get_user(tg_id)
@@ -2215,7 +2329,7 @@ class ControlBot:
                     f"pd:{tg_id}".encode(),
                 ),
             ],
-            [Button.inline("← Conversations", b"cv"), Button.inline("Menu", b"m")],
+            [Button.inline("‹ Chats", b"cv"), Button.inline("⌂ Menu", b"m")],
         ]
         # Mazanie ponúkam len pre vlastný účet — aby si omylom nezmazal
         # históriu skutočnému klientovi.
@@ -2234,13 +2348,13 @@ class ControlBot:
         await event.answer()
         await self._render(
             event,
-            f"*Wipe the test chat's memory?*\n\n"
+            _hlavicka("Wipe the test chat's memory?") + "\n\n"
             f"History ({count} messages), summary, style and funnel state will be erased.\n"
             f"She'll act as if you never talked.\n\n"
             f"Other conversations are unaffected.",
             [
                 [Button.inline("🧹 Yes, wipe", f"wy:{tg_id}".encode())],
-                [Button.inline("← No, back", b"m")],
+                [Button.inline("‹ No, go back", b"m")],
             ],
             True,
         )
@@ -2256,7 +2370,7 @@ class ControlBot:
             event,
             f"✅ *Memory wiped* — {deleted} messages.\n\n"
             f"Message her from your test account and she'll start fresh.",
-            [[Button.inline("← Menu", b"m")]],
+            [[Button.inline("⌂ Menu", b"m")]],
             True,
         )
 
