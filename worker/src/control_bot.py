@@ -140,6 +140,12 @@ def _short(value: Any, limit: int = 28) -> str:
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
+# Koľko kariet naraz smie visieť pripnutých. Vlastný strop, nie Telegramu:
+# pripnuté všetko je to isté ako nepripnuté nič — človek zas hľadá. Keď čaká
+# viac chatov, ďalšie sa nepripnú a majiteľ ich nájde v chate ako doteraz.
+MAX_PIN = 4
+
+
 def _card_lines(
     channel: str,
     display_name: str,
@@ -197,6 +203,10 @@ class ControlBot:
         self._senders: Dict[str, Any] = {}
         # message_id karty → pending_id (in-memory; po reštarte sa obnoví z DB).
         self._cards: Dict[int, str] = {}
+        # Karty, ktoré sme pripli. Drží sa v pamäti a po reštarte sa obnoví
+        # z čakajúcich kariet — pripnutie prežije reštart repliky, takže bez
+        # obnovy by sa už nikdy neodopli.
+        self._pinned: set = set()
         # message_id karty → prechodný stav foto/hlas wizardu (media_ref, price…).
         self._wizard: Dict[int, Dict[str, Any]] = {}
         # chat_id → časy posledných pokusov o kód (monotónne). Slúži len na
@@ -766,7 +776,7 @@ class ControlBot:
         cmid = row.get("control_msg_id")
         if ok:
             await self._db.mark_pending(pid, "sent", chosen_text=sugg[0], kind="text")
-            self._cards.pop(int(cmid or 0), None)
+            await self._forget_card(int(cmid or 0))
             if cmid:
                 await self._clear_card(int(cmid), "⏱ _Sent automatically (time elapsed)._")
         else:
@@ -780,6 +790,10 @@ class ControlBot:
                 cmid = row.get("control_msg_id")
                 if cmid:
                     self._cards[int(cmid)] = row["id"]
+                    # Pripnutie prežilo reštart, naša pamäť nie. Bez tohto by
+                    # sa taká karta po rozhodnutí už nikdy neodopla a miesto
+                    # pod stropom by ostalo obsadené navždy.
+                    self._pinned.add(int(cmid))
         except Exception as exc:  # noqa: BLE001
             log.warning("Obnova schvaľovacích kariet zlyhala: %s", exc)
 
@@ -816,7 +830,18 @@ class ControlBot:
         await self._db.mark_pending(pid, "awaiting", control_msg_id=int(msg.id))
         self._cards[int(msg.id)] = pid
         self._wizard.pop(int(msg.id), None)
+        # Pripnutie až tu: pripínať sa má len karta, ktorá naozaj visí a čaká.
+        if await self._pinning_on():
+            await self._pin_card(int(msg.id))
         return True
+
+    async def _pinning_on(self) -> bool:
+        """Má sa pripínať? Chyba čítania = áno — je to pohodlie, nie riziko."""
+        try:
+            nastavenia = await self._db.control_bot_settings()
+        except Exception:  # noqa: BLE001
+            return True
+        return bool(nastavenia.get("pin_approvals", True))
 
     def _approval_buttons(self, n: int) -> List[List[Button]]:
         nums = [Button.inline(f"{i + 1}️⃣", f"ap:{i}".encode()) for i in range(n)]
@@ -833,10 +858,51 @@ class ControlBot:
             [Button.inline("⏭️ Skip", b"as"), Button.inline("✋ Take over", b"ax")],
         ]
 
+    async def _forget_card(self, mid: int) -> None:
+        """Karta je vybavená: zabudni ju a odopni.
+
+        Je to na jednom mieste zámerne. Odopnutie sa musí stať pri KAŽDOM
+        konci — schválenie, vlastná správa, fotka, hlasovka, preskočenie,
+        prevzatie, časový fallback aj nová správa od fanúšika. Keby jedna
+        z tých ciest odopnutie vynechala, pripnuté by ostalo niečo, čo už
+        nemá tlačidlá, a ďalšia karta by sa nemala kam pripnúť.
+        """
+        self._cards.pop(mid, None)
+        self._wizard.pop(mid, None)
+        if mid not in self._pinned:
+            return
+        self._pinned.discard(mid)
+        try:
+            await self._client.unpin_message(self._cfg.owner_chat_id, mid)
+        except Exception as exc:  # noqa: BLE001 - odopnutie je pohodlie
+            log.info("Kartu %s sa nepodarilo odopnúť: %s", mid, exc)
+
+    async def _pin_card(self, mid: int) -> None:
+        """Pripne kartu, ktorá čaká na rozhodnutie. Zlyhanie sa iba zaloguje.
+
+        PREČO. V súkromnom chate s botom chodia aj notifikácie a denné súhrny,
+        takže karta s návrhmi sa v ňom po pár hodinách stratí a majiteľ ju
+        musí hľadať. Pripnutá je vždy navrchu.
+
+        `MAX_PIN` je vlastný strop, nie ten Telegramu: pripnuté všetko je to
+        isté ako nepripnuté nič. Keď čaká viac chatov naraz, ďalšie sa už
+        nepripnú — a to je v poriadku, lebo bez rozhodnutia sa žiadna
+        neuvoľní.
+        """
+        if len(self._pinned) >= MAX_PIN:
+            log.info("Pripnutých je už %s, kartu %s nepripínam", len(self._pinned), mid)
+            return
+        try:
+            # `notify=False`: pripnutie nemá vyrobiť ďalšiu notifikáciu —
+            # samotná karta ju už poslala.
+            await self._client.pin_message(self._cfg.owner_chat_id, mid, notify=False)
+            self._pinned.add(mid)
+        except Exception as exc:  # noqa: BLE001 - pripnutie je pohodlie, nie podmienka
+            log.info("Kartu %s sa nepodarilo pripnúť: %s", mid, exc)
+
     async def cancel_card(self, control_msg_id: int) -> None:
         """Zruší kartu (fanúšik napísal znova / prevzatie) — bez tlačidiel."""
-        self._cards.pop(control_msg_id, None)
-        self._wizard.pop(control_msg_id, None)
+        await self._forget_card(control_msg_id)
         try:
             await self._client.edit_message(
                 self._cfg.owner_chat_id, control_msg_id,
@@ -881,8 +947,7 @@ class ControlBot:
             await event.respond("✍️ Type the message to send. /cancel to cancel.")
         elif head == "as":
             await self._db.mark_pending(pid, "skipped")
-            self._cards.pop(mid, None)
-            self._wizard.pop(mid, None)
+            await self._forget_card(mid)
             await event.edit("⏭️ _Skipped._", buttons=None)
         elif head == "ax":
             await self._db.mark_pending(pid, "skipped")
@@ -891,7 +956,7 @@ class ControlBot:
                     await self._db.update_user(int(conv), {"human_takeover": True})
                 except Exception:  # noqa: BLE001
                     pass
-            self._cards.pop(mid, None)
+            await self._forget_card(mid)
             await event.edit("✋ _You're taking over this chat. The AI won't write here._", buttons=None)
         elif head == "af":
             await self._show_folders(event, sender, conv, mid)
@@ -958,8 +1023,7 @@ class ControlBot:
             return
         ok = await sender.deliver_text(conv, text)
         mid = int(event.message_id)
-        self._cards.pop(mid, None)
-        self._wizard.pop(mid, None)
+        await self._forget_card(mid)
         if ok:
             await self._db.mark_pending(pid, "sent", chosen_text=text, kind="text")
             await event.edit(f"✅ _Sent:_ {_short(text, 200)}", buttons=None)
@@ -1044,8 +1108,7 @@ class ControlBot:
             await event.answer("Already handled", alert=True)
             return
         ok = await sender.deliver_photo(conv, media_ref, caption, price)
-        self._cards.pop(mid, None)
-        self._wizard.pop(mid, None)
+        await self._forget_card(mid)
         if ok:
             await self._db.mark_pending(
                 pid, "sent", chosen_text=caption, kind="photo",
@@ -1194,12 +1257,11 @@ class ControlBot:
 
         if kind == "semi_custom":
             if not await self._db.claim_pending(pid):
-                self._cards.pop(mid, None)
+                await self._forget_card(mid)
                 await event.reply("Already handled.")
                 return
             ok = await sender.deliver_text(conv, value)
-            self._cards.pop(mid, None)
-            self._wizard.pop(mid, None)
+            await self._forget_card(mid)
             if ok:
                 await self._db.mark_pending(pid, "sent", chosen_text=value, kind="text")
                 await self._clear_card(mid, f"✅ _Sent:_ {_short(value, 150)}")
@@ -1233,8 +1295,7 @@ class ControlBot:
                 await event.reply("Already handled.")
                 return
             ok = await sender.deliver_photo(conv, media_ref, value, price)
-            self._cards.pop(mid, None)
-            self._wizard.pop(mid, None)
+            await self._forget_card(mid)
             if ok:
                 await self._db.mark_pending(
                     pid, "sent", chosen_text=value, kind="photo",
@@ -1290,8 +1351,7 @@ class ControlBot:
             await event.answer("Already handled", alert=True)
             return
         ok = await sender.deliver_voice(conv, text, ogg)
-        self._cards.pop(mid, None)
-        self._wizard.pop(mid, None)
+        await self._forget_card(mid)
         if ok:
             await self._db.mark_pending(pid, "sent", chosen_text=text, kind="voice")
             await event.edit("✅ _Voice note sent._", buttons=None)
@@ -1378,6 +1438,10 @@ class ControlBot:
         ("notify_fanvue_comment", "💬 New comment", False),
         ("daily_report", "📋 Daily summary", False),
         ("weekly_report", "📈 Weekly numbers", True),
+        # Nie je to notifikácia, ale patrí sem: je to jediná obrazovka o tom,
+        # ako sa bot v tomto chate správa, a človek, ktorý práve hľadal kartu
+        # medzi dvadsiatimi oznamami, ju vypína/zapína presne tu.
+        ("pin_approvals", "📌 Pin messages waiting for you", True),
     )
 
     async def _send_notifications(self, event, edit: bool = False) -> None:

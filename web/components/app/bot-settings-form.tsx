@@ -20,6 +20,7 @@ export type BotSettingsRow = {
   notify_hot_lead: boolean;
   daily_report: boolean;
   weekly_report: boolean;
+  pin_approvals: boolean;
 };
 
 /**
@@ -168,6 +169,21 @@ export function BotSettingsForm({
             label="Send weekly numbers"
             defaultValue={settings.weekly_report}
             help="New conversations, how many of them got your link, how many she wrapped up, and what is left on your balance. Costs nothing — it is counting, not writing — so it is on by default. A quiet week is reported too: that is the week worth knowing about."
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Messages waiting for you"
+          description="Semi-automatic mode sends you her draft replies. Between notifications they are easy to lose."
+        />
+        <div className="space-y-3 p-5">
+          <SwitchField
+            name="pin_approvals"
+            label="Pin them in the chat until you decide"
+            defaultValue={settings.pin_approvals}
+            help="A draft waiting for your approval gets pinned at the top of your chat with the bot, and unpinned the moment you pick, skip or take over. When several chats are waiting at once only the first few get pinned — everything pinned is as useless as nothing pinned."
           />
         </div>
       </Card>

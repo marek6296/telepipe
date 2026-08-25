@@ -23,6 +23,7 @@ const PREPINACE = [
   "notify_hot_lead",
   "daily_report",
   "weekly_report",
+  "pin_approvals",
 ] as const;
 
 export type BotSettingsResult = { error?: string };

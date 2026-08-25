@@ -419,6 +419,7 @@ class TenantDb:
         "notify_hot_lead",
         "daily_report",
         "weekly_report",
+        "pin_approvals",
     )
 
     async def set_control_bot_setting(self, field: str, value: bool) -> None:

@@ -222,3 +222,134 @@ class TestObaKanalyViaPregenerovat:
             params = inspect.signature(trieda.regenerate).parameters
             assert "brief" in params, trieda.__name__
             assert "seed" in params, trieda.__name__
+
+
+class TestPripinanieKariet:
+    """Karta čakajúca na rozhodnutie sa pripne a po rozhodnutí odopne.
+
+    ODKIAĽ TO PRIŠLO. V súkromnom chate s botom chodia aj notifikácie, denné
+    súhrny a hlásenia o platbách — karta s návrhmi sa v tom po pár hodinách
+    stratí a musí sa hľadať. Pripnutá je navrchu.
+
+    Najdôležitejšie je ODOPNUTIE. Karta sa dá vybaviť ôsmimi spôsobmi
+    (schválenie, vlastná správa, zadanie, fotka, hlasovka, preskočenie,
+    prevzatie, časový fallback) a keby čo i len jeden z nich odopnutie
+    vynechal, ostalo by navrchu visieť niečo bez tlačidiel — a miesto pod
+    stropom by bolo obsadené navždy.
+    """
+
+    def _bot(self, pinned=None):
+        import control_bot
+
+        bot = control_bot.ControlBot.__new__(control_bot.ControlBot)
+        bot._cards = {}  # noqa: SLF001
+        bot._wizard = {}  # noqa: SLF001
+        bot._pinned = set(pinned or ())  # noqa: SLF001
+        bot._cfg = type("C", (), {"owner_chat_id": 1})()  # noqa: SLF001
+
+        class FakeClient:
+            def __init__(self):
+                self.pinned = []
+                self.unpinned = []
+
+            async def pin_message(self, chat, mid, notify=True):
+                self.pinned.append((mid, notify))
+
+            async def unpin_message(self, chat, mid):
+                self.unpinned.append(mid)
+
+        bot._client = FakeClient()  # noqa: SLF001
+        return bot
+
+    def test_pripne_a_zapamata_si_to(self):
+        bot = self._bot()
+        asyncio.run(bot._pin_card(55))  # noqa: SLF001
+        assert bot._client.pinned == [(55, False)]  # noqa: SLF001
+        assert 55 in bot._pinned  # noqa: SLF001
+
+    def test_pripnutie_neposiela_dalsiu_notifikaciu(self):
+        """Kartu už poslal bot sám — pripnutie nemá pípnuť druhý raz."""
+        bot = self._bot()
+        asyncio.run(bot._pin_card(55))  # noqa: SLF001
+        assert bot._client.pinned[0][1] is False  # noqa: SLF001
+
+    def test_nad_stropom_sa_uz_nepripina(self):
+        import control_bot
+
+        bot = self._bot(pinned=range(control_bot.MAX_PIN))
+        asyncio.run(bot._pin_card(999))  # noqa: SLF001
+        assert bot._client.pinned == []  # noqa: SLF001
+        assert 999 not in bot._pinned  # noqa: SLF001
+
+    def test_strop_je_nizky(self):
+        """Pripnuté všetko je to isté ako nepripnuté nič."""
+        import control_bot
+
+        assert control_bot.MAX_PIN <= 5
+
+    def test_rozhodnutie_odopne(self):
+        bot = self._bot(pinned={55})
+        bot._cards[55] = "pid"  # noqa: SLF001
+        asyncio.run(bot._forget_card(55))  # noqa: SLF001
+        assert bot._client.unpinned == [55]  # noqa: SLF001
+        assert 55 not in bot._pinned  # noqa: SLF001
+        assert 55 not in bot._cards  # noqa: SLF001
+
+    def test_uvolni_miesto_pre_dalsiu(self):
+        import control_bot
+
+        bot = self._bot(pinned=set(range(control_bot.MAX_PIN)))
+        asyncio.run(bot._forget_card(0))  # noqa: SLF001
+        asyncio.run(bot._pin_card(999))  # noqa: SLF001
+        assert 999 in bot._pinned  # noqa: SLF001
+
+    def test_nepripnuta_karta_sa_neodpina(self):
+        """Odopínať niečo, čo sme nepripli, by siahalo na cudzie pripnutia."""
+        bot = self._bot()
+        asyncio.run(bot._forget_card(77))  # noqa: SLF001
+        assert bot._client.unpinned == []  # noqa: SLF001
+
+    def test_zlyhanie_pripnutia_nezhodi_kartu(self):
+        bot = self._bot()
+
+        async def zly(*a, **kw):
+            raise RuntimeError("chat admin required")
+
+        bot._client.pin_message = zly  # noqa: SLF001
+        asyncio.run(bot._pin_card(55))  # noqa: SLF001
+        assert 55 not in bot._pinned, "neúspešné pripnutie sa nesmie tváriť ako úspešné"  # noqa: SLF001
+
+    def test_zlyhanie_odopnutia_nezhodi_rozhodnutie(self):
+        bot = self._bot(pinned={55})
+
+        async def zly(*a, **kw):
+            raise RuntimeError("message not found")
+
+        bot._client.unpin_message = zly  # noqa: SLF001
+        asyncio.run(bot._forget_card(55))  # noqa: SLF001
+        assert 55 not in bot._pinned  # noqa: SLF001
+
+    def test_kazda_cesta_konca_karty_ide_cez_forget(self):
+        """Zdrojová poistka: kto vyhodí kartu z `_cards`, musí ju aj odopnúť.
+
+        Preto sa `_cards.pop` smie objaviť LEN vo `_forget_card`. Bez tohto
+        testu stačí pri ďalšej novej ceste na to zabudnúť a pripnutá karta bez
+        tlačidiel ostane navrchu navždy.
+        """
+        import re
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parents[1] / "src" / "control_bot.py").read_text("utf-8")
+        popy = [m.start() for m in re.finditer(r"self\._cards\.pop\(", src)]
+        zaciatok = src.index("async def _forget_card")
+        koniec = src.index("async def _pin_card")
+        vonku = [p for p in popy if not (zaciatok < p < koniec)]
+        assert not vonku, f"{len(vonku)}× sa karta zabúda mimo `_forget_card`"
+
+    def test_prepinac_existuje_v_menu_aj_v_db(self):
+        import control_bot
+        import db
+
+        assert "pin_approvals" in db.TenantDb.PREPINACE
+        stlpce = [s for s, _, _ in control_bot.ControlBot._NOTIFIKACIE]  # noqa: SLF001
+        assert "pin_approvals" in stlpce
