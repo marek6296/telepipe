@@ -30,6 +30,7 @@ import ludskost
 import odkazy
 import memory
 import photos
+import prehlad
 import recall
 import zadanie
 import speech
@@ -2037,6 +2038,22 @@ class UserBot:
             seed=seed or "2",
         )
         return {"suggestions": suggestions}
+
+    async def context_card(self, conv_key: str) -> str:
+        """Kto je tento človek a o čom si píšu. Volá control bot cez „Context".
+
+        Rovnako ako na Fanvue sa nič negeneruje — všetko už v databáze leží.
+        """
+        try:
+            tg_id = int(conv_key)
+        except (TypeError, ValueError):
+            return ""
+        user = await self._db.get_user(tg_id)
+        if not user:
+            return ""
+        facts = await self._db.facts_for(tg_id)
+        messages = await self._db.recent_messages(tg_id, prehlad.SPRAV * 2)
+        return prehlad.telegram(user, facts, messages)
 
     async def _semi_post_update(self, tg_id: int, text: str) -> None:
         """Po schválenom odoslaní dorob plný kontext-update (pamäť, summary,

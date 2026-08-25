@@ -35,6 +35,7 @@ import fvsync
 import fvvoice
 import ludskost
 import oznamy
+import prehlad
 import zadanie
 
 log = logging.getLogger(__name__)
@@ -1089,6 +1090,25 @@ class FanvueAgent:
             seed=seed or "2",
         )
         return {"suggestions": suggestions, "hint": "" if brief else sit.tip}
+
+    async def context_card(self, conv_key: str) -> str:
+        """Kto je tento fanúšik a o čom si píšu. Volá control bot cez „Context".
+
+        Skladá sa z toho, čo už v databáze je — nič sa negeneruje. Volanie
+        modelu by stálo coiny aj sekundy a povedalo by to isté, len menej
+        presne než zhrnutie, ktoré si modelka priebežne píše sama.
+        """
+        row = await self._db.fan(conv_key)
+        if not row:
+            return ""
+        tg = None
+        if row.get("tg_id"):
+            try:
+                tg = await self._db.telegram_context(int(row["tg_id"]))
+            except Exception as exc:  # noqa: BLE001 - prehľad je pohodlie
+                log.warning("Kontext z Telegramu sa nenačítal: %s", exc)
+        history = await self._db.history(conv_key, limit=prehlad.SPRAV * 2)
+        return prehlad.fanvue(row, history, tg)
 
     async def deliver_text(self, conv_key: str, text: str) -> bool:
         sent = await self._api.send(conv_key, text)

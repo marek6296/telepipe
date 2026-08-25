@@ -540,7 +540,7 @@ class ControlBot:
     _APPROVAL_HEADS = frozenset({
         "ap", "ac", "as", "ax", "af", "afd", "afi", "afree", "apaid",
         "acap", "acapn", "acapw", "av", "avc", "avok", "avno", "aback",
-        "ar", "ab",
+        "ar", "ab", "ai",
     })
 
     async def _route(self, event: events.CallbackQuery.Event, data: str) -> None:
@@ -853,6 +853,9 @@ class ControlBot:
             # má byť.
             [Button.inline("🔄 Regenerate", b"ar"),
              Button.inline("🗒 Say this", b"ab")],
+            # „Context" je tu kvôli prepnutiu z Auto na Semi: dovtedy si písala
+            # sama a majiteľ zrazu odpovedá človeku, ktorého v živote nevidel.
+            [Button.inline("🧠 Context", b"ai")],
             [Button.inline("✍️ Write my own", b"ac")],
             [Button.inline("📷 Photo", b"af"), Button.inline("🎤 Voice note", b"av")],
             [Button.inline("⏭️ Skip", b"as"), Button.inline("✋ Take over", b"ax")],
@@ -982,6 +985,8 @@ class ControlBot:
             self._awaiting[event.chat_id] = ("semi_caption", str(mid))
             await event.answer()
             await event.respond("✍️ Type the caption for the photo. /cancel to cancel.")
+        elif head == "ai":
+            await self._show_context(event, sender, row, suggestions)
         elif head == "ar":
             await event.answer("Writing new ones…")
             problem = await self._new_suggestions(mid, pid, row)
@@ -1131,6 +1136,38 @@ class ControlBot:
             str(row.get("hint") or ""),
         )
         await event.edit("\n".join(lines), buttons=self._approval_buttons(len(suggestions)))
+
+    async def _show_context(self, event, sender, row, suggestions) -> None:
+        """Zhrnutie chatu NAMIESTO karty, aj s návrhmi a tlačidlami.
+
+        Návrhy ostávajú na obrazovke zámerne: kto si prečíta, kto to je, chce
+        hneď vybrať odpoveď — nie sa najprv preklikať späť. „« Back" je tu len
+        na to, aby sa dala dlhá poznámka schovať.
+        """
+        if not hasattr(sender, "context_card"):
+            await event.answer("No context for this channel", alert=True)
+            return
+        await event.answer()
+        try:
+            text = await sender.context_card(row["conv_key"])
+        except Exception as exc:  # noqa: BLE001 - prehľad nesmie zhodiť kartu
+            log.warning("Prehľad chatu zlyhal: %s", exc)
+            await event.respond("⚠️ Could not load the context.")
+            return
+        if not text:
+            await event.answer("Nothing known about this chat yet", alert=True)
+            return
+
+        lines = [text, ""]
+        for i, sug in enumerate(suggestions):
+            lines.append(f"*{i + 1}️⃣* {sug}")
+        buttons = self._approval_buttons(len(suggestions))
+        buttons.append([Button.inline("« Back", b"aback")])
+        try:
+            await event.edit("\n".join(lines), buttons=buttons, link_preview=False)
+        except Exception as exc:  # noqa: BLE001
+            log.info("Kartu s kontextom sa nepodarilo vykresliť: %s", exc)
+            await event.respond(text, link_preview=False)
 
     async def _new_suggestions(
         self, mid: int, pid: str, row: Dict[str, Any], brief: str = ""

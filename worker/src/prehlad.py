@@ -1,0 +1,230 @@
+"""Kto je ten človek — zhrnutie chatu pre majiteľa v control bote.
+
+PREČO TO EXISTUJE. V automatickom režime si modelka píše sama a majiteľ do
+toho nevidí. Keď potom prepne na poloautomat, dostane kartu s návrhmi na
+odpoveď človeku, ktorého v živote nevidel: nevie, ako sa volá, o čom sa
+bavili, či už zaplatil ani či mu niečo sľúbila. Vybrať z troch návrhov sa
+v takej chvíli nedá inak než naslepo.
+
+NIČ SA TU NEGENERUJE. Všetko, čo tu je, už v databáze leží — zhrnutie, ktoré
+si modelka píše sama, fakty, čísla lievika, posledné správy. Volanie modelu by
+stálo coiny a sekundy navyše a povedalo by to isté, len menej presne.
+
+Text je anglicky, ako celý control bot, a skladá sa zhora nadol podľa toho, čo
+majiteľ potrebuje najskôr: KTO to je → AKO to medzi nimi ide → ČO o ňom vieme
+→ ČO si naposledy písali.
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+# Koľko posledných správ ukázať. Osem je asi obrazovka na telefóne — dosť na
+# to, aby bolo vidieť tón aj tému, a málo na to, aby sa to dalo prečítať skôr,
+# než človeka prejde chuť.
+SPRAV = 8
+# Telegram má strop 4096 znakov na správu; nechávame si rezervu na formátovanie.
+MAX_ZNAKOV = 3500
+
+
+def _ts(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def odkedy(value: Any, teraz: Optional[datetime] = None) -> str:
+    """„3 days" / „2 hours" / „" keď sa to nedá zistiť."""
+    kedy = _ts(value)
+    if not kedy:
+        return ""
+    sekundy = ((teraz or datetime.now(timezone.utc)) - kedy).total_seconds()
+    if sekundy < 90:
+        return "just now"
+    if sekundy < 5400:
+        return f"{int(sekundy // 60)} min"
+    if sekundy < 172800:
+        return f"{int(sekundy // 3600)} h"
+    return f"{int(sekundy // 86400)} days"
+
+
+def bez_znaciek(text: str) -> str:
+    """Odoberie z CUDZIEHO textu značky, ktoré by rozhodili formátovanie karty.
+
+    Správy fanúšikov a fakty sme nepísali my, takže dvojica `*` alebo backtick
+    v ich texte spraví z kusu prehľadu tučné písmo či blok kódu. Nie je to pád,
+    len zmätok — ale zmätok na obrazovke, ktorá má práve odpovedať na otázku
+    „kto to je".
+
+    `_` sa ZÁMERNE necháva: v týchto textoch je oveľa častejšie súčasťou mena
+    (`simona_here`) alebo kľúča faktu (`how_found`) než párovou značkou, a
+    odstránené by z prezývky spravilo nezmysel. Osamotená značka ostáva
+    v Telethone obyčajným znakom.
+    """
+    return str(text or "").replace("*", "").replace("`", "")
+
+
+def _prepis(spravy: List[Dict[str, Any]]) -> List[str]:
+    """Posledné správy ako dialóg. `her:` / `him:` — nie role z databázy."""
+    out = []
+    for message in spravy[-SPRAV:]:
+        kto = "her" if str(message.get("role")) == "assistant" else "him"
+        text = " ".join(bez_znaciek(message.get("content")).split())
+        if not text:
+            continue
+        out.append(f"*{kto}:* {text[:220]}")
+    return out
+
+
+def _fakty(polozky: List[Dict[str, Any]], limit: int = 12) -> List[str]:
+    out = []
+    for fact in polozky:
+        kluc = bez_znaciek(fact.get("key")).strip().replace("_", " ")
+        hodnota = bez_znaciek(fact.get("value")).strip()
+        if kluc and hodnota:
+            out.append(f"• {kluc}: {hodnota}")
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _orez(text: str) -> str:
+    if len(text) <= MAX_ZNAKOV:
+        return text
+    return text[: MAX_ZNAKOV - 1] + "…"
+
+
+def telegram(
+    user: Dict[str, Any],
+    facts: List[Dict[str, Any]],
+    messages: List[Dict[str, Any]],
+    teraz: Optional[datetime] = None,
+) -> str:
+    """Zhrnutie telegramového chatu."""
+    # Meno z Telegramu je fakt; `partner_name` je to, ako ho oslovuje ONA — a
+    # vytiahol ho z rozhovoru model, takže sa občas mýli (naostro sa z vety
+    # „Definitely" stalo meno a modelka mu tak hovorila celý deň). Preto sa
+    # ukazujú obe, keď sa líšia: majiteľ tak zároveň vidí, že sa má čo opraviť.
+    meno = bez_znaciek(user.get("first_name")).strip()
+    oslovuje = bez_znaciek(user.get("partner_name")).strip()
+    znacka = bez_znaciek(user.get("username")).strip()
+    hlavicka = meno or oslovuje or (f"@{znacka}" if znacka else str(user.get("tg_id") or "?"))
+    if hlavicka and znacka and hlavicka != f"@{znacka}":
+        hlavicka = f"{hlavicka} (@{znacka})"
+
+    riadky = [f"🧠 *{hlavicka}*"]
+    if oslovuje and oslovuje.lower() != meno.lower():
+        riadky.append(f"_She calls him *{oslovuje}* in the chat._")
+
+    stav = []
+    pozname = odkedy(user.get("created_at"), teraz)
+    if pozname:
+        stav.append(f"talking for {pozname}")
+    spravy = int(user.get("msg_count") or 0)
+    if spravy:
+        stav.append(f"{spravy} messages")
+    if user.get("paid"):
+        stav.append("💚 has paid")
+    elif user.get("link_clicked_at"):
+        stav.append("👀 opened the link")
+    elif user.get("link_sent_at"):
+        stav.append("🔗 got the link")
+    faza = str(user.get("funnel_stage") or "").strip()
+    if faza and not user.get("paid"):
+        stav.append(faza)
+    if stav:
+        riadky.append(" · ".join(stav))
+
+    # Rozlúčka je dôležitejšia než čokoľvek nižšie: modelka mu už povedala, že
+    # sa presúva inam, a odpoveď na to je iná ako odpoveď do živého chatu.
+    if user.get("farewell_at"):
+        riadky.append("⚠️ _She already said goodbye in this chat._")
+    if user.get("human_takeover"):
+        riadky.append("✋ _You took this chat over — the AI stays quiet here._")
+
+    zhrnutie = bez_znaciek(user.get("summary")).strip()
+    if zhrnutie:
+        riadky += ["", "*How it's going*", zhrnutie]
+
+    polozky = _fakty(facts)
+    if polozky:
+        riadky += ["", "*What she knows about him*"] + polozky
+
+    prepis = _prepis(messages)
+    if prepis:
+        riadky += ["", "*Last messages*"] + prepis
+
+    return _orez("\n".join(riadky))
+
+
+def fanvue(
+    row: Dict[str, Any],
+    messages: List[Dict[str, Any]],
+    tg: Optional[Dict[str, Any]] = None,
+    teraz: Optional[datetime] = None,
+) -> str:
+    """Zhrnutie fanvue chatu. `tg` je spojený telegramový človek, ak je známy."""
+    meno = bez_znaciek(row.get("display_name") or row.get("handle")).strip() or "fan"
+    riadky = [f"🧠 *{meno}*"]
+
+    stav = []
+    pozname = odkedy(row.get("first_seen"), teraz)
+    if pozname:
+        stav.append(f"subscriber for {pozname}")
+    spravy = int(row.get("msg_count") or 0)
+    if spravy:
+        stav.append(f"{spravy} messages")
+    minul = int(row.get("spent_cents") or 0)
+    if minul:
+        stav.append(f"💰 spent ${minul / 100:.2f} ({int(row.get('bought_count') or 0)}×)")
+    else:
+        stav.append("subscription only, nothing bought yet")
+    if stav:
+        riadky.append(" · ".join(stav))
+
+    # Toto je najcennejší riadok v celom prehľade: majiteľ vidí, že to nie je
+    # cudzí človek, ale ten, s ktorým si modelka mesiac písala na Telegrame.
+    if tg:
+        user = (tg.get("user") or {}) if isinstance(tg, dict) else {}
+        tg_meno = bez_znaciek(user.get("first_name")).strip()
+        riadky.append(
+            f"🔗 _Same person as *{tg_meno}* on Telegram._"
+            if tg_meno
+            else "🔗 _Linked to one of her Telegram chats._"
+        )
+
+    chce = bez_znaciek(row.get("wants")).strip()
+    if chce:
+        riadky.append(f"🎯 wants: {chce}")
+
+    # Nesplnený sľub a neodomknutá ponuka menia, čo sa má práve teraz napísať —
+    # preto stoja vysoko, nie medzi faktami.
+    if row.get("promised_at"):
+        slub = bez_znaciek(row.get("promised_what") or "content").strip()
+        riadky.append(f"⚠️ _She promised him {slub} and hasn't sent it._")
+    if row.get("pending_offer_at"):
+        riadky.append("🔒 _He has an offer waiting, still unlocked._")
+    if row.get("human_takeover"):
+        riadky.append("✋ _You took this chat over — the AI stays quiet here._")
+
+    zhrnutie = bez_znaciek(row.get("summary")).strip()
+    if zhrnutie:
+        riadky += ["", "*How it's going*", zhrnutie]
+
+    fakty = bez_znaciek(row.get("facts")).strip()
+    if fakty:
+        riadky += ["", "*What she knows about him*", fakty]
+
+    # Fakty z Telegramu sú často bohatšie než fanvue — je to ten istý človek.
+    if tg and (tg.get("facts") or []):
+        riadky += ["", "*From the Telegram chat*"] + _fakty(tg.get("facts") or [], 8)
+
+    prepis = _prepis(messages)
+    if prepis:
+        riadky += ["", "*Last messages*"] + prepis
+
+    return _orez("\n".join(riadky))

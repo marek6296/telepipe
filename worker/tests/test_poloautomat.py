@@ -14,6 +14,7 @@ do chatu doslova.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 import fvflow
@@ -353,3 +354,185 @@ class TestPripinanieKariet:
         assert "pin_approvals" in db.TenantDb.PREPINACE
         stlpce = [s for s, _, _ in control_bot.ControlBot._NOTIFIKACIE]  # noqa: SLF001
         assert "pin_approvals" in stlpce
+
+
+class TestPrehladChatu:
+    """🧠 Context — kto je ten človek, keď prepneš z Auto na Semi.
+
+    V automate si modelka píše sama a majiteľ do toho nevidí. Po prepnutí
+    dostane kartu s návrhmi pre človeka, ktorého v živote nevidel. Tento
+    prehľad je jediné, z čoho vie vybrať odpoveď inak než naslepo.
+    """
+
+    import prehlad as _p
+
+    TERAZ = datetime(2026, 8, 25, 21, 0, tzinfo=timezone.utc)
+
+    USER = {
+        "tg_id": 8892541276,
+        "first_name": "Jose",
+        "partner_name": "Jose",
+        "username": "josee",
+        "msg_count": 39,
+        "funnel_stage": "link_sent",
+        "paid": True,
+        "created_at": "2026-08-24T08:45:00+00:00",
+        "summary": "Flirtuje, pýta si fotky, hovoril o práci v stavebníctve.",
+    }
+    FAKTY = [
+        {"key": "work", "value": "construction"},
+        {"key": "city", "value": "Madrid"},
+    ]
+    SPRAVY = [
+        {"role": "user", "content": "hey baby"},
+        {"role": "assistant", "content": "hey you 😊"},
+    ]
+
+    def test_povie_kto_to_je(self):
+        out = self._p.telegram(self.USER, self.FAKTY, self.SPRAVY, teraz=self.TERAZ)
+        assert "Jose" in out and "@josee" in out
+
+    def test_povie_ako_dlho_a_kolko_sprav(self):
+        out = self._p.telegram(self.USER, self.FAKTY, self.SPRAVY, teraz=self.TERAZ)
+        assert "39 messages" in out
+        assert "talking for" in out
+
+    def test_platiaci_je_vidiet_hned(self):
+        out = self._p.telegram(self.USER, [], [], teraz=self.TERAZ)
+        assert "has paid" in out
+
+    def test_kto_len_klikol_je_iny_stav(self):
+        user = {**self.USER, "paid": False, "link_clicked_at": "2026-08-25T07:19:00+00:00"}
+        out = self._p.telegram(user, [], [], teraz=self.TERAZ)
+        assert "opened the link" in out
+        assert "has paid" not in out
+
+    def test_rozlucka_sa_musi_povedat(self):
+        """Odpoveď človeku, s ktorým sa už rozlúčila, je iná — a bez tohto
+        riadku by o tom majiteľ nevedel a napísal by mu ako do živého chatu."""
+        out = self._p.telegram({**self.USER, "farewell_at": "2026-08-20T00:00:00+00:00"}, [], [])
+        assert "said goodbye" in out
+
+    def test_fakty_su_v_prehlade(self):
+        out = self._p.telegram(self.USER, self.FAKTY, [], teraz=self.TERAZ)
+        assert "work: construction" in out and "city: Madrid" in out
+
+    def test_posledne_spravy_su_oznacene_kto_je_kto(self):
+        out = self._p.telegram(self.USER, [], self.SPRAVY, teraz=self.TERAZ)
+        assert "him:" in out and "her:" in out
+
+    def test_ukazuje_len_poslednych_par(self):
+        vela = [{"role": "user", "content": f"sprava {i}"} for i in range(40)]
+        out = self._p.telegram(self.USER, [], vela, teraz=self.TERAZ)
+        assert "sprava 39" in out
+        assert "sprava 0" not in out
+
+    def test_prazdny_chat_nespadne(self):
+        out = self._p.telegram({"tg_id": 1}, [], [], teraz=self.TERAZ)
+        assert out.startswith("🧠")
+
+    def test_zmesti_sa_do_telegram_spravy(self):
+        """Telegram odmietne správu nad 4096 znakov — vtedy by prehľad neprišiel
+        vôbec."""
+        dlhe = [{"role": "user", "content": "x" * 300} for _ in range(40)]
+        fakty = [{"key": f"k{i}", "value": "y" * 200} for i in range(40)]
+        out = self._p.telegram(
+            {**self.USER, "summary": "z" * 2000}, fakty, dlhe, teraz=self.TERAZ
+        )
+        assert len(out) <= 4096
+
+    def test_cudzi_text_nerozbije_formatovanie(self):
+        """Dvojica `*` vo fanúšikovej správe by z kusu prehľadu spravila tučné
+        písmo, backtick blok kódu — na obrazovke, ktorá má odpovedať na „kto to
+        je"."""
+        spravy = [{"role": "user", "content": "toto *je* `divne`"}]
+        out = self._p.telegram(self.USER, [], spravy, teraz=self.TERAZ)
+        telo = out.split("*Last messages*")[1]
+        assert "*je*" not in telo and "`divne`" not in telo
+        assert "toto je divne" in telo
+
+    def test_podciarknik_v_prezyvke_ostava(self):
+        """`simona_here` bez podčiarkovníka je iná prezývka. Osamotená značka
+        je v Telethone obyčajný znak, takže sa neodstraňuje."""
+        spravy = [{"role": "user", "content": "napis mi na simona_here"}]
+        out = self._p.telegram(self.USER, [], spravy, teraz=self.TERAZ)
+        assert "simona_here" in out
+
+    def test_meno_z_telegramu_ma_prednost_pred_prezyvkou(self):
+        """`partner_name` vyťahuje z rozhovoru model a mýli sa: naostro z vety
+        „Definitely" spravil meno. Skutočné meno je fakt, prezývka je doplnok —
+        a keď sa líšia, majiteľ hneď vidí, že sa má čo opraviť."""
+        user = {**self.USER, "first_name": "Jose", "partner_name": "Definitely"}
+        out = self._p.telegram(user, [], [], teraz=self.TERAZ)
+        assert out.startswith("🧠 *Jose")
+        assert "calls him *Definitely*" in out
+
+    def test_ked_su_meno_a_prezyvka_rovnake_neopakuje_sa(self):
+        user = {**self.USER, "first_name": "Jose", "partner_name": "jose"}
+        out = self._p.telegram(user, [], [], teraz=self.TERAZ)
+        assert "calls him" not in out
+
+    def test_kluc_faktu_je_citatelny(self):
+        out = self._p.telegram(self.USER, [{"key": "how_found", "value": "apka"}], [])
+        assert "how found: apka" in out
+
+
+class TestPrehladFanvue:
+    import prehlad as _p
+
+    ROW = {
+        "display_name": "Living Earthworm",
+        "handle": "living-earthworm-713",
+        "msg_count": 4,
+        "spent_cents": 3099,
+        "bought_count": 3,
+        "first_seen": "2026-08-25T07:22:00+00:00",
+        "wants": "sex chat",
+        "summary": "Práve si predplatil, hneď kúpil dva balíčky.",
+    }
+
+    def test_ukaze_kolko_minul(self):
+        out = self._p.fanvue(self.ROW, [])
+        assert "$30.99" in out and "3×" in out
+
+    def test_kto_este_nic_nekupil(self):
+        out = self._p.fanvue({**self.ROW, "spent_cents": 0, "bought_count": 0}, [])
+        assert "nothing bought yet" in out
+
+    def test_spojenie_s_telegramom_je_najdolezitejsie(self):
+        """Kvôli tomuto riadku to celé vzniklo: nie je to cudzí človek."""
+        out = self._p.fanvue(self.ROW, [], tg={"user": {"first_name": "Jose"}})
+        assert "Same person as" in out and "Jose" in out
+
+    def test_bez_spojenia_sa_nic_netvrdi(self):
+        out = self._p.fanvue(self.ROW, [])
+        assert "Same person" not in out
+
+    def test_nesplneny_slub_je_varovanie(self):
+        out = self._p.fanvue({**self.ROW, "promised_at": "x", "promised_what": "a photo"}, [])
+        assert "promised him a photo" in out
+
+    def test_neodomknuta_ponuka_je_varovanie(self):
+        out = self._p.fanvue({**self.ROW, "pending_offer_at": "x"}, [])
+        assert "offer waiting" in out
+
+    def test_fakty_z_telegramu_sa_pridaju(self):
+        out = self._p.fanvue(
+            self.ROW, [], tg={"user": {"first_name": "Jose"}, "facts": [{"key": "city", "value": "Madrid"}]}
+        )
+        assert "city: Madrid" in out
+
+
+class TestKontextMajuObaKanaly:
+    def test_oba_agenty_vedia_zhrnut_chat(self):
+        import fanvue_agent
+        import userbot
+
+        for trieda in (fanvue_agent.FanvueAgent, userbot.UserBot):
+            assert hasattr(trieda, "context_card"), trieda.__name__
+
+    def test_tlacidlo_je_zaregistrovane(self):
+        """Bez `ai` v `_APPROVAL_HEADS` by klik ticho nespravil nič."""
+        import control_bot
+
+        assert "ai" in control_bot.ControlBot._APPROVAL_HEADS  # noqa: SLF001
