@@ -3,11 +3,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import type { RealtimeChannel } from "@supabase/supabase-js";
-import { MessageCircle, X } from "lucide-react";
+import { MessageCircle, Send, X } from "lucide-react";
 
 import { ChatWindow } from "@/components/chat/chat-window";
 import { openDirectMessageAction } from "@/app/app/chat-actions";
 import {
+  TELEGRAM_SUPPORT,
   ROOM_HINT,
   ROOM_LABEL,
   type ChatMessage,
@@ -109,7 +110,8 @@ export function ChatDock({
       if (prev.some((r) => r.id === room.id)) return prev;
       return [...prev, room].slice(-MAX_OPEN);
     });
-    void refreshUnread();
+    // Odznak sa NEPREPOČÍTAVA tu: okno si miestnosť označí prečítanú až po
+    // načítaní správ a dovtedy by dopyt vrátil starý stav. Zhasne ho `onRead`.
   }
 
   async function openSupport() {
@@ -167,6 +169,25 @@ export function ChatDock({
                   hint={ROOM_HINT.admin_dm}
                   onClick={() => void openSupport()}
                 />
+
+                {/* Druhá cesta k nám, nie náhrada chatu: kto má appku zavretú,
+                    napíše radšej tam, kde už aj tak je. */}
+                <a
+                  href={TELEGRAM_SUPPORT}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="app-tap flex w-full items-center gap-3 px-3.5 py-2.5 text-left transition-colors hover:bg-[var(--app-surface-hover)]"
+                >
+                  <Send className="h-3.5 w-3.5 shrink-0 text-[var(--app-text-3)]" strokeWidth={1.75} />
+                  <span className="min-w-0">
+                    <span className="block truncate text-[13px] text-[var(--app-text)]">
+                      Telegram support
+                    </span>
+                    <span className="block truncate text-[11.5px] text-[var(--app-text-4)]">
+                      @telepipeme — if you&apos;d rather write there
+                    </span>
+                  </span>
+                </a>
 
                 {isAdmin && (
                   <>
@@ -244,6 +265,14 @@ export function ChatDock({
                 onClose={() => {
                   setOpen((prev) => prev.filter((r) => r.id !== room.id));
                   void refreshUnread();
+                }}
+                onRead={() => {
+                  void refreshUnread();
+                  setDms((prev) =>
+                    prev?.map((dm) =>
+                      dm.room_id === room.id ? { ...dm, unread: 0 } : dm,
+                    ) ?? prev,
+                  );
                 }}
               />
             </div>

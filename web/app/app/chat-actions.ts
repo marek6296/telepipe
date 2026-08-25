@@ -64,16 +64,30 @@ export async function sendChatMessageAction(
   return { message };
 }
 
-/** Označí miestnosť prečítanú po `last_read_at`. */
-export async function markRoomReadAction(roomId: string): Promise<void> {
-  const user = await requireUser();
+/**
+ * Označí miestnosť prečítanú po `last_read_at`.
+ *
+ * PREČO RPC A NIE `upsert`. PostgREST z upsertu spraví
+ * `ON CONFLICT DO UPDATE SET room_id=…, account_id=…, last_read_at=…` a
+ * Postgres kontroluje práva na tie stĺpce STATICKY — teda aj vtedy, keď ku
+ * konfliktu nedôjde. `authenticated` má UPDATE len na `last_read_at`, takže
+ * každý zápis padal na „permission denied" a chyba sa nekontrolovala:
+ * `chat_reads` bola prázdna a odznak neprečítaných správ nezmizol nikomu
+ * nikdy. Účet si funkcia berie z tokenu, takže netreba grant, ktorý by
+ * dovolil prepísať cudziu značku.
+ *
+ * Vracia `false`, keď sa zápis nepodaril. Volajúci na to nemusí reagovať, ale
+ * nesmie to ostať neviditeľné — presne na tom sa táto chyba držala mesiace.
+ */
+export async function markRoomReadAction(roomId: string): Promise<boolean> {
+  await requireUser();
   const supabase = await createClient();
-  await supabase
-    .from("chat_reads")
-    .upsert(
-      { room_id: roomId, account_id: user.id, last_read_at: new Date().toISOString() },
-      { onConflict: "room_id,account_id" },
-    );
+  const { error } = await supabase.rpc("chat_mark_read", { p_room: roomId });
+  if (error) {
+    console.error("chat_mark_read failed", { roomId, message: error.message });
+    return false;
+  }
+  return true;
 }
 
 /** Moja DM na admina — založí sa až tu, nie pri registrácii. */

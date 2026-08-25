@@ -16,6 +16,7 @@ import {
   ROOM_EMPTY_PROMPT,
   ROOM_HINT,
   ROOM_LABEL,
+  TELEGRAM_SUPPORT,
   roomAllowsPhotos,
   type ChatMessage,
   type ChatRoom,
@@ -31,6 +32,7 @@ export function ChatWindow({
   isAdmin,
   title,
   onClose,
+  onRead,
 }: {
   room: ChatRoom;
   meId: string;
@@ -38,6 +40,12 @@ export function ChatWindow({
   /** Pri DM z admin pohľadu ukazujeme klientov e-mail, nie „Support". */
   title?: string;
   onClose: () => void;
+  /**
+   * Zavolá sa, keď je miestnosť naozaj označená prečítaná — teda AŽ po zápise.
+   * Dock si podľa toho zhasne odznak. Keby si ho prepočítal hneď pri otvorení
+   * okna, čítal by stav spred zápisu a odznak by ostal svietiť.
+   */
+  onRead?: () => void;
 }) {
   const [messages, setMessages] = useState<ChatMessage[] | null>(null);
   const [authors, setAuthors] = useState<Record<string, Author>>({});
@@ -46,6 +54,13 @@ export function ChatWindow({
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const [collapsed, setCollapsed] = useState(false);
+
+  // Cez ref, nie priamo: efekty nesmú závisieť od funkcie, ktorú rodič vyrába
+  // pri každom rendere — inak by sa miestnosť načítavala odznova stále dokola.
+  const onReadRef = useRef(onRead);
+  useEffect(() => {
+    onReadRef.current = onRead;
+  }, [onRead]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -90,7 +105,9 @@ export function ChatWindow({
       const rows = ((data ?? []) as ChatMessage[]).reverse();
       setMessages(rows);
       void resolveAuthors(rows.map((row) => row.sender_id));
-      void markRoomReadAction(room.id);
+      void markRoomReadAction(room.id).then((ok) => {
+        if (ok) onReadRef.current?.();
+      });
       requestAnimationFrame(() => scrollToBottom(false));
     })();
     return () => {
@@ -130,7 +147,9 @@ export function ChatWindow({
               return [...prev, row];
             });
             void resolveAuthors([row.sender_id]);
-            void markRoomReadAction(room.id);
+            void markRoomReadAction(room.id).then((ok) => {
+              if (ok) onReadRef.current?.();
+            });
             requestAnimationFrame(() => scrollToBottom());
           },
         )
@@ -277,6 +296,20 @@ export function ChatWindow({
               ))
             )}
           </div>
+
+          {/* Kto nechce čakať pri appke, nájde nás na Telegrame. Len v DM —
+              v komunite by to vyzeralo, že ju odtiaľ odháňame. */}
+          {room.kind === "admin_dm" && !isAdmin && (
+            <a
+              href={TELEGRAM_SUPPORT}
+              target="_blank"
+              rel="noreferrer"
+              className="app-tap mx-3 mb-1 flex items-center justify-center gap-1.5 rounded-md border border-[var(--app-border)] px-3 py-1.5 text-[11.5px] text-[var(--app-text-3)] transition-colors hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"
+            >
+              <Send className="h-3 w-3" strokeWidth={1.75} />
+              Or message us on Telegram — @telepipeme
+            </a>
+          )}
 
           {error && (
             <p className="px-3 pb-1 text-[11.5px] text-[#fca5a5]" role="alert">

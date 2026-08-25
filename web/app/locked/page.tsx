@@ -1,8 +1,10 @@
 import { redirect } from "next/navigation";
+import { Send } from "lucide-react";
 
 import { LiveUnlock } from "@/components/app/live-unlock";
 import { RequestAccessForm } from "@/components/app/request-access-form";
 import { isUnlocked } from "@/lib/access";
+import { TELEGRAM_SUPPORT } from "@/lib/chat-ui";
 import { getAccount } from "@/lib/models";
 import { createClient } from "@/lib/supabase/server";
 
@@ -76,6 +78,17 @@ export default async function LockedPage() {
           someone usually replies within a few minutes. You&apos;re also welcome to
           say hello in Community; it&apos;s open to everyone.
         </p>
+        {/* Kto čaká na schválenie, často ani nevie, či ho niekto vidí — a
+            appku medzitým zavrie. Na Telegrame nás nájde aj potom. */}
+        <a
+          href={TELEGRAM_SUPPORT}
+          target="_blank"
+          rel="noreferrer"
+          className="app-tap mt-3 inline-flex items-center gap-2 rounded-md border border-[var(--app-border)] px-3 py-2 text-[12.5px] text-[var(--app-text-2)] transition-colors hover:border-[var(--app-border-strong)] hover:text-[var(--app-text)]"
+        >
+          <Send className="h-3.5 w-3.5" strokeWidth={1.75} />
+          Or write to us on Telegram — @telepipeme
+        </a>
       </div>
 
       <p className="mt-8 border-t border-[var(--app-border)] pt-5 text-[12.5px] text-[var(--app-text-4)]">

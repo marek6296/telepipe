@@ -25,6 +25,13 @@ export type ChatMessage = {
 export const CHAT_MESSAGE_COLUMNS =
   "id, room_id, sender_id, body, image_path, deleted_at, created_at";
 
+/**
+ * Telegram support. Je to druhá cesta k nám, nie náhrada chatu: kto má zavretú
+ * appku (a hlavne kto čaká na schválenie a nevie, či ho niekto vidí), napíše
+ * radšej tam, kde už aj tak je.
+ */
+export const TELEGRAM_SUPPORT = "https://t.me/telepipeme";
+
 export const ROOM_LABEL: Record<RoomKind, string> = {
   community: "Community",
   community_plus: "Community+",
