@@ -36,6 +36,7 @@ from telethon import Button, TelegramClient, events
 
 import behavior as bhv
 import coiny
+import generator as generator_mod
 import skuska as skuska_mod
 from behavior import Behavior
 from config import TenantConfig as Config
@@ -195,9 +196,13 @@ class ControlBot:
         # len ospravedlní, namiesto toho aby bot spadol.
         self._llm: Any = None
         self._skuska = skuska_mod.Skuska()
+        # Posledné zadanie generátora podľa chatu — drží ho „Regenerate".
+        # Prežije aj odchod do menu a späť; nový vstup ho prepíše.
+        self._gen: Dict[int, Dict[str, Any]] = {}
         # chat_id → ("persona"|"behavior"|"time"|"semi_custom"|"semi_brief"|
-        # "semi_price"|"semi_caption", field) — čaká sa na hodnotu. Pri semi_*
-        # field nesie message_id karty (str).
+        # "semi_price"|"semi_caption"|"mg_brief", field) — čaká sa na hodnotu.
+        # Pri semi_* field nesie message_id karty (str); `mg_brief` ho nemá,
+        # generátor nevisí na žiadnej karte.
         self._awaiting: Dict[int, Tuple[str, str]] = {}
         # Semi-auto: doručovatelia odpovedí podľa kanála (dopĺňa runner).
         self._senders: Dict[str, Any] = {}
@@ -393,6 +398,83 @@ class ControlBot:
             ],
         )
 
+    # ---------- generátor správ ----------
+
+    async def _generator_vyzva(self, event) -> None:
+        """Spýta sa na zadanie. Odpoveď chytí `_awaiting` ako `mg_brief`."""
+        if self._llm is None:
+            await event.answer("The generator is not available right now.", alert=True)
+            return
+        self._awaiting[event.chat_id] = ("mg_brief", "")
+        await event.answer()
+        await event.respond(
+            "✍️ *Message generator*\n"
+            "Write what the message should say — in any language, your own "
+            "words. She writes it in her style and her language.\n\n"
+            "_Example: napíš správu že jooj konečne si ma tu našiel, dlho som "
+            "tu nikoho nemala_\n\n"
+            "/cancel to cancel.",
+            buttons=[[Button.inline("← Back", b"m")]],
+        )
+
+    async def _generator_znova(self, event) -> None:
+        """« Regenerate — to isté zadanie, iné vety."""
+        stav = self._gen.get(event.chat_id) or {}
+        brief = str(stav.get("brief") or "")
+        if not brief:
+            await event.answer("Write a brief first", alert=True)
+            return
+        stav["pokus"] = int(stav.get("pokus") or 1) + 1
+        await event.answer("Writing new ones…")
+        await self._generator_napis(event, brief, stav["pokus"], edit=True)
+
+    async def _generator_napis(self, event, brief: str, pokus: int, edit: bool = False) -> None:
+        """Vygeneruje tri verzie a vykreslí ich.
+
+        Vety idú v kódovom bloku ZÁMERNE: v Telegrame sa taký text kopíruje
+        jedným ťuknutím, a skopírovať a poslať je celý zmysel tohto tlačidla.
+        Trojité úvodzovky, nie jednoduché: jej správy mávajú viac riadkov
+        (v chate by to boli dve bubliny) a inline blok by sa na prvom zalomení
+        rozpadol.
+        """
+        if self._llm is None:
+            await event.respond("The generator is not available right now.")
+            return
+        try:
+            persona = await self._db.get_persona()
+            behavior = Behavior.from_row(await self._db.get_behavior())
+            spravy = await generator_mod.napis(
+                self._llm, persona, behavior, brief, pokus
+            )
+        except Exception as exc:  # noqa: BLE001 - generátor nesmie zhodiť bota
+            log.warning("Generátor správ zlyhal: %s", exc)
+            await event.respond("⚠️ Could not write it. Try again.")
+            return
+        if not spravy:
+            await event.respond("⚠️ Nothing came back. Try a different brief.")
+            return
+
+        self._gen[event.chat_id] = {"brief": brief, "pokus": pokus}
+        riadky = [f"✍️ _Your brief: {_short(brief, 160)}_", "", "_Tap a message to copy it._", ""]
+        for i, sprava in enumerate(spravy):
+            riadky.append(f"*{i + 1}️⃣*")
+            # Backtick v jej vete by blok predčasne zavrel; inde sa značky
+            # nechávajú tak, nech text vyzerá presne ako to, čo sa odošle.
+            riadky.append("```\n" + sprava.replace(chr(96), "") + "\n```")
+            riadky.append("")
+        buttons = [
+            [Button.inline("🔄 Regenerate", b"mgr"), Button.inline("🗒 New brief", b"mg")],
+            [Button.inline("← Back", b"m")],
+        ]
+        text = "\n".join(riadky)
+        if edit:
+            try:
+                await event.edit(text, buttons=buttons, link_preview=False)
+                return
+            except Exception as exc:  # noqa: BLE001 - text mohol vyjsť rovnaký
+                log.info("Generátor: kartu sa nepodarilo prepísať: %s", exc)
+        await event.respond(text, buttons=buttons, link_preview=False)
+
     async def _skusobna_odpoved(self, event: events.NewMessage.Event) -> None:
         """Majiteľ napísal v skúške — modelka odpovie tu, v bote."""
         text = (event.raw_text or "").strip()
@@ -443,6 +525,12 @@ class ControlBot:
         kind, field = self._awaiting[chat_id]
         value = (event.raw_text or "").strip()
         if not value:
+            return
+        # Generátor správ: zadanie nie je nastavenie poľa ani akcia nad kartou.
+        if kind == "mg_brief":
+            self._awaiting.pop(chat_id, None)
+            async with self._client.action(chat_id, "typing"):
+                await self._generator_napis(event, value, pokus=1)
             return
         # Semi-auto free-text (vlastná správa, cena, popis, text hlasovky) —
         # nie je to nastavenie poľa, ale akcia nad čakajúcim návrhom.
@@ -561,6 +649,10 @@ class ControlBot:
             await self._db.set_paused(not paused)
             await event.answer("AI on" if paused else "AI off")
             await self._send_main(event, edit=True)
+        elif head == "mg":
+            await self._generator_vyzva(event)
+        elif head == "mgr":
+            await self._generator_znova(event)
         elif head == "try":
             if self._skuska.bezi(event.chat_id):
                 self._skuska.vypni(event.chat_id)
@@ -1449,6 +1541,7 @@ class ControlBot:
             # „Wipe my test chat" tu bolo dovtedy, kým sa skúšalo písaním na jej
             # skutočný účet z vlastného Telegramu. To robí `🧪 Test chat`, ktorý
             # sa premazáva sám a žiadnu konverzáciu nezanecháva.
+            [Button.inline("✍️ Message generator", b"mg")],
             [
                 Button.inline(
                     "🛑 End test chat" if self._skuska.bezi(self._cfg.owner_chat_id)
