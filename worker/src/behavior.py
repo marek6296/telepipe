@@ -619,9 +619,15 @@ def sleep_lock_expired(
     „ráno". Presne to sa stalo: spánok do 12:12, klient prestavil na 10:06,
     správa o 10:39 čakala do 12:12.
 
-    Preto platí: **sme v okne = ráno už bolo**, a nočný zámok tým stráca zmysel.
-    Náhodné odloženie (`defer`) sa nedotýka — to je „ozvem sa o dve hodiny"
-    vnútri dňa a má platiť presne.
+    Preto platí: **sme v DENNEJ časti okna = ráno už bolo**, a nočný zámok tým
+    stráca zmysel. Náhodné odloženie (`defer`) sa nedotýka — to je „ozvem sa
+    o dve hodiny" vnútri dňa a má platiť presne.
+
+    „DENNEJ" JE TU TO PODSTATNÉ. Okno 10:06–02:30 prechádza cez polnoc, takže
+    časy 00:00–02:30 nie sú ráno, ale chvost predchádzajúceho večera. Prvá
+    verzia tejto funkcie to nerozlišovala a pustila zámok hneď, ako ho modelka
+    nastavila: naostro povedala o 01:21 „im heading to sleep night talk
+    tomorrow" a o 01:41 pokračovala v rozhovore, akoby nič.
 
     `None` je starý riadok spred rozlíšenia. Berie sa ako nočný zámok, teda
     tolerantne: horšie než jedno predčasne vypršané odloženie je fanúšik, ktorý
@@ -629,7 +635,14 @@ def sleep_lock_expired(
     """
     if kind == "defer":
         return False
-    return in_active_window(now_local, start_min, end_min)
+    if not in_active_window(now_local, start_min, end_min):
+        return False
+    if start_min > end_min:
+        # Okno cez polnoc: pred jeho koncom sme ešte vo včerajšom večeri.
+        minuty = now_local.hour * 60 + now_local.minute
+        if minuty < end_min:
+            return False
+    return True
 
 
 def should_sleep_until_morning(

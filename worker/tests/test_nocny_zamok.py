@@ -28,9 +28,23 @@ class TestNocnyZamok:
         """O 08:00 ešte spí a zámok má držať."""
         assert not bhv.sleep_lock_expired("sleep", _cas(8, 0), OD, DO)
 
-    def test_po_polnoci_v_okne(self):
-        """Okno prechádza cez polnoc — o 01:00 je stále otvorené."""
-        assert bhv.sleep_lock_expired("sleep", _cas(1, 0), OD, DO)
+    def test_po_polnoci_zamok_DRZI(self):
+        """Po polnoci nie je ráno — je to chvost VČERAJŠIEHO večera.
+
+        Tento test pôvodne tvrdil opak a bola to chyba: okno 10:06–02:30 je
+        o 01:00 síce otvorené, ale nočný zámok práve vtedy vzniká. Naostro
+        povedala o 01:21 „im heading to sleep night talk tomorrow" a o 01:41
+        pokračovala v rozhovore, akoby nič — lebo zámok sa pustil v tej istej
+        minúte, v ktorej sa nastavil.
+        """
+        assert not bhv.sleep_lock_expired("sleep", _cas(1, 0), OD, DO)
+        assert not bhv.sleep_lock_expired("sleep", _cas(2, 29), OD, DO)
+
+    def test_rano_sa_zamok_pusti(self):
+        """To, kvôli čomu funkcia vznikla: klient posunul otvorenie okna na
+        skoršie a starý absolútny čas držal fanúšika čakať do 12:12."""
+        assert bhv.sleep_lock_expired("sleep", _cas(10, 6), OD, DO)
+        assert bhv.sleep_lock_expired("sleep", _cas(23, 0), OD, DO)
 
     def test_medzi_02_30_a_10_06_drzi(self):
         assert not bhv.sleep_lock_expired("sleep", _cas(4, 0), OD, DO)

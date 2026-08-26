@@ -356,10 +356,18 @@ class Llm:
         import base64
 
         encoded = base64.b64encode(data).decode()
+        # DRUH OBRÁZKA JE ROVNAKO DÔLEŽITÝ AKO POPIS. Bez neho vyzerá screenshot
+        # v histórii ako obyčajná fotka: naostro poslal snímku JEJ instagramovej
+        # story a modelka mu napísala „damn u look good in that suit 😘" —
+        # pochválila ho za muža z jej vlastnej story. Odpovedal „which suit,
+        # that's your story 😄" a konverzácia sa už nespamätala.
         instruction = (
-            "Describe this photo factually in at most 12 words. "
-            "Then on a new line write exactly EXPLICIT if it shows nudity, genitals "
-            "or a sexual act, otherwise write exactly NORMAL."
+            "Line 1: describe this image factually in at most 12 words.\n"
+            "Line 2: exactly one word — SCREENSHOT if it is a screen capture "
+            "(phone status bar, app or website interface, chat, profile, story), "
+            "PERSON if it is a photo of a person, OTHER for anything else.\n"
+            "Line 3: exactly EXPLICIT if it shows nudity, genitals or a sexual "
+            "act, otherwise exactly NORMAL."
         )
         payload = {
             "model": self._vision_model,
@@ -389,8 +397,15 @@ class Llm:
             return {"description": "", "explicit": False}
 
         lines = [line.strip() for line in content.splitlines() if line.strip()]
+        znacky = {"EXPLICIT", "NORMAL", "SCREENSHOT", "PERSON", "OTHER"}
         explicit = any(line.upper() == "EXPLICIT" for line in lines)
-        description = " ".join(
-            line for line in lines if line.upper() not in ("EXPLICIT", "NORMAL")
+        druh = next(
+            (line.upper() for line in lines if line.upper() in ("SCREENSHOT", "PERSON")),
+            "",
         )
-        return {"description": description[:160], "explicit": explicit}
+        description = " ".join(line for line in lines if line.upper() not in znacky)
+        return {
+            "description": description[:160],
+            "explicit": explicit,
+            "kind": druh,
+        }

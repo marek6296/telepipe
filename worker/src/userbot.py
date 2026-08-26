@@ -1693,6 +1693,15 @@ class UserBot:
         description = seen.get("description") or "fotku"
         if seen.get("explicit"):
             return f"[poslal EXPLICITNÚ fotku: {description}]"
+        # Screenshot NIE JE fotka jeho — a rozdiel treba povedať nahlas.
+        # Naostro poslal snímku jej vlastnej instagramovej story a dostal
+        # „damn u look good in that suit 😘". Odpovedal „which suit, that's
+        # your story 😄" a konverzácia sa už nespamätala.
+        if seen.get("kind") == "SCREENSHOT":
+            return (
+                f"[poslal SCREENSHOT (nie fotku seba!): {description}] "
+                "Reaguj na to, ČO je na snímke, nie na jeho výzor."
+            )
         return f"[poslal fotku: {description}]"
 
     def _caka_na_meno(self, tg_id: int, user: Dict[str, Any]) -> bool:
