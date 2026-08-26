@@ -28,6 +28,27 @@ const GUIDES = [
     read: "6 min read",
   },
   {
+    href: "/guides/telegram-to-onlyfans-funnel",
+    category: "Funnel",
+    title: "The Telegram to OnlyFans funnel, measured",
+    body: "What happens between the first DM and the first payment — when the link goes out, and the three numbers that say which half of the funnel is broken.",
+    read: "9 min read",
+  },
+  {
+    href: "/guides/onlyfans-traffic-sources",
+    category: "Traffic",
+    title: "Creator traffic sources, and which you own",
+    body: "Reddit, Instagram, TikTok, X, Telegram and paid — what each costs in hours, which can be taken away overnight, and where the middle leaks.",
+    read: "8 min read",
+  },
+  {
+    href: "/guides/how-to-get-fanvue-subscribers",
+    category: "Fanvue",
+    title: "How to get Fanvue subscribers, and keep them",
+    body: "Why nobody browses Fanvue, when the link should go out, and why the first message after someone subscribes decides whether they spend again.",
+    read: "7 min read",
+  },
+  {
     href: "/guides/ai-chatter-vs-human-chatter",
     category: "Operations",
     title: "AI chatter vs human chatter",

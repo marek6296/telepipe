@@ -56,6 +56,13 @@ export default async function AlternativePage({
       lead={item.lead}
       highlights={item.highlights}
       sections={[
+        // Priame porovnanie ako VLASTNÁ sekcia, nie vlastná stránka: „X
+        // alternative" a „Telepipe vs X" sú dve hľadania, ale dve takmer
+        // rovnaké stránky si navzájom zoberú pozíciu.
+        {
+          title: `Telepipe vs ${item.name}, in three lines`,
+          paragraphs: [item.vs.theirs, item.vs.ours, item.vs.verdict],
+        },
         ...item.sections,
         // Vlastníctvo značky je posledná sekcia na KAŽDEJ stránke. Nie preto,
         // že to vyžaduje SEO, ale preto, že bez toho je to problém inde.

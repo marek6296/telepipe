@@ -43,6 +43,20 @@ export type Alternative = {
   highlights: { title: string; body: string }[];
   sections: AlternativeSection[];
   faq: AlternativeFaq[];
+  /**
+   * Priame porovnanie. Existuje preto, že „X alternative" a „Telepipe vs X"
+   * sú dve rôzne hľadania — ale NIE dve stránky: dve takmer rovnaké stránky
+   * si navzájom zoberú pozíciu a Google jednu z nich odfiltruje. Jedna
+   * stránka, ktorá pokrýva obe frázy, je silnejšia než dve polovičné.
+   */
+  vs: {
+    /** Na čo je ICH nástroj. Kategória, nie posudok. */
+    theirs: string;
+    /** Na čo je náš. */
+    ours: string;
+    /** Ktorý si vybrať — vrátane prípadov, kde to nie sme my. */
+    verdict: string;
+  };
 };
 
 /** Veta o vlastníctve značky. Rovnaká všade, aby sa nedala zabudnúť. */
@@ -153,6 +167,14 @@ export const ALTERNATIVES: Alternative[] = [
         a: "Yes. Every conversation is visible in the workspace, and the control bot can show you who a person is, what they talked about and where they are in the funnel before you reply.",
       },
     ],
+    vs: {
+      theirs:
+        "Supercreator is built for the inbox of the paid platform — answering, upselling and organising fans who already subscribed.",
+      ours:
+        "Telepipe is built for the step before that: her own Telegram account, a conversation that holds for days, and the click that turns a stranger into a subscriber.",
+      verdict:
+        "If your bottleneck is answering paid fans fast enough, that is their half. If it is that too few people ever reach the page, that is ours. They are not mutually exclusive.",
+    },
   },
   {
     slug: "botly-alternative",
@@ -223,6 +245,14 @@ export const ALTERNATIVES: Alternative[] = [
         a: "Every chat has a window in days. It tapers, then she sends one last message pointing at her page and stops replying — she does not keep messaging someone who stopped answering.",
       },
     ],
+    vs: {
+      theirs:
+        "Botly is aimed at agencies running several creators inside the paid platform, with analytics across them.",
+      ours:
+        "Telepipe is multi-model from the first day too, but on the traffic side: each model has her own Telegram account, persona, schedule and control bot.",
+      verdict:
+        "An agency that already has chatters covered and needs more people in the funnel gets more out of us. One that needs help closing subscribers gets more out of them.",
+    },
   },
   {
     slug: "chatpersonas-alternative",
@@ -288,6 +318,14 @@ export const ALTERNATIVES: Alternative[] = [
         a: "Whatever you set as her main language, with the languages she is supposed to know handled separately. If a fan writes in one of those, she can answer in it.",
       },
     ],
+    vs: {
+      theirs:
+        "ChatPersonas focuses on persona-driven replies inside creator inboxes.",
+      ours:
+        "Telepipe keeps the persona but puts a day around it — where she is, how fast she replies from there, what she is allowed to send — and carries her across Telegram, Fanvue and Instagram.",
+      verdict:
+        "If you only need replies in one inbox, a lighter tool is simpler. If the same woman has to be consistent in three places over days, that consistency is the whole point here.",
+    },
   },
   {
     slug: "onlyfans-ai-chatter-alternative",
@@ -349,6 +387,14 @@ export const ALTERNATIVES: Alternative[] = [
         a: "There is no subscription. You buy Pipe Coins and spend them per reply, so the bill follows the work rather than the calendar.",
       },
     ],
+    vs: {
+      theirs:
+        "OnlyFans AI chatter tools work the paid inbox, usually through a browser extension, and are good at selling to people who already paid.",
+      ours:
+        "Telepipe works Telegram, Fanvue and Instagram to get people there, and measures whether the link was actually opened.",
+      verdict:
+        "Most operators need both halves. Start with whichever half is currently empty — and if you cannot say which, the link measurement here will tell you within a week.",
+    },
   },
   {
     slug: "cupidbot-alternative",
@@ -411,6 +457,189 @@ export const ALTERNATIVES: Alternative[] = [
         a: "With a model, her Telegram account and a persona. She can be answering the same day; the link and the funnel come once the conversation is worth it.",
       },
     ],
+    vs: {
+      theirs:
+        "CupidBot automates dating apps for the person doing the swiping.",
+      ours:
+        "Telepipe automates the DMs of a creator account — Telegram, Fanvue, Instagram.",
+      verdict:
+        "They share no use case. If you want dates, CupidBot is the category; if you run a creator account, this one is.",
+    },
+  },
+  {
+    slug: "onley-ai-alternative",
+    name: "Onley AI",
+    title: "Onley AI Alternative for Creator Messaging",
+    description:
+      "An Onley AI alternative that runs the model's own Telegram account, keeps a daily schedule and lets you keep a human on the send button whenever you want one.",
+    eyebrow: "Onley AI alternative",
+    lead:
+      "Onley AI is positioned as an automated chatting and selling layer for creator inboxes. Telepipe overlaps on the writing and differs on everything around it: where the conversation happens, how it is paced, and how much of it you approve.",
+    highlights: [
+      { title: "Off, automatic or approved", body:
+        "Every channel has three modes. Semi-automatic sends each draft to your own Telegram bot with three different replies, so nothing goes out unless you pick it." },
+      { title: "It starts on Telegram", body: ROZDIEL.telegram },
+      { title: "Conversations that end", body: ROZDIEL.window },
+    ],
+    sections: [
+      {
+        title: "Full automation is a setting, not a religion",
+        paragraphs: [
+          "Handing an inbox to a model and walking away works right up until the message that needed a person. The interesting question is not whether to automate, it is how quickly you can get in front of a reply when you want to.",
+          "Telepipe answers that per channel. Off means she writes nothing. Automatic means she answers on her own. Semi-automatic means every reply waits for you — with a time limit if you want one, so a fan is never left hanging because you were asleep.",
+        ],
+        points: [
+          "Three replies to choose from, each a different move in the conversation",
+          "Regenerate, or hand her a topic in your own language",
+          "See who the person is before you answer — history, facts, funnel stage",
+          "Send a photo or voice note into the chat yourself",
+        ],
+      },
+      {
+        title: "Selling without sounding like a shop",
+        paragraphs: [
+          "On the paid side she has rules about when content is offered at all: not before a certain point in the conversation, not twice in a row, not while an unopened offer is still hanging, and never described if the vault is empty.",
+          "That last one sounds obvious until you watch a model promise a photo she does not have. Once that happens the fan remembers, and no amount of good writing repairs it.",
+        ],
+      },
+      {
+        title: "What you can read afterwards",
+        paragraphs: [
+          "Every conversation stays visible, on both Telegram and Fanvue. The control bot can show you the summary she keeps, the facts she has learned and the last messages, so a decision at 1am does not require scrolling a month of history.",
+        ],
+      },
+    ],
+    faq: [
+      { q: "Can Telepipe run fully automatically?", a: "Yes, per channel. It can also run in semi-automatic, where every reply waits for your approval, or be switched off entirely for a model while she stays configured." },
+      { q: "What happens if I do not approve in time?", a: "You can set a fallback in minutes. When it passes, the first suggestion goes out on its own so the fan is not left waiting. Leave it unset and the draft simply waits." },
+      { q: "Does it sell content by itself?", a: "On Fanvue it can offer content from the vault under rules about timing and repetition. If the vault is empty it is not allowed to describe or promise anything." },
+      { q: "Can I take over a conversation?", a: "Yes. Taking over silences the AI in that chat until you hand it back." },
+    ],
+    vs: {
+      theirs:
+        "Onley AI is positioned around automating the paid inbox and selling in it.",
+      ours:
+        "Telepipe covers Telegram as well, and treats approval as a first-class mode rather than a fallback.",
+      verdict:
+        "If you want the paid inbox running unattended, that is their pitch. If you want the traffic before it and a hand on the wheel when it matters, that is this one.",
+    },
+  },
+  {
+    slug: "flirtflow-alternative",
+    name: "FlirtFlow",
+    title: "FlirtFlow Alternative: Conversations, Not Sequences",
+    description:
+      "A FlirtFlow alternative built around a real conversation instead of a drip sequence — her own schedule, one link per chat, and a defined end.",
+    eyebrow: "FlirtFlow alternative",
+    lead:
+      "FlirtFlow is known for automated message sequences. Telepipe does not run sequences at all: every reply is written for what the person actually said, in the state the conversation is actually in.",
+    highlights: [
+      { title: "No drip, no templates", body:
+        "There is no queue of pre-written messages waiting to fire. Each reply is written for the last thing he wrote and for where she is that hour." },
+      { title: "One link, then reminders", body:
+        "The link goes out once per chat, at the moment the conversation earns it. After that she reminds him it is above — she does not resend it." },
+      { title: "A defined ending", body: ROZDIEL.window },
+    ],
+    sections: [
+      {
+        title: "Why sequences get spotted",
+        paragraphs: [
+          "A sequence is easy to run and easy to notice. The tell is not the wording, it is that the words keep arriving whatever you answer: the same beat on day two whether you were flirting or telling her your dog died.",
+          "Telepipe has no messages waiting in a queue. What it has instead is state — how long you have been talking, what stage of the funnel this is, whether the link went out, what she already said, where she is right now — and every reply is written from that.",
+        ],
+      },
+      {
+        title: "What replaces the sequence",
+        paragraphs: [
+          "The thing sequences are really for is pacing: not dumping everything at once, not going quiet. Telepipe gets that from a conversation window instead.",
+          "Day one is the liveliest. Then it tapers, so the pushing gets gentler rather than louder. At the end she sends one last message pointing at her page and stops — no replies and no read receipts, even if he keeps writing.",
+        ],
+        points: [
+          "The window is set in days, per model",
+          "The taper is gradual, not a cliff",
+          "The last message always contains the link or points at it",
+          "After it, the chat is closed for good",
+        ],
+      },
+      {
+        title: "Silence is also a decision",
+        paragraphs: [
+          "She does not chase. If someone stops answering she does not send three more messages to revive it, and she never messages the same stranger twice unprompted. That is the difference between a person with other things to do and a funnel that will not let go.",
+        ],
+      },
+    ],
+    faq: [
+      { q: "Does Telepipe use message templates?", a: "No. There are no queued messages and no template library. Every reply is generated for the conversation it is in." },
+      { q: "How does it avoid going quiet then?", a: "The conversation window paces it: day one is liveliest, then it tapers, then it ends with one last message. There is also a morning check-in you can switch off." },
+      { q: "Can I still schedule a broadcast?", a: "No. Telepipe writes one-to-one conversations. If you need mass messaging, that is a different kind of tool." },
+      { q: "What if the fan replies after it ended?", a: "Nothing goes out. Once she has said her goodbye, that chat gets no replies and no read receipts." },
+    ],
+    vs: {
+      theirs:
+        "FlirtFlow is built around automated sequences that run on a schedule.",
+      ours:
+        "Telepipe has no sequences — pacing comes from a conversation window and each reply is written for what was actually said.",
+      verdict:
+        "Sequences are cheaper to run at volume. A conversation is harder to spot as automation. Pick by which risk costs you more.",
+    },
+  },
+  {
+    slug: "infloww-alternative",
+    name: "Infloww",
+    title: "Infloww Alternative for Creator Operations",
+    description:
+      "An Infloww alternative focused on the conversations themselves: her own Telegram account, per-model control bots and attribution from DM to payment.",
+    eyebrow: "Infloww alternative",
+    lead:
+      "Infloww is a management platform for creator operations — the layer agencies run their accounts through. Telepipe is not a management platform. It is the thing that holds the conversations, on channels most platforms do not reach.",
+    highlights: [
+      { title: "Not a CRM, a conversationalist", body:
+        "Telepipe does not try to be where you run your business. It is where the talking happens, and it reports back what came of it." },
+      { title: "Telegram is the gap", body: ROZDIEL.telegram },
+      { title: "From DM to payment", body:
+        "Every conversation gets its own link, so a click identifies the person. When a payment arrives it is matched back to the chat it came from." },
+    ],
+    sections: [
+      {
+        title: "The part nobody has numbers for",
+        paragraphs: [
+          "Operators can usually tell you how much a creator made. Far fewer can tell you which conversations produced it, and almost nobody can tell you whether the people who got the link ever opened it.",
+          "That distinction decides what you fix. Nobody clicking is a conversation problem. Everybody clicking and nobody paying is a page problem. Without the number you end up rewriting the wrong one.",
+        ],
+        points: [
+          "One short link per conversation, so clicks are attributable",
+          "Funnel view: talking, link sent, opened, paid",
+          "Payments matched back to the chat that produced them",
+        ],
+      },
+      {
+        title: "Who watches it day to day",
+        paragraphs: [
+          "Each model has her own control bot in Telegram: her status, her settings, her conversations, her approval cards and her alerts. Whoever runs that model works from that chat and needs nothing else.",
+          "Alerts are per model too — a hot conversation, a payment, a link click, running low on credit, or a daily summary if you want one.",
+        ],
+      },
+      {
+        title: "What it does not do",
+        paragraphs: [
+          "Telepipe does not do scheduling of posts, payouts, staff shifts or the accounting side of an agency. If you need those, a management platform is the right tool and this sits next to it, not instead of it.",
+        ],
+      },
+    ],
+    faq: [
+      { q: "Is Telepipe a replacement for a management platform?", a: "No. It does not handle payouts, staffing or posting. It handles conversations on Telegram, Fanvue and Instagram, and reports what came of them." },
+      { q: "Can several people run different models?", a: "Yes. Each model has her own control bot in Telegram, so an operator can work from that chat without access to the whole workspace." },
+      { q: "How do I know which conversation earned money?", a: "Each conversation has its own link. A click identifies the person, and an incoming payment is matched back to the chat it came from." },
+      { q: "Does it work if the creator is not on Telegram yet?", a: "Telegram is where it starts, so an account is needed. Setting one up and connecting it is done from the workspace." },
+    ],
+    vs: {
+      theirs:
+        "Infloww is the operations layer an agency runs accounts through.",
+      ours:
+        "Telepipe is the conversation layer underneath it, on channels that layer usually does not reach.",
+      verdict:
+        "They are not competing for the same slot. If you already run a management platform, this fills the Telegram-shaped hole in it.",
+    },
   },
 ];
 

@@ -41,6 +41,9 @@ function textOf(item: (typeof ALTERNATIVES)[number]): string {
     ...item.highlights.flatMap((h) => [h.title, h.body]),
     ...item.sections.flatMap((s) => [s.title, ...s.paragraphs, ...(s.points ?? [])]),
     ...item.faq.flatMap((f) => [f.q, f.a]),
+    item.vs.theirs,
+    item.vs.ours,
+    item.vs.verdict,
   ].join("\n");
 }
 
@@ -69,6 +72,15 @@ for (const item of ALTERNATIVES) {
   check(item.highlights.length >= 3, `${kde} aspoň tri hlavné body`);
   check(item.sections.length >= 2, `${kde} aspoň dve sekcie`);
   check(item.faq.length >= 3, `${kde} aspoň tri otázky do FAQ`);
+
+  // „Telepipe vs X" je iné hľadanie než „X alternative", ale nie iná stránka.
+  // Pokrýva ho táto sekcia — bez nej by fráza na stránke nebola vôbec.
+  check(item.vs.theirs.includes(item.name), `${kde} porovnanie musí menovať ${item.name}`);
+  check(item.vs.ours.includes("Telepipe"), `${kde} porovnanie musí menovať Telepipe`);
+  check(
+    item.vs.verdict.length >= 80,
+    `${kde} verdikt je príliš krátky na to, aby niekomu pomohol`,
+  );
 
   const text = textOf(item);
   check(text.length >= 1800, `${kde} má len ${text.length} znakov — na tenkú stránku stačí, na dobrú nie`);

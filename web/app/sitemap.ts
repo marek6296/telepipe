@@ -39,6 +39,24 @@ const PAGES: PageEntry[] = [
     priority: 0.8,
     changeFrequency: "monthly",
   },
+  // Traffic hľadania („onlyfans traffic", „fanvue subscribers"). Sú to
+  // informačné otázky, nie nákupné — patria medzi guides, nie medzi
+  // porovnania, a práve na ne chodia odkazy.
+  {
+    path: "/guides/telegram-to-onlyfans-funnel",
+    priority: 0.85,
+    changeFrequency: "monthly",
+  },
+  {
+    path: "/guides/onlyfans-traffic-sources",
+    priority: 0.85,
+    changeFrequency: "monthly",
+  },
+  {
+    path: "/guides/how-to-get-fanvue-subscribers",
+    priority: 0.85,
+    changeFrequency: "monthly",
+  },
 ];
 
 /**
