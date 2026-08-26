@@ -95,12 +95,62 @@ class TestDruhObrazka:
         assert out["description"] == "" and out["explicit"] is False
 
 
-class TestZnackaVHistorii:
-    """To, čo sa dostane do histórie, musí modelku varovať."""
+class TestHistoriaNesieLenFakt:
+    """Do histórie ide fakt, pokyn patrí do promptu.
 
-    def test_screenshot_ma_varovanie(self):
-        from pathlib import Path
+    Pokyn vlepený do histórie číta model ako súčasť fanúšikovej správy a môže
+    sa objaviť v odpovedi. Preto sa značka a pravidlo rozdelili.
+    """
 
-        src = (Path(__file__).resolve().parents[1] / "src" / "userbot.py").read_text("utf-8")
-        assert "nie fotku seba" in src
-        assert "Reaguj na to, ČO je na snímke" in src
+    def test_v_historii_je_len_znacka(self):
+        import userbot
+
+        assert "SNÍMKU OBRAZOVKY" in userbot.SCREENSHOT_MARKER
+        assert "Reaguj" not in userbot.SCREENSHOT_MARKER
+
+
+class TestPravidloVPrompte:
+    """Čo má modelka so snímkou spraviť."""
+
+    def _prompt(self, **kw):
+        from behavior import Behavior
+        from persona import build_system_prompt
+
+        zaklad = dict(
+            persona={"name": "Simona", "backstory": "23, LA", "msg_style": "krátko"},
+            user={"tg_id": 1, "msg_count": 4, "funnel_stage": "warm"},
+            allow_link=False,
+            asked_if_ai=False,
+            behavior=Behavior.from_row({}),
+        )
+        zaklad.update(kw)
+        return build_system_prompt(**zaklad)
+
+    def test_bez_snimky_sa_nic_nepridava(self):
+        assert "SNÍMKU OBRAZOVKY" not in self._prompt()
+
+    def test_zakazuje_kompliment_na_vyzor(self):
+        """Presne to, čo spravila: „damn u look good in that suit"."""
+        out = self._prompt(screenshot=True)
+        assert "NIE JE TO FOTKA JEHO" in out
+        assert "Nechváľ jeho výzor" in out
+
+    def test_nema_snimku_rozoberat(self):
+        assert "nerozoberaj" in self._prompt(screenshot=True)
+
+    def test_ma_odbavit_kratko_a_posunut_otazkou(self):
+        """Marekovo zadanie: krátke „nice" a otázka, čo tu hľadá."""
+        out = self._prompt(screenshot=True)
+        assert "nice" in out
+        assert "otázkou o ŇOM" in out
+
+    def test_plati_aj_ked_nema_fotky(self):
+        """Obe pravidlá sú samostatné — prázdny album snímku neprebije."""
+        out = self._prompt(screenshot=True, no_photos=True)
+        assert "SNÍMKU OBRAZOVKY" in out
+        assert "FOTKY NEPOSIELAŠ VÔBEC" in out
+
+    def test_ked_prave_posiela_fotku_pravidlo_o_snimke_stale_plati(self):
+        out = self._prompt(screenshot=True, photo={"caption": "selfie"})
+        assert "PRÁVE MU POSIELAŠ FOTKU" in out
+        assert "SNÍMKU OBRAZOVKY" in out

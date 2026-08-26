@@ -78,6 +78,10 @@ UHLY_ZADANIE = [
 # Dve stačia na „haha" + „Rafael"; viac už znamená, že odpovedal na niečo iné.
 NAME_WINDOW_MSGS = 2
 
+# Značka v histórii, podľa ktorej prompt pozná, že prišla snímka obrazovky
+# a nie fotka človeka. Text je zároveň to, čo v histórii vidí model.
+SCREENSHOT_MARKER = "poslal SNÍMKU OBRAZOVKY"
+
 _FOTKY_TTL_S = 300.0
 
 _SWEEP_INTERVAL_S = 180
@@ -1127,6 +1131,8 @@ class UserBot:
                 )
             ),
             photo_wanted=photo_reason == "asked",
+            # Snímka obrazovky nie je fotka jeho — viď sekciu v prompte.
+            screenshot=SCREENSHOT_MARKER in last_user_text,
             # Bez fotiek v albume sa o nich nesmie ani zmieniť ako o niečom,
             # čo pošle. Naostro sľúbila fotku trom ľuďom a neposlala ani jednu.
             no_photos=not ma_fotky,
@@ -1698,10 +1704,10 @@ class UserBot:
         # „damn u look good in that suit 😘". Odpovedal „which suit, that's
         # your story 😄" a konverzácia sa už nespamätala.
         if seen.get("kind") == "SCREENSHOT":
-            return (
-                f"[poslal SCREENSHOT (nie fotku seba!): {description}] "
-                "Reaguj na to, ČO je na snímke, nie na jeho výzor."
-            )
+            # Do histórie ide len fakt, nie pokyn — pokyn patrí do promptu
+            # (`SCREENSHOT_MARKER` → sekcia v `persona.build_system_prompt`).
+            # Inak by sa inštrukcia mohla objaviť v odpovedi.
+            return f"[{SCREENSHOT_MARKER}: {description}]"
         return f"[poslal fotku: {description}]"
 
     def _caka_na_meno(self, tg_id: int, user: Dict[str, Any]) -> bool:

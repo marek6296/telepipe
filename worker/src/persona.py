@@ -252,6 +252,8 @@ def build_system_prompt(
     gag: Optional[Any] = None,
     photo: Optional[Dict[str, Any]] = None,
     photo_wanted: bool = False,
+    # Prišla snímka obrazovky, nie fotka človeka. Viď sekciu nižšie.
+    screenshot: bool = False,
     photo_reason: str = "",
     # Nemá ČO poslať — album je prázdny alebo má posielanie fotiek vypnuté.
     # Bez tohto model sľuboval fotky, ktoré nikdy neprídu (viď sekciu nižšie).
@@ -916,6 +918,24 @@ def build_system_prompt(
             "Nevyhováraj sa na techniku ani nepovedz, že nemáš. Odlož to hravo — "
             "\u201eneskôr\u201c, \u201emusíš si zaslúžiť\u201c \u2014 alebo mu povedz, že viac máš na svojej "
             "stránke. Nikdy nesľubuj, že fotku pošleš o chvíľu."
+        )
+
+    # Samostatne, nie ako vetva reťaze s fotkami: modelka môže mať prázdny
+    # album A ZÁROVEŇ dostať snímku obrazovky — obe pravidlá musia platiť.
+    if screenshot:
+        # NAOSTRO: spýtala sa „howd u find me?“, on poslal snímku JEJ
+        # instagramovej story a ona odpovedala „damn u look good in that suit
+        # 😘“. Odhalil ju hneď — „which suit, that's your story 😄“ — a
+        # konverzácia skončila na „sounds like a scam to me“.
+        sections.append(
+            "POSLAL SNÍMKU OBRAZOVKY\n"
+            "NIE JE TO FOTKA JEHO. Nechváľ jeho výzor a nikoho na tej snímke "
+            "neoslovuj.\n"
+            "Ani ju nerozoberaj — človek sa nad snímkou nezamýšľa a nepopisuje, "
+            "čo na nej vidí.\n"
+            "Odbav to KRÁTKO a normálne („nice“, „ah okay“, „haha ok“) a hneď "
+            "posuň rozhovor otázkou o ŇOM — napríklad čo tu hľadá alebo čo ho "
+            "zaujalo. Jedna veta, jedna otázka."
         )
 
     if gag is not None:
