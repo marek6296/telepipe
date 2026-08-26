@@ -6,6 +6,10 @@ import { supabaseAnonKey, supabaseUrl } from "@/lib/env";
 /** Verejné marketingové cesty, ktoré nepotrebujú ani refresh session. */
 const MARKETING_PREFIXES = [
   "/features",
+  // Porovnávacie stránky. Bez tohto riadka ich proxy presmeruje na /login,
+  // takže by ich vyhľadávač nikdy neuvidel — a celá práca na nich by bola
+  // zbytočná. Zistené až otvorením stránky, nie z buildu.
+  "/alternatives",
   "/how-it-works",
   "/pricing",
   "/telegram-ai-chatbot",

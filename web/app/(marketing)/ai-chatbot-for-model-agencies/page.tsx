@@ -94,6 +94,11 @@ export default function AiChatbotForModelAgenciesPage() {
       faq={FAQ}
       related={[
         {
+          href: "/alternatives/botly-alternative",
+          label: "Botly alternative",
+          description: "Per-model personas, control bots and no agency tier.",
+        },
+        {
           href: "/ai-chatbot-for-creators",
           label: "For individual creators",
           description: "A focused view of the workflow for one creator identity.",

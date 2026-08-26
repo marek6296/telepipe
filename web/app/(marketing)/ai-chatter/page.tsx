@@ -101,6 +101,11 @@ export default function AiChatterPage() {
       faq={FAQ}
       related={[
         {
+          href: "/alternatives/onlyfans-ai-chatter-alternative",
+          label: "AI chatter alternative",
+          description: "Why the funnel starts on Telegram, not in the paid inbox.",
+        },
+        {
           href: "/guides/ai-chatter-vs-human-chatter",
           label: "AI vs human chatter",
           description: "Compare coverage, consistency, judgment and total workflow cost.",

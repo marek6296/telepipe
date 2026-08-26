@@ -12,6 +12,9 @@ const PRODUCT_LINKS = [
 
 const RESOURCE_LINKS = [
   { href: "/guides", label: "Guides" },
+  // Porovnania musia byť dostupné z každej stránky, inak sú to siroty, na
+  // ktoré nevedie žiadny odkaz a Google ich hodnotí podľa toho.
+  { href: "/alternatives", label: "Comparisons" },
   { href: "/telegram-automation", label: "Telegram automation" },
   { href: "/ai-chatter", label: "AI chatter" },
   { href: "/ai-model-chatbot", label: "AI model chatbot" },

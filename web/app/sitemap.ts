@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 
+import { ALTERNATIVE_SLUGS } from "@/lib/alternatives";
 import { LEGAL_READY } from "@/lib/legal";
 import { SITE_URL } from "@/lib/seo";
 
@@ -41,6 +42,21 @@ const PAGES: PageEntry[] = [
 ];
 
 /**
+ * Porovnávacie stránky. Priorita je vysoká zámerne: kto hľadá „X alternative",
+ * má najvyšší nákupný úmysel zo všetkých návštevníkov — už vie, čo chce.
+ * Zoznam sa berie z `lib/alternatives.ts`, takže nová stránka je v sitemape
+ * automaticky a nedá sa na ňu zabudnúť.
+ */
+const ALTERNATIVE_PAGES: PageEntry[] = [
+  { path: "/alternatives", priority: 0.85, changeFrequency: "monthly" },
+  ...ALTERNATIVE_SLUGS.map((slug) => ({
+    path: `/alternatives/${slug}`,
+    priority: 0.9,
+    changeFrequency: "monthly" as const,
+  })),
+];
+
+/**
  * Právne stránky pridávame do sitemapy až keď sú v `lib/legal.ts` skutočné
  * údaje prevádzkovateľa. Ponúkať vyhľadávačom Privacy Policy bez identifikácie
  * prevádzkovateľa by bolo horšie než ju neponúkať — je to presne tá vec, ktorú
@@ -55,7 +71,7 @@ const LEGAL_PAGES: PageEntry[] = LEGAL_READY
   : [];
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  return [...PAGES, ...LEGAL_PAGES].map(({ path, priority, changeFrequency }) => ({
+  return [...PAGES, ...ALTERNATIVE_PAGES, ...LEGAL_PAGES].map(({ path, priority, changeFrequency }) => ({
     url: `${SITE_URL}${path}`,
     lastModified: new Date(),
     changeFrequency,

@@ -16,6 +16,7 @@
     "test:schedule": "node scripts/schedule-draft-test.mts",
     "test:coins": "node scripts/coins-test.mts",
     "test:access": "node scripts/access-test.mts",
+    "test:alternatives": "node scripts/alternatives-test.mts",
     "test:stars": "node scripts/stars-test.mts",
     "seo:indexnow": "node scripts/submit-indexnow.mjs",
     "test:languages": "node scripts/languages-test.mts",

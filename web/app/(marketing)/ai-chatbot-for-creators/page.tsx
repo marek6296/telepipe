@@ -94,6 +94,11 @@ export default function AiChatbotForCreatorsPage() {
       faq={FAQ}
       related={[
         {
+          href: "/alternatives/supercreator-alternative",
+          label: "Supercreator alternative",
+          description: "Where the conversation happens, and what it costs.",
+        },
+        {
           href: "/telegram-ai-chatbot",
           label: "Telegram AI chatbot",
           description: "See the product capabilities behind the connected inbox.",
