@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Sequence
 
 COLD = "cold"
 WARM = "warm"
@@ -354,3 +354,68 @@ _WANTS_CALL_RE = re.compile(
 def wants_call(text: str) -> bool:
     """Pýta si videohovor, telefonát alebo stretnutie naživo."""
     return bool(_WANTS_CALL_RE.search(text or ""))
+
+
+def _ts(value: Any) -> Optional[datetime]:
+    """ISO značka na čas. `None` = nedá sa prečítať."""
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+# --------------------------------------------------------------------------
+# Tlačí ďalej aj po odkaze
+# --------------------------------------------------------------------------
+#
+# Človek, ktorý odkaz dostal a namiesto toho posiela ďalšie a ďalšie nahé
+# fotky do Telegramu, si kúpil bezplatnú zábavu. Chatovať s ním donekonečna
+# nič nezmení — ale ani ho odstrihnúť bez slova nie je správne. Dostane jednu
+# poslednú, jasnú vetu: odkaz máš, tam mi také posielaj a ja tebe tiež — a
+# potom je ticho.
+
+# Koľko nahých fotiek po odkaze stačí. Tri sú „posiela ich ďalej", nie
+# jednorazové vzplanutie.
+NUDE_PUSH_LIMIT = 3
+
+_NUDE_MARKER = "[poslal EXPLICITNÚ fotku"
+
+
+def nudes_after_link(rows: Sequence[Dict[str, Any]], link_sent_at: Any) -> int:
+    """Koľko explicitných fotiek poslal, odkedy dostal odkaz.
+
+    Ráta sa z NEDÁVNEJ histórie, nie za celý život chatu: „posiela ich ďalej"
+    je o tom, čo robí teraz, nie o tom, čo raz spravil pred týždňom.
+    """
+    hranica = _ts(link_sent_at)
+    if hranica is None:
+        return 0
+    pocet = 0
+    for row in rows or ():
+        if row.get("role") != "user":
+            continue
+        if _NUDE_MARKER not in str(row.get("content") or ""):
+            continue
+        kedy = _ts(row.get("created_at"))
+        if kedy is None or kedy > hranica:
+            pocet += 1
+    return pocet
+
+
+def pushing_after_link(user: Dict[str, Any], rows: Sequence[Dict[str, Any]]) -> bool:
+    """Má dostať poslednú vetu a stíchnuť?
+
+    Tri podmienky naraz, lebo cena omylu je vysoká — takto sa chat zatvára
+    navždy: odkaz dostal, UŽ mu bol aj pripomenutý, a napriek tomu posiela
+    ďalej. Kto odkaz dostal raz a ešte nedostal pripomenutie, dostane najprv tú.
+    """
+    if not user.get("link_sent_at"):
+        return False
+    if int(user.get("link_push_count") or 0) < 2:
+        return False
+    return nudes_after_link(rows, user.get("link_sent_at")) >= NUDE_PUSH_LIMIT

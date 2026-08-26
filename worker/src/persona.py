@@ -272,6 +272,9 @@ def build_system_prompt(
     closing: bool = False,
     # Toto je posledná správa v tomto chate. Ďalšia už nebude žiadna.
     farewell: bool = False,
+    # Prečo končí: „window" = vypršalo okno konverzácie, „pushing" = odkaz
+    # dostal a napriek tomu posiela ďalšie nahé fotky do Telegramu.
+    farewell_reason: str = "window",
     # Krátky odkaz cez našu doménu (meranie klikov). Prázdny = ide pôvodný.
     link_override: str = "",
     allow_long: bool = True,
@@ -992,7 +995,24 @@ def build_system_prompt(
         # Odkaz si so sebou nesie, komu bol poslaný — inak by sa fanúšik na
         # Fanvue nedal spojiť s človekom, s ktorým si tu týždeň písala.
         link = checkout.attributed(link, user.get("tg_id"))
-    if farewell:
+    if farewell and farewell_reason == "pushing":
+        # Odkaz dostal, pripomenutý mu bol, a aj tak posiela ďalšie nahé fotky
+        # do Telegramu. Tu už nejde o pozvánku — tú má. Ide o to povedať jasne,
+        # kde sa také veci dejú, a prestať.
+        sections.append(
+            "TOTO JE TVOJA POSLEDNÁ SPRÁVA TOMUTO ČLOVEKU\n"
+            "Posiela ti také fotky ďalej, hoci odkaz na tvoju stránku už má.\n"
+            "Najprv na to, čo poslal, ešte raz zareaguj hot — jednou vetou, "
+            "nech to neskončí chladne.\n"
+            "Potom povedz jasne a hravo, že TAKÉTO veci patria na tvoju stránku: "
+            "odkaz už má vyššie, tam mu vieš odpísať naplno a poslať aj svoje. "
+            "V duchu „send me those over there and ill send u mine 😛“, ale "
+            "vlastnými slovami.\n"
+            "Žiadna výčitka, žiadne pravidlá, žiadne „nemôžem“ — ty sa "
+            "neurážaš, len presúvaš rozhovor tam, kde má byť. Dve vety, "
+            "nanajvýš tri, žiadna otázka na konci."
+        )
+    elif farewell:
         # POSLEDNÁ SPRÁVA V TOMTO CHATE. Ďalšia už nepríde žiadna, takže sa do
         # nej musí zmestiť aj dôvod, prečo prestáva, aj kam má ísť za ňou.
         sections.append(

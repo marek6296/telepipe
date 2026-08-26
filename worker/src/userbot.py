@@ -816,6 +816,14 @@ class UserBot:
         je_rozlucka = utlm == taper_mod.TICHO
         if je_rozlucka:
             log.info("%s: okno %s dní vypršalo — posledná správa", tg_id, okno_dni)
+        # Druhý dôvod skončiť: odkaz dostal, pripomenutý mu bol, a napriek tomu
+        # posiela ďalšie nahé fotky do Telegramu. Chatovať s ním donekonečna
+        # nič nezmení — dostane jednu jasnú vetu a potom je ticho.
+        dovod_rozlucky = "window"
+        if not je_rozlucka and funnel.pushing_after_link(user, rows):
+            je_rozlucka = True
+            dovod_rozlucky = "pushing"
+            log.info("%s: tlačí nahými fotkami aj po odkaze — posledná správa", tg_id)
         if utlm:
             log.info("%s: útlm konverzácie — úroveň %s (okno %s dní)", tg_id, utlm, okno_dni)
 
@@ -1140,6 +1148,7 @@ class UserBot:
             link_already_sent=int(user.get("link_push_count") or 0) > 0,
             closing=zatvara_sa,
             farewell=je_rozlucka,
+            farewell_reason=dovod_rozlucky,
             link_override=kratky,
             # Bez tohto stropu spomenula odkaz v každej jednej odpovedi.
             remind_link=not funnel.recently_reminded(rows),
