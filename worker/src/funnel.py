@@ -108,12 +108,39 @@ _NOT_NAMES = {
     "haha", "lol", "hmm", "hmmm", "oh", "ah", "wow", "omg", "thanks", "thank",
     "please", "maybe", "nothing", "nvm", "what", "why", "how", "who", "where",
     "when", "which", "wait", "hold", "listen", "look", "guess", "dunno", "idk",
+    # Ďalšia várka z ostrých chatov: takto vznikli mená „Like", „Definitely",
+    # „Tranks" a „Https". Krátka odpoveď na hocijakú otázku vyzerá rovnako ako
+    # predstavenie sa — rozdiel je len v tom, či je to vôbec meno.
+    "like", "definitely", "absolutely", "exactly", "true", "right", "same",
+    "good", "great", "fine", "ok", "okay", "kk", "well", "just", "sorry",
+    "tranks", "welcome", "congrats", "goodnight", "morning", "night", "bye",
+    "http", "https", "www", "here", "there", "this", "that", "these", "those",
+    "some", "any", "all", "both", "does", "did", "can", "could", "would",
+    "should", "will", "want", "need", "love", "hate", "know", "think", "sure",
 }
 
 
 # Holá odpoveď na otázku o mene: „Gerard", „Marek and you?", „im Rafael :)".
 # Berie sa PRVÉ slovo — čokoľvek za ním je zdvorilosť alebo otázka späť.
 _HOLE_MENO_RE = re.compile(r"^[\s\W]*([A-Za-zÀ-ž][A-Za-zÀ-ž'-]{1,19})\b")
+
+
+# Samotné meno nemá číslice ani interpunkciu z adries. („Https")
+_NIE_JE_MENO_RE = re.compile(r"[0-9:/@._]")
+
+# Celá správa, ktorá je odkaz alebo prezývka, nie je predstavenie sa. Smajlík
+# na konci („Marek and you? :)") ale bežné predstavenie JE, takže sa hľadá tvar
+# adresy, nie hocijaká dvojbodka.
+_ADRESA_RE = re.compile(r"://|\bwww\.|@|[0-9]")
+
+
+def _pouzitelne(candidate: str) -> bool:
+    """Vyzerá to vôbec ako meno? Prísne — zlé meno je horšie než žiadne."""
+    if len(candidate) < 2 or len(candidate) > 20:
+        return False
+    if candidate.lower() in _NOT_NAMES:
+        return False
+    return not _NIE_JE_MENO_RE.search(candidate)
 
 
 def extract_name(text: str, just_asked: bool = False) -> str:
@@ -138,7 +165,7 @@ def extract_name(text: str, just_asked: bool = False) -> str:
         if not match:
             continue
         candidate = match.group(1).strip("'-")
-        if len(candidate) < 2 or candidate.lower() in _NOT_NAMES:
+        if not _pouzitelne(candidate):
             continue
         return candidate[:1].upper() + candidate[1:].lower()
 
@@ -147,10 +174,14 @@ def extract_name(text: str, just_asked: bool = False) -> str:
         # Dlhá odpoveď nie je predstavenie sa — je to rozprávanie a meno by sa
         # v nej hádalo. Štyri slová stačia na „Gerard and you? :)".
         if len(raw.split()) <= 4:
+            # Odkaz ani nič s číslicami nie je predstavenie sa — celú takú
+            # správu preskočíme, nie len prvé slovo.
+            if _ADRESA_RE.search(raw):
+                return ""
             match = _HOLE_MENO_RE.match(raw)
             if match:
                 candidate = match.group(1).strip("'-")
-                if len(candidate) >= 2 and candidate.lower() not in _NOT_NAMES:
+                if _pouzitelne(candidate):
                     return candidate[:1].upper() + candidate[1:].lower()
     return ""
 

@@ -74,6 +74,10 @@ UHLY_ZADANIE = [
 # Ako dlho platí zistenie „v albumoch niečo je". Klient fotky nahráva raz za
 # čas, nie každú minútu, takže päť minút starý údaj nikomu neublíži — a dotaz
 # pri každej správe by bol zbytočný.
+# Koľko správ po otázke „ako sa voláš" ešte platí holá odpoveď ako meno.
+# Dve stačia na „haha" + „Rafael"; viac už znamená, že odpovedal na niečo iné.
+NAME_WINDOW_MSGS = 2
+
 _FOTKY_TTL_S = 300.0
 
 _SWEEP_INTERVAL_S = 180
@@ -166,6 +170,8 @@ class UserBot:
         # prvé volanie uverí prednastavenej hodnote namiesto toho, aby sa
         # spýtalo databázy.
         self._fotky_at = float("-inf")
+        # tg_id → `msg_count` v čase, keď sa spýtala na meno. Viď `_caka_na_meno`.
+        self._name_window: Dict[int, int] = {}
         self._debounce: Dict[int, asyncio.Task] = {}
         self._locks: Dict[int, asyncio.Lock] = {}
         self._reply_times: Deque[datetime] = deque()
@@ -487,10 +493,7 @@ class UserBot:
         # Meno ukladáme hneď ako sa predstaví — do vlastného stĺpca, nie do
         # summary. Vďaka tomu sa naň už nikdy nespýta, ani o týždeň.
         if not (user.get("partner_name") or "").strip():
-            # `name_asked` = práve sa naň pýtala. Vtedy platí aj holé „Gerard",
-            # čo je v skutočnosti najčastejšia odpoveď — a práve tá doteraz
-            # prepadávala, takže meno sa nikdy neuložilo.
-            found = funnel.extract_name(text, just_asked=bool(user.get("name_asked")))
+            found = funnel.extract_name(text, just_asked=self._caka_na_meno(tg_id, user))
             if found:
                 patch["partner_name"] = found
                 user["partner_name"] = found
@@ -1692,6 +1695,28 @@ class UserBot:
             return f"[poslal EXPLICITNÚ fotku: {description}]"
         return f"[poslal fotku: {description}]"
 
+    def _caka_na_meno(self, tg_id: int, user: Dict[str, Any]) -> bool:
+        """Je toto odpoveď na otázku „ako sa voláš"?
+
+        Holá odpoveď („Rafael") sa smie brať ako meno LEN krátko po tej otázke.
+        Predtým stačilo, že sa niekedy spýtala (`name_asked` sa nikdy nezmazal),
+        takže sa meno vyzobalo z hociktorej neskoršej krátkej správy. Naostro:
+        Rafael sa predstavil španielsky („un gusto me llamo Rafael"), to vzory
+        nechytili, a o pár správ neskôr napísal niečo na „Like…" — a modelka mu
+        odvtedy hovorila „Like" v každej piatej správe.
+
+        Okno žije v pamäti procesu. Po reštarte je zavreté a meno sa vezme len
+        z celej vety — to je horšia, ale bezpečná strana.
+        """
+        kedy = self._name_window.get(tg_id)
+        if kedy is None:
+            return False
+        teraz = int(user.get("msg_count") or 0)
+        if teraz - kedy > NAME_WINDOW_MSGS:
+            self._name_window.pop(tg_id, None)
+            return False
+        return True
+
     async def _ma_co_poslat(self, behavior) -> bool:
         """Má vôbec nejakú fotku, ktorú by mohla poslať?
 
@@ -2379,6 +2404,11 @@ class UserBot:
 
         if funnel.asks_for_name(sent_text) and not user.get("name_asked"):
             patch["name_asked"] = True
+        if funnel.asks_for_name(sent_text):
+            # Okno na holú odpoveď („Rafael") sa otvára TU a zatvára po pár
+            # správach — viď `_meno_z_odpovede`. Drží sa v pamäti zámerne: po
+            # reštarte je zavreté, čo je bezpečná strana.
+            self._name_window[tg_id] = int(user.get("msg_count") or 0)
 
         if gag_used:
             patch["used_gags"] = gags.record(

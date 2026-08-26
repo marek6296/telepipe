@@ -252,3 +252,86 @@ class TestOdkazIbaRaz:
         import config
 
         assert config.TenantConfig.link_max_pushes == 1
+
+
+class TestZleMenaZOstrychChatov:
+    """Presne tie mená, ktorými modelka naozaj oslovovala ľudí.
+
+    Rafael sa predstavil španielsky („un gusto me llamo Rafael"), vzory to
+    nechytili a `partner_name` ostalo prázdne. `name_asked` sa ale nikdy
+    nezmazal, takže o pár správ neskôr sa meno vyzobalo z krátkej správy
+    začínajúcej na „Like" — a Ayko mu odvtedy štyrikrát napísala „Like":
+
+        „maybe Like u would think so too 🥰"
+        „aw Like that means a lot coming from u 😘"
+
+    Rovnako vznikli „Definitely" (Simona), „Tranks" a „Https".
+    """
+
+    def test_kratke_odpovede_nie_su_mena(self):
+        for text in (
+            "Like",
+            "Like this?",
+            "Definitely",
+            "Tranks",
+            "Absolutely",
+            "Exactly",
+            "Same here",
+            "Good",
+            "Sorry",
+            "Just wondering",
+        ):
+            assert funnel.extract_name(text, just_asked=True) == "", text
+
+    def test_odkaz_nie_je_meno(self):
+        """Takto vzniklo meno „Https"."""
+        for text in ("https://t.me/ayko", "www.fanvue.com/x", "@ayko_kuro", "user123"):
+            assert funnel.extract_name(text, just_asked=True) == "", text
+
+    def test_smajlik_meno_nepokazi(self):
+        """Dvojbodka v „:)" nesmie zhodiť bežné predstavenie."""
+        assert funnel.extract_name("Marek and you? :)", just_asked=True) == "Marek"
+        assert funnel.extract_name("Rafael :)", just_asked=True) == "Rafael"
+
+    def test_skutocne_mena_stale_prejdu(self):
+        for text, ocakavane in (
+            ("Gerard", "Gerard"),
+            ("Rafael", "Rafael"),
+            ("im Marek", "Marek"),
+            ("my name is Gerard", "Gerard"),
+        ):
+            assert funnel.extract_name(text, just_asked=True) == ocakavane, text
+
+
+class TestOknoNaMeno:
+    """Holá odpoveď platí len KRÁTKO po otázke, nie navždy."""
+
+    def _bot(self):
+        import userbot
+
+        bot = userbot.UserBot.__new__(userbot.UserBot)
+        bot._name_window = {}
+        return bot
+
+    def test_bez_otazky_je_okno_zavrete(self):
+        bot = self._bot()
+        assert bot._caka_na_meno(1, {"msg_count": 5}) is False
+
+    def test_hned_po_otazke_je_otvorene(self):
+        bot = self._bot()
+        bot._name_window[1] = 3
+        assert bot._caka_na_meno(1, {"msg_count": 4}) is True
+
+    def test_o_par_sprav_neskor_sa_zavrie(self):
+        """Toto je ten bug: odpoveď o desať správ neskôr sa brala ako meno."""
+        import userbot
+
+        bot = self._bot()
+        bot._name_window[1] = 3
+        assert bot._caka_na_meno(1, {"msg_count": 3 + userbot.NAME_WINDOW_MSGS + 1}) is False
+        assert 1 not in bot._name_window, "zavreté okno sa má aj zabudnúť"
+
+    def test_okno_je_uzke(self):
+        import userbot
+
+        assert userbot.NAME_WINDOW_MSGS <= 3
