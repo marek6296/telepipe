@@ -536,3 +536,66 @@ class TestKontextMajuObaKanaly:
         import control_bot
 
         assert "ai" in control_bot.ControlBot._APPROVAL_HEADS  # noqa: SLF001
+
+
+class TestUctovanieNavrhov:
+    """Každá meraná metóda musí mať svoj druh spotreby.
+
+    NAOSTRO: `suggest` sa pridalo do `MeteredLlm`, ale nie do `KIND_BY_METHOD`.
+    `_bill_inner` sa doň pozerá priamo, takže každý návrh v poloautomate hodil
+    `KeyError: 'suggest'` a spotreba sa nezapísala vôbec. Volanie to prežilo
+    (účtovanie je best-effort), takže sa to prejavilo len v logu.
+    """
+
+    def test_kazda_meraná_metoda_ma_druh(self):
+        import re
+
+        import credits
+
+        zdroj = __import__("inspect").getsource(credits.MeteredLlm)
+        meraná = set(re.findall(r'self\._metered\("([a-z_]+)"', zdroj))
+        assert meraná, "regex prestal sedieť — test by inak prešiel naprázdno"
+        chyba = meraná - set(credits.KIND_BY_METHOD)
+        assert not chyba, f"chýba druh spotreby pre: {sorted(chyba)}"
+
+    def test_navrhy_sa_uctuju_ako_chat(self):
+        import credits
+
+        assert credits.KIND_BY_METHOD.get("suggest") == "chat"
+
+
+class TestVysledokJeVidiet:
+    """Napísané zadanie musí ukázať výsledok DOLE, nie prepísať kartu hore.
+
+    Karta býva nad polovicou chatu a často pripnutá. Keď sa prepísala len ona,
+    z pohľadu majiteľa sa po „Writing it in her style…" nestalo nič — presne
+    takto to vyzeralo dvakrát po sebe.
+    """
+
+    def test_napisane_zadanie_posiela_novu_spravu(self):
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parents[1] / "src" / "control_bot.py").read_text("utf-8")
+        i = src.index('elif kind == "semi_brief":')
+        telo = src[i : i + 500]
+        assert "nova_sprava=True" in telo
+
+    def test_tlacidlo_prepisuje_kartu_na_mieste(self):
+        """Pri kliknutí je majiteľ pri karte — nová správa by len zaplnila chat."""
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parents[1] / "src" / "control_bot.py").read_text("utf-8")
+        i = src.index('elif head == "ar":')
+        telo = src[i : i + 400]
+        assert "nova_sprava" not in telo
+
+    def test_karta_si_so_sebou_berie_vsetko(self):
+        """Bez presunu `pid`, kontextu a pripnutia by klik na novú kartu
+        hlásil, že už nie je aktuálna."""
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parents[1] / "src" / "control_bot.py").read_text("utf-8")
+        i = src.index("if nova_sprava:")
+        telo = src[i : i + 1200]
+        for kus in ("mark_pending", "self._cards[novy]", "_zapamataj_chat", "_pin_card"):
+            assert kus in telo, kus

@@ -58,8 +58,8 @@ def _bot(fresh):
     bot._senders = {"fanvue": FakeSender()}
     bot.volane: List[tuple] = []
 
-    async def fake_new(mid, pid, row, brief=""):
-        bot.volane.append((mid, pid, row.get("conv_key"), brief))
+    async def fake_new(mid, pid, row, brief="", nova_sprava=False):
+        bot.volane.append((mid, pid, row.get("conv_key"), brief, nova_sprava))
         return ""
 
     bot._new_suggestions = fake_new
@@ -84,7 +84,8 @@ class TestZadanieSaNestrati:
         event = FakeEvent()
         asyncio.run(bot._apply_semi(event, "semi_brief", "10", "podakuj mu"))
         assert bot.volane, "zadanie sa vôbec nespracovalo"
-        mid, pid, conv, brief = bot.volane[0]
+        mid, pid, conv, brief, nova = bot.volane[0]
+        assert nova is True, "napísané zadanie musí ukázať výsledok dole"
         assert pid == "pid-2", "malo sa použiť aktuálne čakajúce"
         assert mid == 20, "karta na prepísanie je tá nová"
         assert conv == "9b202cc7" and brief == "podakuj mu"

@@ -1704,7 +1704,8 @@ class ControlBot:
             await event.respond(text, link_preview=False)
 
     async def _new_suggestions(
-        self, mid: int, pid: str, row: Dict[str, Any], brief: str = ""
+        self, mid: int, pid: str, row: Dict[str, Any], brief: str = "",
+        nova_sprava: bool = False,
     ) -> str:
         """Prepíše kartu novými návrhmi. Prázdny `brief` = to isté, len inak.
 
@@ -1747,10 +1748,40 @@ class ControlBot:
             hint,
             brief=brief,
         )
+        buttons = self._approval_buttons(len(suggestions))
+        text = "\n".join(lines)
+
+        # KEĎ ZADANIE PRIŠLO NAPÍSANÉ, výsledok musí prísť TAM, kde majiteľ
+        # práve pozerá — teda dole pod jeho správu. Prepísaná karta je hore
+        # nad polovicou chatu (a často pripnutá), takže z jeho pohľadu sa
+        # „nič nestalo". Naostro to tak vyzeralo dvakrát po sebe.
+        if nova_sprava:
+            try:
+                msg = await self._client.send_message(
+                    self._cfg.owner_chat_id, text, buttons=buttons, link_preview=False
+                )
+            except Exception as exc:  # noqa: BLE001
+                log.warning("Novú kartu sa nepodarilo poslať: %s", exc)
+                return "⚠️ Could not show the new suggestions."
+            novy = int(msg.id)
+            # Karta sa presťahovala: tlačidlá, kontext aj pripnutie idú s ňou,
+            # inak by klik na novú hlásil, že už nie je aktuálna.
+            await self._db.mark_pending(pid, "awaiting", control_msg_id=novy)
+            self._cards[novy] = pid
+            stary_ctx = self._chat_ctx.get(mid)
+            if stary_ctx:
+                self._zapamataj_chat(novy, **stary_ctx)
+            self._wizard[novy] = self._wizard.get(mid, {})
+            await self._forget_card(mid)
+            await self._clear_card(mid, "⤴️ _(moved below)_")
+            if await self._pinning_on():
+                await self._pin_card(novy)
+            return ""
+
         try:
             await self._client.edit_message(
-                self._cfg.owner_chat_id, mid, "\n".join(lines),
-                buttons=self._approval_buttons(len(suggestions)), link_preview=False,
+                self._cfg.owner_chat_id, mid, text,
+                buttons=buttons, link_preview=False,
             )
         except Exception as exc:  # noqa: BLE001 - text mohol vyjsť rovnaký
             log.info("Kartu sa nepodarilo prepísať: %s", exc)
@@ -1879,7 +1910,9 @@ class ControlBot:
                 )
                 return
             await event.reply("🗒 Writing it in her style…")
-            problem = await self._new_suggestions(mid, pid, row, brief=value)
+            problem = await self._new_suggestions(
+                mid, pid, row, brief=value, nova_sprava=True
+            )
             if problem:
                 await event.reply(problem)
 

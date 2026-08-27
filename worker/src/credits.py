@@ -25,8 +25,13 @@ log = logging.getLogger(__name__)
 # pamäťové tvrdenia, fakty, recall, hovorená forma hlasovky), na Simone ich
 # vychádza ~0.4 na odpoveď. Kým sa delili o ten istý štítok, klient videl
 # násobok toho, čo modelka reálne odoslala.
-KIND_BY_METHOD = {"reply": "chat", "structured": "assist", "summarize": "summary",
-                  "describe_image": "vision", "transcribe_voice": "audio"}
+# Metóda `Llm` → druh spotreby v ledgeri. KAŽDÁ meraná metóda tu musí byť:
+# `_bill_inner` sa doň pozerá priamo a chýbajúci kľúč skončí `KeyError`, takže
+# sa spotreba nezapíše vôbec. Naostro sa to stalo pri `suggest` — pridalo sa do
+# obalu, sem nie, a každý návrh v poloautomate hodil chybu do logu.
+KIND_BY_METHOD = {"reply": "chat", "suggest": "chat", "structured": "assist",
+                  "summarize": "summary", "describe_image": "vision",
+                  "transcribe_voice": "audio"}
 
 # Rovnaká jednotka aj slovník ako v appke (`web/lib/credits.ts`) — majiteľ číta
 # obe hlášky a nesmie z nich mať pocit, že ide o dva rôzne zostatky.
