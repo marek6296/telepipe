@@ -1066,18 +1066,22 @@ class FanvueAgent:
             log.warning("Fanvue semi: control bot nie je pripojený — %s bez karty", fan["uuid"][:8])
             return
         try:
-            suggestions = await self._llm.suggest(prompt, history, angles=UHLY)
+            suggestions = await self._llm.suggest(
+                prompt + prehlad.pokyn_pre_model(history), history, angles=UHLY
+            )
         except Exception as exc:  # noqa: BLE001
             log.warning("Fanvue návrhy zlyhali: %s", exc)
             return
         if not suggestions:
             return
         name = row.get("display_name") or fan.get("name") or fan["uuid"][:8]
+        # Všetko, na čo ešte neodpovedala — nielen posledná správa. Kým
+        # majiteľ rozhoduje, fanúšik píše ďalej a karta sa má dopĺňať.
         ok = await self._control.post_approval(
             channel="fanvue",
             conv_key=fan["uuid"],
             display_name=name,
-            incoming_preview=fan.get("text") or "",
+            incoming_preview=prehlad.blok_neodpovedanych(history) or (fan.get("text") or ""),
             suggestions=suggestions,
             hint=tip,
         )

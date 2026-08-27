@@ -299,8 +299,13 @@ def _card_lines(
     """
     plat = "Fanvue" if channel == "fanvue" else "Telegram"
     lines = [f"💬 *{plat} · {display_name}*"]
-    if incoming_preview:
-        lines.append(f"„{_short(incoming_preview, 220)}“")
+    # Neodpovedaných správ môže byť viac — každá na vlastný riadok. Doteraz
+    # sa celý blok orezal na 220 znakov ako jedna veta, takže z troch správ
+    # bola vidieť prvá a pol.
+    for riadok in str(incoming_preview or "").split("\n"):
+        riadok = riadok.strip()
+        if riadok:
+            lines.append(f"„{_short(riadok, 200)}“")
     if hint:
         lines.append(f"\n{hint}")
     if brief:

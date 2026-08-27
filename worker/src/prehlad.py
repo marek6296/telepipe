@@ -228,3 +228,74 @@ def fanvue(
         riadky += ["", "*Last messages*"] + prepis
 
     return _orez("\n".join(riadky))
+
+
+# --------------------------------------------------------------------------
+# Na čo ešte neodpovedala
+# --------------------------------------------------------------------------
+#
+# Kým majiteľ nerozhodne, fanúšik píše ďalej. Doteraz každá nová správa
+# nahradila kartu novou, ktorá ukazovala LEN tú poslednú — a predchádzajúce
+# zmizli aj s tým, na čo sa pýtal. Majiteľ potom odpovedal na tretiu vetu bez
+# prvých dvoch.
+#
+# Karta preto ukazuje CELÝ neodpovedaný blok: všetko, čo napísal odvtedy, čo
+# naposledy odpísala ona.
+
+# Koľko z nich sa vojde na kartu. Viac než päť už nikto nečíta a karta
+# prestane byť prehľadná; koľko ich je celkovo, sa dopíše slovom.
+MAX_NEODPOVEDANYCH = 5
+
+
+def neodpovedane(history: List[Dict[str, Any]]) -> List[str]:
+    """Súvislý chvost jeho správ za jej poslednou odpoveďou.
+
+    Ide sa od konca a končí sa pri prvej JEJ správe — čokoľvek pred ňou už
+    zodpovedané bolo. Prázdny zoznam znamená, že posledné slovo mala ona.
+    """
+    out: List[str] = []
+    for message in reversed(history or []):
+        if str(message.get("role")) == "assistant":
+            break
+        text = " ".join(str(message.get("content") or "").split())
+        if text:
+            out.append(text)
+    out.reverse()
+    return out
+
+
+def blok_neodpovedanych(history: List[Dict[str, Any]]) -> str:
+    """Neodpovedané správy do jedného textu pre kartu, po jednej na riadok.
+
+    Ukladá sa aj do `pending_replies.incoming_preview`, takže po návrate
+    z foto-wizardu sa karta poskladá rovnako — riadky sa len rozdelia späť.
+    """
+    spravy = neodpovedane(history)
+    if not spravy:
+        return ""
+    if len(spravy) <= MAX_NEODPOVEDANYCH:
+        return "\n".join(spravy)
+    skryte = len(spravy) - MAX_NEODPOVEDANYCH
+    posledne = spravy[-MAX_NEODPOVEDANYCH:]
+    return "\n".join([f"(+{skryte} earlier)"] + posledne)
+
+
+def pokyn_pre_model(history: List[Dict[str, Any]]) -> str:
+    """Veta do promptu, keď čaká viac jeho správ naraz. Prázdna = jedna stačí.
+
+    Model síce celý blok vidí v histórii, ale bez tejto vety odpovie na
+    POSLEDNÚ vetu — a človek, ktorý napísal tri veci a dostal odpoveď na
+    jednu, má pocit, že ho nikto nečíta.
+
+    Používa sa len v poloautomate. V automate to isté rieši debounce, ktorý
+    rýchlo idúce správy zlúči skôr, než sa vôbec začne odpovedať.
+    """
+    kolko = len(neodpovedane(history))
+    if kolko < 2:
+        return ""
+    return (
+        f"\n\n[ČAKÁ VIAC SPRÁV] Napísal ti {kolko} správy za sebou a ani na "
+        "jednu si ešte neodpovedala. Odpovedz na ne AKO NA CELOK — jednou "
+        "správou, ktorá sedí na všetky, nie len na tú poslednú. Keď sa v nich "
+        "pýta na niečo konkrétne, na to odpovedz najskôr."
+    )

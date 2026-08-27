@@ -2084,7 +2084,9 @@ class UserBot:
             await self._db.update_user(tg_id, {"pending_reply": True})
             return
         try:
-            suggestions = await self._llm.suggest(system, history, angles=UHLY_SEMI)
+            suggestions = await self._llm.suggest(
+                system + prehlad.pokyn_pre_model(history), history, angles=UHLY_SEMI
+            )
         except Exception as exc:  # noqa: BLE001
             log.error("%s: návrhy zlyhali (%s) — nechávam na sweeper", tg_id, exc)
             await self._db.update_user(tg_id, {"pending_reply": True})
@@ -2097,7 +2099,9 @@ class UserBot:
             channel="telegram",
             conv_key=str(tg_id),
             display_name=name,
-            incoming_preview=last_user_text,
+            # Všetko, na čo ešte neodpovedala — kým majiteľ rozhoduje,
+            # človek píše ďalej a karta sa má dopĺňať, nie prepisovať.
+            incoming_preview=prehlad.blok_neodpovedanych(history) or last_user_text,
             suggestions=suggestions,
             # Snímka sveta pre „Regenerate" a „Say this". Na Telegrame sa
             # neskladá odznova ako na Fanvue: do tohto promptu vstupuje počasie,
