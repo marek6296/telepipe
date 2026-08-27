@@ -268,7 +268,14 @@ class Llm:
             "- čo mu povedala HLASOM (je to pri tých správach uvedené) — po "
             "týždni sa inak nedá zistiť, či mu niečo povedala alebo napísala, "
             "a to je rozdiel, ktorý si človek pamätá\n\n"
-            "Bez úvodných fráz, maximálne 120 slov. Nič si nedomýšľaj."
+            "Bez úvodných fráz, maximálne 120 slov. Nič si nedomýšľaj.\n\n"
+            # PÍŠ PO ANGLICKY. Zhrnutie ide do toho istého promptu, kde
+            # `kontext.blok` zámerne prekladá poznámky majiteľa do angličtiny —
+            # slovenčina medzi faktami ťahá odpoveď k slovenčine so sebou.
+            # Naostro vznikali zhrnutia typu „Reagoval dobre na flirty teasing"
+            # pre chat, ktorý celý beží po anglicky.
+            "WRITE THE NOTES IN ENGLISH, whatever language the conversation "
+            "itself is in. Keep his own words in quotes as he wrote them."
         )
         user = (
             f"Fakty, ktoré už máme (len ako kontext, neprepisuj ich):\n"

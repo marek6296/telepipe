@@ -35,6 +35,7 @@ import prehlad
 import recall
 import zadanie
 import speech
+import ramec
 import taper as taper_mod
 import tyzdenny
 import livevoice
@@ -497,11 +498,21 @@ class UserBot:
         # Meno ukladáme hneď ako sa predstaví — do vlastného stĺpca, nie do
         # summary. Vďaka tomu sa naň už nikdy nespýta, ani o týždeň.
         if not (user.get("partner_name") or "").strip():
-            found = funnel.extract_name(text, just_asked=self._caka_na_meno(tg_id, user))
+            # Telegramové krstné meno má PREDNOSŤ pred hádaním z vety. Jason ho
+            # mal vyplnené a chat otvoril vetou „Hey it's Jason" — aj tak mu
+            # vzniklo meno „Feeling" z jeho neskoršieho „Im feeling horny".
+            # Prezývky ako „ailqk_1" `z_telegramu` odmietne, tam sa háda ďalej.
+            found = funnel.z_telegramu(user.get("first_name"))
+            zdroj = "telegram"
+            if not found:
+                found = funnel.extract_name(
+                    text, just_asked=self._caka_na_meno(tg_id, user)
+                )
+                zdroj = "predstavil sa"
             if found:
                 patch["partner_name"] = found
                 user["partner_name"] = found
-                log.info("%s sa predstavil ako %s", tg_id, found)
+                log.info("%s: meno %s (%s)", tg_id, found, zdroj)
 
         new_stage = funnel.next_stage(user, text)
         if new_stage != user.get("funnel_stage"):
@@ -891,6 +902,11 @@ class UserBot:
         # odkaz až po jeho súhlase. Poradie vo funneli sa tým nemení — sem sa
         # dá dostať až vtedy, keď odkaz na platformu dávno má.
         pyta_fotku_teraz = photos.wants_photo(last_user_text)
+        # Odkaz má, nezaplatil a práve tlačí na niečo zadarmo. Rozlúčka má
+        # prednosť — o to sa stará `ramec.drzat` samo.
+        drzim_ramec = ramec.drzat(user, rows, pyta_fotku_teraz, explicit)
+        if drzim_ramec:
+            log.info("%s: má odkaz a tlačí zadarmo — držím rámec", tg_id)
         unlock_poslat = funnel.unlock_send(user, persona, last_user_text)
         unlock_ponuka = not unlock_poslat and funnel.unlock_offer(
             user, persona, pyta_fotku_teraz, explicit
@@ -1190,6 +1206,8 @@ class UserBot:
             link_override=kratky,
             # Bez tohto stropu spomenula odkaz v každej jednej odpovedi.
             remind_link=not funnel.recently_reminded(rows),
+            hold_frame=drzim_ramec,
+            page_question=funnel.asks_where_content(last_user_text),
             allow_long=allow_long,
             foreign=humanize.looks_foreign(last_user_text),
             bare_greeting=humanize.is_bare_greeting(last_user_text),

@@ -55,6 +55,31 @@ _LINK_REQUEST_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Pýta sa PRIAMO, kde jej obsah je („where do all the photos go?“). Naživo to
+# Jason spravil a ona odpovedala „most go on my page after i sort them“ — stránku
+# pomenovala a odkaz nedala, hoci ho mal vyššie v chate. Je to najjasnejší
+# nákupný signál, aký v dátach je, a prešiel bez povšimnutia.
+#
+# ZÁMERNE MIMO `_LINK_REQUEST_RE`: ten riadi, KEDY sa odkaz vôbec smie poslať.
+# Toto len hovorí, že na položenú otázku sa má odpovedať rovno — funnel sa tým
+# nemení.
+_OBSAH = r"(photos?|pics?|pictures?|content|videos?|vids?|fotk\w*)"
+_KDE_SLOVESO = r"(go|end\s+up|posted?|find|see|get|watch|are|is|su|sú|nájd\w*|najd\w*)"
+_PAGE_QUESTION_RE = re.compile(
+    # Obe poradia slov: „where do the photos GO" aj „where can i SEE your pics".
+    rf"\b(where|kde)\b[^?]{{0,30}}\b{_OBSAH}\b[^?]{{0,25}}\b{_KDE_SLOVESO}\b"
+    rf"|\b(where|kde)\b[^?]{{0,30}}\b{_KDE_SLOVESO}\b[^?]{{0,25}}\b{_OBSAH}\b"
+    r"|\bwhere\s+(do|d[o\u2019']?\s*you|you)\s+(post|put|upload|share)\b"
+    rf"|\bhow\s+(do|can)\s+i\s+(see|get)\b[^?]{{0,20}}\b({_OBSAH}|more)\b",
+    re.IGNORECASE,
+)
+
+
+def asks_where_content(text: str) -> bool:
+    """Pýta sa, kde nájde jej fotky/obsah?"""
+    return bool(_PAGE_QUESTION_RE.search(str(text or "")))
+
+
 # Chce explicitný obsah alebo sexuálny chat — vtedy sa navádza na platformu.
 _EXPLICIT_RE = re.compile(
     r"\bnude?s?\b|\bnaked\b|\btits?\b|\bboobs?\b|\bass\b|\bpussy\b|\bdick\b|\bcock\b"
@@ -112,6 +137,13 @@ _NOT_NAMES = {
     # „Tranks" a „Https". Krátka odpoveď na hocijakú otázku vyzerá rovnako ako
     # predstavenie sa — rozdiel je len v tom, či je to vôbec meno.
     "like", "definitely", "absolutely", "exactly", "true", "right", "same",
+    # Tretia várka (27. 8.): „Im feeling horny thinking about you" dalo meno
+    # „Feeling" človeku, ktorý sa volá Jason a chat otvoril vetou „Hey it's
+    # Jason". Stupňovanie prídavných mien je ten istý tvar vety.
+    "feeling", "shorter", "taller", "bigger", "smaller", "better", "worse",
+    "harder", "softer", "longer", "closer", "hotter", "colder", "nicer",
+    "richer", "poorer", "happier", "younger", "stronger", "weaker", "cuter",
+    "sexier", "guessing", "kidding", "joking", "chilling", "sitting", "lying",
     "good", "great", "fine", "ok", "okay", "kk", "well", "just", "sorry",
     "tranks", "welcome", "congrats", "goodnight", "morning", "night", "bye",
     "http", "https", "www", "here", "there", "this", "that", "these", "those",
@@ -140,7 +172,36 @@ def _pouzitelne(candidate: str) -> bool:
         return False
     if candidate.lower() in _NOT_NAMES:
         return False
+    # Priebehový tvar nie je meno. Čierna listina tu nestačí — takých slov je
+    # nekonečno a naživo prešlo „Feeling“ aj po dvoch kolách dopĺňania.
+    # Krátke -ing tvary sú ale bežné ázijské mená (Ming, Jing, Ying, Bing),
+    # preto až od šiestich písmen: „feeling“ áno, „Ming“ nie.
+    if len(candidate) >= 6 and candidate.lower().endswith("ing"):
+        return False
     return not _NIE_JE_MENO_RE.search(candidate)
+
+
+def z_telegramu(first_name: Any) -> str:
+    """Krstné meno z Telegramu, ak sa dá použiť.
+
+    TOTO JE LEPŠÍ ZDROJ NEŽ HÁDANIE Z VETY a dlho sa nepoužíval. Obaja ľudia,
+    ktorým naživo vzniklo nezmyselné meno („Feeling“, „Shorter“), mali pritom
+    v Telegrame vyplnené skutočné krstné meno — Jason a ailqk_1. To prvé sme
+    zahodili a vyrobili si druhé z jeho vety.
+
+    Prezývky s číslicami a podčiarkovníkmi („ailqk_1“) neprejdú `_pouzitelne`
+    — a to je správne: radšej žiadne meno než oslovovať človeka prezývkou.
+    """
+    raw = " ".join(str(first_name or "").split())
+    if not raw:
+        return ""
+    prve = _HOLE_MENO_RE.match(raw)
+    if not prve:
+        return ""
+    candidate = prve.group(1).strip("\'-")
+    if not _pouzitelne(candidate):
+        return ""
+    return candidate[:1].upper() + candidate[1:].lower()
 
 
 def extract_name(text: str, just_asked: bool = False) -> str:

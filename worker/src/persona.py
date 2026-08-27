@@ -9,6 +9,7 @@ import checkout
 import ludskost
 import humanize
 import jazyky
+import ramec
 import topics as topics_mod
 from behavior import Behavior
 
@@ -268,6 +269,11 @@ def build_system_prompt(
     misheard: bool = False,
     link_already_sent: bool = False,
     remind_link: bool = True,
+    # Odkaz má, nezaplatil a práve tlačí na niečo zadarmo. Rozhoduje `ramec`,
+    # nie model. Nie je to rozlúčka — chat ostáva otvorený.
+    hold_frame: bool = False,
+    # Spýtal sa priamo, kde jej obsah nájde. Rozhoduje `funnel.asks_where_content`.
+    page_question: bool = False,
     # Okno konverzácie sa chýli ku koncu — po ňom už s ním reč nebude.
     closing: bool = False,
     # Toto je posledná správa v tomto chate. Ďalšia už nebude žiadna.
@@ -457,7 +463,14 @@ def build_system_prompt(
             time_lines.append(
                 "Teraz si zaneprázdnená — odpovedaj kratšie a daj to najavo, "
                 "že máš ruky plné práce a píšeš medzi tým. Neospravedlňuj sa "
-                "za to a nesľubuj, kedy sa ozveš."
+                "za to a nesľubuj, kedy sa ozveš.\n"
+                "POVEDZ TO NAJVIAC RAZ. Pozri sa na svoje posledné správy: ak si "
+                "už spomenula, že si zaneprázdnená, na fotení, medzi zábermi "
+                "alebo že máš ruky plné práce, TERAZ TO NESPOMÍNAJ VÔBEC — ani "
+                "inými slovami. Naživo to zopakovala desaťkrát z osemdesiatich "
+                "správ, z toho osemkrát za dve hodiny, a nič ju neprezradilo "
+                "viac. Človek povie raz, že je zaneprázdnený, a potom sa už "
+                "normálne rozpráva."
             )
         if weather:
             time_lines.append(
@@ -718,7 +731,7 @@ def build_system_prompt(
                 "vieš oceniť až na svojej stránke — ako vedľajšiu vetu, nie ako "
                 "hlavný obsah správy. Nepoužívaj slovo pravidlá ani zákaz."
             )
-        else:
+        elif not hold_frame:
             hot.append(
                 "Stránku ani odkaz TERAZ vôbec nespomínaj, nedávno si ju už "
                 "spomenula. Ostaň pri ňom a pri tom, čo poslal."
@@ -734,6 +747,15 @@ def build_system_prompt(
             "Nikdy nepouži tú istú pochvalu dvakrát — pozri sa, čo si mu už písala. "
             "Krátko, ako človek, nepopisuj fotku ako katalóg a nepýtaj si ďalšiu."
         )
+
+    # Rámec „zadarmo to nie je". ZÁMERNE AŽ TU, za sekciou o prijatej fotke:
+    # tá mu káže reagovať hot, táto hovorí, kam to patrí. V opačnom poradí by
+    # pochvala prebila rámec a ostalo by „keep showing off".
+    if hold_frame:
+        sections.append(ramec.blok())
+    # Ide VŽDY. Sľub zadarmo je presný protipól rámca a naživo padal aj tam,
+    # kde nikto netlačil — nesmie teda závisieť od situácie.
+    sections.append(ramec.bez_slubov())
 
     # --- keď je na ňu drzý ---
     # Detektor je konzervatívny (humanize.is_hostile) — táto sekcia sa objaví
@@ -1013,6 +1035,28 @@ def build_system_prompt(
                 "vyzerá ako reklama a odplaší ho. Namiesto toho sa s ním normálne bav a "
                 "flirtuj ďalej. K stránke sa vrátiš až o pár správ, keď bude znova tlačiť."
             )
+
+    # Priama otázka na stránku. Naživo: „Once you do your shoots where do all
+    # the photos go?" → „most go on my page after i sort them. still finishing
+    # this set 😘". Stránku pomenovala, odkaz nedala, hoci ho mal vyššie —
+    # a o päť minút sa musel pýtať znova („You'll let me see? 😍").
+    if page_question:
+        kam = (
+            "Odkaz UŽ MÁ vyššie v tomto chate — povedz mu, nech sa pozrie hore, "
+            "a rovno aj to, čo ho tam čaká."
+            if link_already_sent
+            else "Povedz mu konkrétne, kde to je. Ak práve smieš poslať odkaz, "
+            "toto je ten moment."
+        )
+        sections.append(
+            "PÝTA SA, KDE TVOJ OBSAH NÁJDE\n"
+            "Toto nie je flirt ani zdvorilostná otázka — pýta sa sám a chce "
+            "odpoveď. Lepší moment nedostaneš, tak neuhýbaj.\n"
+            f"{kam}\n"
+            "NESTAČÍ stránku len spomenúť a nechať ho hádať, kde ju hľadať. "
+            "Neodkladaj to na neskôr („až to dotriedim“, „potom ti poviem“) — "
+            "to je presne to, po čom sa musí pýtať druhýkrát."
+        )
 
     funnel_rules = (persona.get("funnel_rules") or "").strip()
     if funnel_rules:
