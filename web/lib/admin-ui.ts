@@ -72,7 +72,7 @@ export const PLAN_HINT: Partial<Record<Plan, string>> = {
   free: "Locked — cannot create models or buy coins until approved.",
   free_plus: "Approved — full access. Billed at the Standard+ margin.",
   vip_lite: "Approved — reduced margin. Model slots apply as usual.",
-  vip: "Billed at cost — no margin. Pipe Coins still run down.",
+  vip: "Cost plus 10% — we never lose on them. Pipe Coins still run down.",
 };
 
 /* --------------------------------------------------------------------------

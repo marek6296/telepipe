@@ -92,7 +92,7 @@ export function UsersTable({
       }
       toast.success(
         plan === "vip"
-          ? `${row.email} is now VIP — billed at cost, no margin.`
+          ? `${row.email} is now VIP — billed at cost plus 10%.`
           : `${row.email} is now on ${PLAN_LABEL[plan]}.`,
       );
     });

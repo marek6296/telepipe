@@ -139,7 +139,7 @@ export function PricingForm({ config }: { config: ConfigRow[] }) {
           row={get("margin_vip")}
           label="VIP"
           step="0.1"
-          hint="1.0 = billed at exactly what it costs us, no margin at all."
+          hint="1.1 = our cost plus 10%, so a VIP never costs us money. Not free, just no real margin."
         />
         <ConfigField
           row={get("margin_free")}
@@ -156,7 +156,7 @@ export function PricingForm({ config }: { config: ConfigRow[] }) {
           </h2>
           <p className="mt-1 text-[12px] leading-relaxed text-[var(--app-text-4)]">
             Charged on top of tokens, only after the item actually reaches the fan. Lower
-            tiers pay proportionally less — a VIP on a 1.0 margin pays half of these.
+            tiers pay proportionally less — a VIP on a 1.1 margin pays 55% of these.
           </p>
         </div>
         <ConfigField
