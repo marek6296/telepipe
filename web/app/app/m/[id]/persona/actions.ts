@@ -29,8 +29,8 @@ const TEXT_COLUMNS = [
   "cta_link",
   // Zamknutá fotka — druhá cesta k peniazom popri odkaze na platformu.
   // Vypnutá je zámerne: väčšina klientov chce len svoj funnel.
+  // `unlock_enabled` sem NEPATRÍ — je to boolean a má vlastnú vetvu nižšie.
   "unlock_link",
-  "unlock_enabled",
   "extra_rules",
   "examples",
 ] as const;
@@ -74,6 +74,15 @@ export async function savePersonaAction(
         return { error: "Unknown platform." };
       }
       update.platform = platform;
+      continue;
+    }
+    // Vypínač je BOOLEAN. Keď spadol medzi textové stĺpce, `true` sa zmenilo
+    // na `""` a Postgres zápis odmietol s „invalid input syntax for type
+    // boolean". Formulár posiela raz `true/false`, raz „true"/„on" podľa
+    // toho, ako sa hodnota zbiera — preto sa berú všetky tvary.
+    if (key === "unlock_enabled") {
+      update.unlock_enabled =
+        value === true || value === "true" || value === "on" || value === 1;
       continue;
     }
     if (key === "age") {
