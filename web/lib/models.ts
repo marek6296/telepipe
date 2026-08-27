@@ -92,7 +92,17 @@ export type AccountRow = {
 /** Modelka + čísla, ktoré chce klient vidieť na karte. */
 export type ModelStats = {
   chats: number;
-  converted: number;
+  /**
+   * Koľko RÔZNYCH ľudí kliklo na odkaz — nie koľko klikov padlo. Jeden
+   * fanúšik, ktorý si stránku otvorí päťkrát, je stále jeden človek, a preto
+   * sa počítajú riadky v `dm_users`, nie `short_links.clicks`.
+   *
+   * NAHRADILO „Converted". To viselo na `funnel_stage = 'converted'`, ktorý sa
+   * posunie až vtedy, keď platbu spätne spárujeme s chatom — a to zatiaľ
+   * spoľahlivo nevieme (Fanvue vracia `client_reference_id` prázdny). Na karte
+   * teda svietila nula aj pri modelke, kde ľudia klikali a platili.
+   */
+  clicked: number;
   spentToday: number;
 };
 
@@ -300,7 +310,7 @@ export async function getModelStats(
 ): Promise<Record<string, ModelStats>> {
   const stats: Record<string, ModelStats> = {};
   for (const id of modelIds) {
-    stats[id] = { chats: 0, converted: 0, spentToday: 0 };
+    stats[id] = { chats: 0, clicked: 0, spentToday: 0 };
   }
   if (modelIds.length === 0) return stats;
 
@@ -308,7 +318,7 @@ export async function getModelStats(
 
   const counts = await Promise.all(
     modelIds.map(async (id) => {
-      const [all, converted] = await Promise.all([
+      const [all, clicked] = await Promise.all([
         supabase
           .from("dm_users")
           .select("tg_id", { count: "exact", head: true })
@@ -317,15 +327,15 @@ export async function getModelStats(
           .from("dm_users")
           .select("tg_id", { count: "exact", head: true })
           .eq("model_id", id)
-          .eq("funnel_stage", "converted"),
+          .not("link_clicked_at", "is", null),
       ]);
-      return { id, chats: all.count ?? 0, converted: converted.count ?? 0 };
+      return { id, chats: all.count ?? 0, clicked: clicked.count ?? 0 };
     }),
   );
 
   for (const row of counts) {
     stats[row.id].chats = row.chats;
-    stats[row.id].converted = row.converted;
+    stats[row.id].clicked = row.clicked;
   }
 
   // charged_usd = čo platí klient. `atlas_cost_usd` (naša nákupná cena) sa do

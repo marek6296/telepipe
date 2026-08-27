@@ -99,7 +99,7 @@ function ModelsGrid({
         <ModelCard
           key={model.id}
           model={model}
-          stats={stats[model.id] ?? { chats: 0, converted: 0, spentToday: 0 }}
+          stats={stats[model.id] ?? { chats: 0, clicked: 0, spentToday: 0 }}
           connected={connected[model.id] ?? false}
           aiPaused={paused[model.id] ?? false}
           day={days[model.id] ?? null}

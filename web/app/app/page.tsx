@@ -163,8 +163,8 @@ function DashboardStats({
   events: UsageRow[];
 }) {
   const totalChats = models.reduce((sum, model) => sum + (stats[model.id]?.chats ?? 0), 0);
-  const totalConverted = models.reduce(
-    (sum, model) => sum + (stats[model.id]?.converted ?? 0),
+  const totalClicked = models.reduce(
+    (sum, model) => sum + (stats[model.id]?.clicked ?? 0),
     0,
   );
   const spendThis = sumCharged(events, 0, range.days);
@@ -189,9 +189,9 @@ function DashboardStats({
         hint="fans she is talking to"
       />
       <StatTile
-        label="Converted"
-        value={compactNumber(totalConverted)}
-        hint={conversionHint(totalConverted, totalChats)}
+        label="Clicked her link"
+        value={compactNumber(totalClicked)}
+        hint={clickHint(totalClicked, totalChats)}
       />
       <StatTile
         label="Pipe Coins spent"
@@ -278,7 +278,7 @@ function DashboardModels({
           <ModelCard
             key={model.id}
             model={model}
-            stats={stats[model.id] ?? { chats: 0, converted: 0, spentToday: 0 }}
+            stats={stats[model.id] ?? { chats: 0, clicked: 0, spentToday: 0 }}
             connected={connected[model.id] ?? false}
             aiPaused={paused[model.id] ?? false}
             day={days[model.id] ?? null}
@@ -460,9 +460,11 @@ function dailyMessagesByModel(
   return { data, series };
 }
 
-function conversionHint(converted: number, conversations: number): string {
+/** Podiel z rozhovorov, nie z odoslaných odkazov — ten istý menovateľ ako
+ *  dlaždica „Conversations" hneď vedľa, aby sa dali čítať spolu. */
+function clickHint(clicked: number, conversations: number): string {
   if (conversations <= 0) return "no conversations yet";
-  return `${((converted / conversations) * 100).toFixed(1)}% of conversations`;
+  return `${((clicked / conversations) * 100).toFixed(1)}% of conversations`;
 }
 
 function RangeChip({

@@ -83,7 +83,7 @@ export function ModelCard({
           do ~85 px stĺpca sa zmestia. */}
       <dl className="mt-5 grid grid-cols-3 gap-3 min-[420px]:gap-6">
         <Metric label="Chats" value={compactNumber(stats.chats)} />
-        <Metric label="Converted" value={compactNumber(stats.converted)} />
+        <Metric label="Clicked" value={compactNumber(stats.clicked)} />
         <Metric label="Coins today" value={coinsPrecise(stats.spentToday)} />
       </dl>
 
