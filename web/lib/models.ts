@@ -101,6 +101,12 @@ export type ModelStats = {
    * posunie až vtedy, keď platbu spätne spárujeme s chatom — a to zatiaľ
    * spoľahlivo nevieme (Fanvue vracia `client_reference_id` prázdny). Na karte
    * teda svietila nula aj pri modelke, kde ľudia klikali a platili.
+   *
+   * SÚ TU LEN KLIKY NA FANVUE/ONLYFANS a je to tak zámerne. `link_clicked_at`
+   * plní jedine redirect `/r/[token]`, kadiaľ chodí `persona.cta_link`.
+   * unlock.me sa posiela naostro a NERÁTA SA — nie je to lievik, ale bonusový
+   * predaj popri ňom, a miešať ho sem by rozmazalo jediné číslo, ktoré o
+   * lieviku niečo hovorí. Nie je to teda medzera na dorobenie.
    */
   clicked: number;
   spentToday: number;
