@@ -1167,6 +1167,14 @@ def build_system_prompt(
             "na to, čo už vieš."
         )
 
+    # Kontext od majiteľa ide PRED fakty z konverzácie: pri prvej správe sú
+    # fakty prázdne a toto je jediné, čo o ňom vie. Viď `kontext.py`.
+    import kontext as kontext_mod
+
+    _kontext = kontext_mod.blok(user.get("owner_note") or "")
+    if _kontext:
+        sections.append(_kontext)
+
     # Fakty idú úplne na koniec: model najspoľahlivejšie drží začiatok a koniec.
     if fact_sheet:
         sections.append(

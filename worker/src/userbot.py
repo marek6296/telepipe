@@ -511,8 +511,12 @@ class UserBot:
 
         if is_new and not user.get("notified"):
             await self._db.update_user(tg_id, {"notified": True})
+            # Tlačidlo je tu preto, že práve TERAZ majiteľ vie, koho dotiahol
+            # odinakiaľ — o hodinu si na to nespomenie a modelka medzitým
+            # privíta známeho ako cudzieho.
             await self._notify(
-                f"🆕 *New conversation*\n{_who(user)} (`{tg_id}`)\n\n\u201c{text[:200]}\u201d"
+                f"🆕 *New conversation*\n{_who(user)} (`{tg_id}`)\n\n\u201c{text[:200]}\u201d",
+                buttons=self._kontext_button(tg_id),
             )
         if funnel.detect_paid_claim(text) and not user.get("paid"):
             await self._notify(
@@ -520,6 +524,22 @@ class UserBot:
             )
 
         self._schedule_reply(tg_id)
+
+    def _kontext_button(self, tg_id: int):
+        """Tlačidlo „Add context" k upozorneniu o novom človeku.
+
+        Bez control bota (nespárovaný) sa notifikácia posiela textom, takže
+        tlačidlo nemá kto vykresliť — vtedy `None`.
+        """
+        control = self._control
+        if control is None:
+            return None
+        try:
+            from telethon import Button
+
+            return [[Button.inline("🧠 Add context", f"nc:{int(tg_id)}".encode())]]
+        except Exception:  # noqa: BLE001 — notifikácia musí odísť aj bez neho
+            return None
 
     def _schedule_reply(self, tg_id: int) -> None:
         """Debounce — ak človek dopisuje ďalšie správy, timer sa reštartuje."""

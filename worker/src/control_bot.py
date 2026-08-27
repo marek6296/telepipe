@@ -38,6 +38,7 @@ from telethon.tl import functions, types
 import behavior as bhv
 import coiny
 import generator as generator_mod
+import kontext as kontext_mod
 import skuska as skuska_mod
 from behavior import Behavior
 from config import TenantConfig as Config
@@ -382,7 +383,7 @@ class ControlBot:
         self._client.add_event_handler(self._on_value, events.NewMessage(incoming=True))
         self._client.add_event_handler(self._on_callback, events.CallbackQuery())
 
-    async def notify(self, text: str) -> None:
+    async def notify(self, text: str, buttons: Any = None) -> None:
         # Nespárovaná modelka nie je porucha, len ešte nemá kam písať. Bez tejto
         # vetvy by `send_message(0, ...)` pri každej notifikácii hodil výnimku a
         # do logu tiekla varovná hláška o zle nastavenom botovi — hoci majiteľ
@@ -392,7 +393,9 @@ class ControlBot:
                       self._cfg.model_id)
             return
         try:
-            await self._client.send_message(self._cfg.owner_chat_id, text, link_preview=False)
+            await self._client.send_message(
+                self._cfg.owner_chat_id, text, buttons=buttons, link_preview=False
+            )
         except Exception as exc:  # noqa: BLE001 - notifikácia nesmie zhodiť tok
             log.warning(
                 "Notifikácia sa neodoslala (dal si botovi START zo správneho účtu?): %s", exc
@@ -553,6 +556,41 @@ class ControlBot:
             buttons=[
                 [Button.inline("🔄 Start over", b"tryr"), Button.inline("🛑 End test", b"try")],
             ],
+        )
+
+    async def _uloz_kontext(self, event, field: str, value: str) -> None:
+        """Poznámku od majiteľa uloží k tomu človeku — po anglicky.
+
+        Prekladá sa zámerne: poznámka ide do promptu medzi ostatné fakty a
+        slovenčina v ňom ťahá k slovenčine celú odpoveď. Keď preklad zlyhá,
+        uloží sa pôvodné znenie — poznámka v slovenčine je stále lepšia než
+        privítať známeho ako cudzieho.
+        """
+        try:
+            tg_id = int(field)
+        except (TypeError, ValueError):
+            await event.reply("That conversation is gone.")
+            return
+
+        cisty = kontext_mod.orez(value)
+        if not cisty:
+            await event.reply("Nothing to save.")
+            return
+
+        if self._llm is not None:
+            async with self._client.action(event.chat_id, "typing"):
+                cisty = await kontext_mod.do_anglictiny(self._llm, cisty)
+        try:
+            await self._db.update_user(tg_id, {"owner_note": cisty})
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Kontext sa nepodarilo uložiť: %s", exc)
+            await event.reply("⚠️ Could not save it. Try again.")
+            return
+
+        log.info("%s: majiteľ doplnil kontext", tg_id)
+        await event.reply(
+            f"🧠 *Saved — she knows this now:*\n_{_short(cisty, 300)}_\n\n"
+            "It applies from her next reply.",
         )
 
     # ---------- písanie do chatu z menu ----------
@@ -770,6 +808,16 @@ class ControlBot:
             async with self._client.action(chat_id, "typing"):
                 await self._generator_napis(event, value, pokus=1)
             return
+        # Kontext k človeku od majiteľa — nie je to nastavenie modelky ani
+        # akcia nad kartou, je to vklad k jednému chatu.
+        if kind == "ctx_note":
+            self._awaiting.pop(chat_id, None)
+            try:
+                await self._uloz_kontext(event, field, value)
+            except Exception as exc:  # noqa: BLE001
+                log.exception("uloženie kontextu zlyhalo")
+                await event.reply(f"⚠️ {exc}"[:190])
+            return
         # Semi-auto free-text (vlastná správa, cena, popis, text hlasovky) —
         # nie je to nastavenie poľa, ale akcia nad čakajúcim návrhom.
         if kind.startswith("semi_"):
@@ -887,6 +935,17 @@ class ControlBot:
             await self._db.set_paused(not paused)
             await event.answer("AI on" if paused else "AI off")
             await self._send_main(event, edit=True)
+        elif head == "nc":
+            # Kontext k novému človeku („toto je Jason z Instagramu"). Píše sa
+            # ľubovoľným jazykom, ukladá sa po anglicky.
+            self._awaiting[event.chat_id] = ("ctx_note", arg)
+            await event.answer()
+            await event.respond(
+                "🧠 Who is this? Write it in your own words — where you know "
+                "him from and anything she should already know.\n"
+                "_Example: toto je Jason z instagramu, píšeme si tam týždeň._\n"
+                "/cancel to cancel."
+            )
         elif head == "fc":
             await self._zoznam_chatov(event, "fanvue")
         elif head == "tc":
