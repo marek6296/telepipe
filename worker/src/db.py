@@ -765,7 +765,8 @@ class TenantDb:
                 "model_id": self._mine,
                 "conv_key": f"eq.{conv_key}",
                 "status": "eq.awaiting",
-                "select": "id,prompt,hint,conv_key,channel",
+                "select": "id,prompt,hint,conv_key,channel,status,"
+                          "incoming_preview,control_msg_id",
                 "order": "created_at.desc",
                 "limit": "1",
             },

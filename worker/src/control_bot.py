@@ -1817,6 +1817,24 @@ class ControlBot:
         pid = self._cards.get(mid)
         row = await self._db.get_pending(pid) if pid else None
         ctx = self._chat_ctx.get(mid) or {}
+
+        # KÝM PÍSAL, MOHLA PRÍSŤ NOVÁ SPRÁVA a starú kartu prebiť. Naostro sa
+        # to stalo pri „Say this": karty prišli o minútu po sebe, druhá prvú
+        # zavrela, a text, ktorý medzitým napísal, spadol pod stôl s hláškou,
+        # že karta už neexistuje. Písal ju pritom TOMU ISTÉMU človeku.
+        #
+        # Zadanie sa preto presmeruje na aktuálnu kartu toho chatu. Zahodiť sa
+        # smie až vtedy, keď v ňom nič nečaká.
+        if (not row or row.get("status") != "awaiting") and ctx.get("conv_key"):
+            fresh = await self._db.get_pending_for(str(ctx["conv_key"]))
+            if fresh:
+                pid, row = fresh["id"], fresh
+                novy_mid = int(fresh.get("control_msg_id") or 0)
+                if novy_mid:
+                    mid = novy_mid
+                    self._cards[novy_mid] = pid
+                log.info("semi %s: karta bola prebitá, píšem na aktuálnu", kind)
+
         if row and row.get("status") == "awaiting":
             channel, conv = row["channel"], row["conv_key"]
         elif ctx:

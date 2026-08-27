@@ -137,6 +137,12 @@ class MeteredLlm:
         await self._reg.charge_unit(self._model_id, kind, key, default_price)
 
     async def reply(self, *a, **kw): return await self._metered("reply", *a, **kw)
+    # `suggest` sem pribudlo neskôr než ostatné a chvíľu chýbalo — padalo cez
+    # `__getattr__` rovno na `Llm`, takže KAŽDÝ návrh v poloautomate, každé
+    # pregenerovanie a každá veta z generátora sa modelu zaplatili, ale
+    # klientovi sa nezaúčtovali. Meraný musí byť každý spôsob, ako sa dá
+    # minúť token.
+    async def suggest(self, *a, **kw): return await self._metered("suggest", *a, **kw)
     async def structured(self, *a, **kw): return await self._metered("structured", *a, **kw)
     async def summarize(self, *a, **kw): return await self._metered("summarize", *a, **kw)
     async def describe_image(self, *a, **kw): return await self._metered("describe_image", *a, **kw)
