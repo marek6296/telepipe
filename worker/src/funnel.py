@@ -419,3 +419,115 @@ def pushing_after_link(user: Dict[str, Any], rows: Sequence[Dict[str, Any]]) -> 
     if int(user.get("link_push_count") or 0) < 2:
         return False
     return nudes_after_link(rows, user.get("link_sent_at")) >= NUDE_PUSH_LIMIT
+
+
+# --------------------------------------------------------------------------
+# Zamknutá fotka (unlock.me) — druhá cesta k peniazom
+# --------------------------------------------------------------------------
+#
+# Bežný funnel vedie na platformu: odkaz odíde raz, potom sa pripomína. Kto
+# tam ale nejde a stále tlačí na fotky, je slepá ulička — ďalšia zmienka
+# o stránke ho už len otravuje.
+#
+# Toto je pre neho druhá ponuka: jedna zamknutá fotka, ktorú si kúpi na mieste,
+# bez zakladania účtu. NIE JE to náhrada odkazu a nikdy nejde skôr než on:
+# poradie ostáva odkaz → pripomenutie → až potom toto.
+#
+# Len Telegram. Na Fanvue je človek už zaplatený a má vlastný trezor, na
+# Instagrame sa platené odkazy neposielajú vôbec.
+
+# Koľkokrát za celý chat. Raz — je to jedna konkrétna fotka, nie sortiment.
+UNLOCK_MAX = 1
+# Ako dlho platí jej otázka „chceš to vidieť?". Keď odpovie o dva dni, už to
+# nie je odpoveď na ňu a odkaz do reči nesadne.
+UNLOCK_PONUKA_H = 6
+
+# „yes", „yeah", „fuck yes", „show me", „send it", „ofc", „pls". Súhlas je
+# krátky a v angličtine jednoslovný — dlhá veta býva niečo iné.
+_SUHLAS_RE = re.compile(
+    r"^\W*("
+    r"y+e+s+|y+e+a+h*|y+e+p+|y+u+p+|s+u+r+e+|o+k+a*y*|k+|"
+    r"a+b+s+o+l+u+t+e+l+y+|d+e+f+i+n+i+t+e+l+y+|o+f+c+|o+f+\s*c+o+u+r+s+e+|"
+    r"p+l+e+a+s+e+|p+l+s+|p+l+z+|i+\s*d+o+|i+\s*w+o+u+l+d+"
+    r")\b"
+    r"|\b(show|send|lemme\s+see|let\s+me\s+see|i\s+want|i\s+wanna|"
+    r"hell\s+yes|fuck\s+yes|hell\s+yeah|fuck\s+yeah)\b",
+    re.IGNORECASE,
+)
+
+# Odmietnutie. Kontroluje sa PRED súhlasom, lebo „no thanks" aj „nope" by
+# inak prešli cez slovo, ktoré v sebe nesú.
+_NESUHLAS_RE = re.compile(
+    r"^\W*(n+o+|n+a+h*|n+o+p+e+|n+e+v+e+r+|stop|later|maybe\s+later)\b",
+    re.IGNORECASE,
+)
+
+
+def said_yes(text: str) -> bool:
+    """Súhlasil s tým, čo mu práve ponúkla?"""
+    raw = (text or "").strip()
+    if not raw or _NESUHLAS_RE.match(raw):
+        return False
+    return bool(_SUHLAS_RE.search(raw))
+
+
+def _unlock_zapnute(user: Dict[str, Any], persona: Dict[str, Any]) -> bool:
+    """Spoločné podmienky pre ponuku aj pre odoslanie."""
+    if not persona.get("unlock_enabled"):
+        return False
+    if not str(persona.get("unlock_link") or "").strip():
+        return False
+    if user.get("paid") or (user.get("funnel_stage") or COLD) == CONVERTED:
+        return False
+    # Bez odoslaného odkazu na platformu by to bola prvá vec, ktorú od nej
+    # dostane — a tým by sa z funnelu stala predajňa fotiek.
+    if not user.get("link_sent_at"):
+        return False
+    return int(user.get("unlock_count") or 0) < UNLOCK_MAX
+
+
+def unlock_offer(
+    user: Dict[str, Any],
+    persona: Dict[str, Any],
+    wants_photo: bool,
+    explicit_now: bool,
+    now: Optional[datetime] = None,
+) -> bool:
+    """Má sa ho TERAZ spýtať, či to chce vidieť? (Bez odkazu.)
+
+    Prvý z dvoch krokov. Odkaz do ticha je reklama; otázka je rozhovor — a
+    odpoveď na ňu zároveň povie, či o to vôbec stojí.
+    """
+    if not _unlock_zapnute(user, persona):
+        return False
+    if not (wants_photo or explicit_now):
+        return False
+    # Už sa pýtala a ponuka ešte platí — nepýta sa druhýkrát.
+    kedy = _ts(user.get("unlock_offered_at"))
+    if kedy is not None:
+        teraz = now or datetime.now(timezone.utc)
+        if teraz - kedy < timedelta(hours=UNLOCK_PONUKA_H):
+            return False
+    return True
+
+
+def unlock_send(
+    user: Dict[str, Any],
+    persona: Dict[str, Any],
+    incoming: str,
+    now: Optional[datetime] = None,
+) -> bool:
+    """Povedal áno na jej otázku — smie odísť odkaz?
+
+    Druhý z dvoch krokov. Bez čerstvej ponuky sa odkaz neposiela nikdy, aj
+    keby napísal „yes" na niečo úplne iné.
+    """
+    if not _unlock_zapnute(user, persona):
+        return False
+    kedy = _ts(user.get("unlock_offered_at"))
+    if kedy is None:
+        return False
+    teraz = now or datetime.now(timezone.utc)
+    if teraz - kedy > timedelta(hours=UNLOCK_PONUKA_H):
+        return False
+    return said_yes(incoming)

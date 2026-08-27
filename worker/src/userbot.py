@@ -867,6 +867,22 @@ class UserBot:
 
         # Register tém: čo sa hodí spýtať teraz a na čo sa už pýtať nesmie.
         persona = await self._db.get_persona()
+        # Zamknutá fotka (voliteľná, len Telegram). Dva kroky: najprv otázka,
+        # odkaz až po jeho súhlase. Poradie vo funneli sa tým nemení — sem sa
+        # dá dostať až vtedy, keď odkaz na platformu dávno má.
+        pyta_fotku_teraz = photos.wants_photo(last_user_text)
+        unlock_poslat = funnel.unlock_send(user, persona, last_user_text)
+        unlock_ponuka = not unlock_poslat and funnel.unlock_offer(
+            user, persona, pyta_fotku_teraz, explicit
+        )
+        unlock_url = (
+            str(persona.get("unlock_link") or "").strip() if unlock_poslat else ""
+        )
+        if unlock_poslat:
+            log.info("%s: povedal áno na zamknutú fotku — posielam odkaz", tg_id)
+        elif unlock_ponuka:
+            log.info("%s: ponúknem mu zamknutú fotku", tg_id)
+
         asked = user.get("asked_topics") or {}
         try:
             fact_rows = await self._db.facts_for(tg_id)
@@ -1147,6 +1163,8 @@ class UserBot:
             photo_reason=photo_reason or "",
             link_already_sent=int(user.get("link_push_count") or 0) > 0,
             closing=zatvara_sa,
+            unlock_offer=unlock_ponuka,
+            unlock_link=unlock_url,
             farewell=je_rozlucka,
             farewell_reason=dovod_rozlucky,
             link_override=kratky,
@@ -1192,7 +1210,7 @@ class UserBot:
             log.info("%s: model pýta hlasovku %s", tg_id, hlas_pokyn or "(bez detailov)")
         text = self._uprav_odpoved(
             raw, behavior, gap, allow_link, jej_nedavne, he_greeted=pozdravil,
-            link=kratky,
+            link=kratky, unlock_link=unlock_url,
         )
         # Sudca — posledná kontrola pred odoslaním. Zlyháva otvorene:
         # keď sa čokoľvek pokazí, odchádza pôvodný návrh.
@@ -1212,7 +1230,7 @@ class UserBot:
             log.info("%s: sudca opravil odpoveď (%s)", tg_id, verdict["why"])
             text = self._uprav_odpoved(
                 verdict["text"], behavior, gap, allow_link, jej_nedavne,
-                he_greeted=pozdravil, link=kratky,
+                he_greeted=pozdravil, link=kratky, unlock_link=unlock_url,
             )
             asyncio.create_task(
                 self._log_judge(tg_id, verdict["text"], text, verdict["why"])
@@ -1401,6 +1419,8 @@ class UserBot:
             cta_voice=bool(chosen_voice and chosen_voice.get("is_cta")),
             farewell=je_rozlucka,
             link_override=kratky,
+            unlock_offer=unlock_ponuka,
+            unlock_link=unlock_url,
         )
 
     @staticmethod
@@ -1412,6 +1432,7 @@ class UserBot:
         jej_nedavne: List[str],
         he_greeted: bool = False,
         link: str = "",
+        unlock_link: str = "",
     ) -> str:
         """Post-processing, ktorý platí rovnako na návrh aj na opravu sudcu.
 
@@ -1436,7 +1457,7 @@ class UserBot:
         if behavior.no_diacritics:
             text = humanize.strip_diacritics(text)
         if not allow_link:
-            text = _strip_urls(text)
+            text = _strip_urls(text, keep=unlock_link)
         elif link:
             # Adresu modelu neveríme. Namerané: z troch odoslaných odkazov
             # odišiel jeden bez „https" a fungoval len vďaka tomu, že si
@@ -2400,6 +2421,8 @@ class UserBot:
         cta_voice: bool = False,
         farewell: bool = False,
         link_override: str = "",
+        unlock_offer: bool = False,
+        unlock_link: str = "",
     ) -> None:
         tg_id = user["tg_id"]
         patch: Dict[str, Any] = {
@@ -2474,6 +2497,20 @@ class UserBot:
             await self._notify(
                 f"🔗 Link sent — {_who(user)} (`{tg_id}`), push #{patch['link_push_count']}"
             )
+
+        # Zamknutá fotka. Ponuka sa zapisuje vždy, keď odišla — aj keď ju model
+        # nakoniec nevyslovil, lebo mu to do reči nesadlo; inak by sa pýtal
+        # v každej ďalšej správe. Odoslanie sa zapisuje LEN keď odkaz naozaj
+        # v texte je.
+        if unlock_offer:
+            patch["unlock_offered_at"] = _utc_iso()
+        if unlock_link and humanize.contains_link(sent_text, unlock_link):
+            patch["unlock_sent_at"] = _utc_iso()
+            patch["unlock_count"] = int(user.get("unlock_count") or 0) + 1
+            # Ponuka je vybavená — ďalšia by sa inak mohla oprieť o starú.
+            patch["unlock_offered_at"] = None
+            await self._notify(f"🔓 Locked photo sent — {_who(user)} (`{tg_id}`)")
+
         await self._db.update_user(tg_id, patch)
 
         user.update(patch)
@@ -2951,9 +2988,20 @@ class UserBot:
         await self._reply_batch(pusteni, behavior)
 
 
-def _strip_urls(text: str) -> str:
-    """Odstráni odkazy, ale zachová členenie na odstavce (to určuje delenie správ)."""
+def _strip_urls(text: str, keep: str = "") -> str:
+    """Odstráni odkazy, ale zachová členenie na odstavce (to určuje delenie správ).
+
+    `keep` je JEDINÝ odkaz, ktorý smie ostať — odkaz na zamknutú fotku. Bez
+    tejto výnimky by ho čistenie zmazalo vždy, keď je odkaz na platformu na
+    cooldowne, a z odpovede by ostalo „tu to máš" bez adresy.
+    """
+    chraneny = "\x00UNLOCK\x00"
+    keep = (keep or "").strip()
+    if keep and keep in text:
+        text = text.replace(keep, chraneny)
     out = _URL_RE.sub("", text)
+    if keep:
+        out = out.replace(chraneny, keep)
     out = re.sub(r"[ \t]{2,}", " ", out)
     out = re.sub(r" +([,.!?…])", r"\1", out)
     return "\n\n".join(part.strip() for part in re.split(r"\n{2,}", out) if part.strip())

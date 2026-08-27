@@ -7,6 +7,7 @@ import { AutoSaveForm } from "@/components/app/forms/auto-save";
 import {
   NumberField,
   SelectField,
+  SwitchField,
   TextAreaField,
   TextField,
 } from "@/components/app/forms/fields";
@@ -31,6 +32,9 @@ export type PersonaRow = {
   boundaries: string;
   funnel_rules: string;
   cta_link: string;
+  /** Zamknutá fotka — druhá ponuka popri odkaze na platformu. */
+  unlock_link: string;
+  unlock_enabled: boolean;
   /** Kam ťahá ľudí: fanvue | onlyfans | other. */
   platform: string;
   extra_rules: string;
@@ -249,6 +253,33 @@ export function PersonaForm({
             help="She never sends the link before the 6th message, and only once the chat is warm."
           />
           )}
+        </div>
+      </Card>
+
+      {/* Druhá cesta k peniazom, oddelená od funnelu zámerne: nie je to iná
+          verzia toho istého odkazu, je to iná ponuka pre iný moment. */}
+      <Card>
+        <CardHeader
+          title="Locked photo"
+          description="A second option for fans who never go to your page. Off by default."
+        />
+        <div className="grid gap-5 p-5 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <SwitchField
+              name="unlock_enabled"
+              label="Offer a locked photo on Telegram"
+              defaultValue={persona.unlock_enabled}
+              help="Only on Telegram, and only after he already has your page link and still keeps asking. She asks first — “wanna see something?” — and sends the link only if he says yes. Once per conversation, never to someone who already paid."
+            />
+          </div>
+          <TextField
+            name="unlock_link"
+            label="Locked photo link"
+            defaultValue={persona.unlock_link}
+            placeholder="https://unlock.me/yourphoto"
+            type="url"
+            help="The page where he unlocks and pays for that one photo. Leave it empty and the option stays off however the switch is set."
+          />
         </div>
       </Card>
 

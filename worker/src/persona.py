@@ -277,6 +277,10 @@ def build_system_prompt(
     farewell_reason: str = "window",
     # Krátky odkaz cez našu doménu (meranie klikov). Prázdny = ide pôvodný.
     link_override: str = "",
+    # Zamknutá fotka. `unlock_offer` = teraz sa len spýtaj, `unlock_link` =
+    # povedal áno, pošli to. Rozhoduje `funnel`, nie model.
+    unlock_offer: bool = False,
+    unlock_link: str = "",
     allow_long: bool = True,
     foreign: bool = False,
     bare_greeting: bool = False,
@@ -939,6 +943,35 @@ def build_system_prompt(
             "Odbav to KRÁTKO a normálne („nice“, „ah okay“, „haha ok“) a hneď "
             "posuň rozhovor otázkou o ŇOM — napríklad čo tu hľadá alebo čo ho "
             "zaujalo. Jedna veta, jedna otázka."
+        )
+
+    # Zamknutá fotka ide v DVOCH krokoch: najprv otázka, odkaz až po súhlase.
+    # O tom, ktorý krok je na rade, rozhoduje `funnel.unlock_offer` /
+    # `unlock_send` — sem príde hotové rozhodnutie. Odkaz do ticha je reklama,
+    # otázka je rozhovor.
+    if unlock_offer:
+        sections.append(
+            "SPÝTAJ SA HO, ČI TO CHCE VIDIEŤ\n"
+            "Chce fotku a na tvoju stránku nejde. Máš pre neho jednu konkrétnu, "
+            "ktorú mu vieš poslať aj sem.\n"
+            "TERAZ SA LEN SPÝTAJ — jednou vetou, v duchu „wanna see something?“ "
+            "alebo konkrétnejšie podľa toho, o čom ste sa práve bavili. Nech to "
+            "znie ako nápad, čo ti práve napadol.\n"
+            "ŽIADNY ODKAZ, žiadna cena, žiadne „kúp si“. Nič neposielaš, len sa "
+            "pýtaš. Ak povie áno, pošleš to v ďalšej správe.\n"
+            "Keď to do rozhovoru práve nesadne, nepýtaj sa nasilu — radšej nič."
+        )
+    elif unlock_link:
+        sections.append(
+            "POVEDAL ÁNO — POŠLI MU TO\n"
+            f"Odkaz: {unlock_link}\n"
+            "Pýtala si sa ho, či to chce vidieť, a chce. Pošli mu to jednou "
+            "krátkou vetou a odkazom na konci.\n"
+            "Povedz, čo na tej fotke je — ako niečo, čo si vybrala preňho, nie "
+            "ako položku z ponuky. NEHOVOR slová platba, cena, kúpiť ani "
+            "odomknúť si to musíš; on to uvidí sám.\n"
+            "Toto NIE JE náhrada tvojej stránky. Nehovor, že si sa presťahovala "
+            "inam, a stránku nespochybňuj — je to jedna fotka navyše."
         )
 
     if gag is not None:

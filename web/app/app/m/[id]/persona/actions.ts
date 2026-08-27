@@ -27,6 +27,10 @@ const TEXT_COLUMNS = [
   "boundaries",
   "funnel_rules",
   "cta_link",
+  // Zamknutá fotka — druhá cesta k peniazom popri odkaze na platformu.
+  // Vypnutá je zámerne: väčšina klientov chce len svoj funnel.
+  "unlock_link",
+  "unlock_enabled",
   "extra_rules",
   "examples",
 ] as const;
@@ -95,6 +99,16 @@ export async function savePersonaAction(
       return { error: "The link must start with https:// and look like a real URL." };
     }
     update.cta_link = link;
+  }
+
+  // Ten istý tvar ako `cta_link` — zlý odkaz by modelka poslala tak, ako je,
+  // a fanúšik by skončil na chybovej stránke.
+  if (typeof update.unlock_link === "string" && update.unlock_link.trim()) {
+    const link = update.unlock_link.trim();
+    if (!/^https?:\/\/\S+\.\S+/.test(link)) {
+      return { error: "The locked-photo link must start with https:// and look like a real URL." };
+    }
+    update.unlock_link = link;
   }
 
   if (typeof update.name === "string" && !update.name.trim()) {
