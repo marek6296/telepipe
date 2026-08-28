@@ -83,12 +83,18 @@ def paid_moment(
     settings: Dict[str, Any],
     asked_spicy: bool,
     now: Optional[datetime] = None,
+    rozohriaty: bool = False,
 ) -> str:
     """Kedy prísť s plateným obsahom.
 
     `asked` = vypýtal si to sám, to je najlepší moment.
     `nudge` = dlho sa o tom nehovorilo, tak s tým príde ona.
     `""` = teraz nie.
+
+    `rozohriaty` = práve medzi nimi beží sex chat. Vtedy sa NESKÁČE do reči
+    s ponukou: rozhovor sám je to, za čo platí, a keď bude niečo chcieť,
+    povie si — a vtedy nastane `asked`, čo je aj tak lepší moment. Marek to
+    povedal presne: „keď sú nadržaní a chcú dačo, potom posielať hlavne."
     """
     if not settings.get("sell_content"):
         return ""
@@ -120,6 +126,11 @@ def paid_moment(
 
     # Nie každý si vypýta, aj keď by kúpil. Po dlhšom tichu okolo tejto
     # témy s tým príde sama — raz, nie opakovane.
+    # Do rozbehnutého sex chatu sa ponuka netlačí. `asked` vyššie tým dotknuté
+    # nie je — keď si o niečo povie, predáva sa ďalej normálne.
+    if rozohriaty:
+        return ""
+
     prah = int(settings.get("nudge_after_msgs") or 0)
     if prah and spravy >= prah:
         posledny_dopyt = _ts(row.get("last_paid_ask_at"))
@@ -137,6 +148,8 @@ def guidance(
     where: str = "home",
     owed: bool = False,
     ma_media: bool = True,
+    rozohriaty: bool = False,
+    tah_hint: str = "",
 ) -> str:
     """Pokyn do promptu — čo má práve teraz robiť s obsahom.
 
@@ -160,6 +173,17 @@ def guidance(
         )
 
     riadky = []
+
+    # SEX CHAT JE TIEŽ PRODUKT. Kto tu ostáva dlhšie, neplatí len za fotky —
+    # platí aj za to, že sa s ním niekto takto rozpráva. Keď to beží, netlač
+    # doňho ponuku: `paid_moment` v tomto stave žiadnu ani nedá.
+    if rozohriaty:
+        riadky.append(
+            "PRÁVE MEDZI VAMI BEŽÍ SEX CHAT. Choď s ním naplno a nekaz to "
+            "ponukou — teraz je samotný rozhovor to, za čo ti platí. Priostruj, "
+            "opisuj, pýtaj sa, čo by ti robil. Keď bude niečo chcieť, povie si "
+            "sám, a AŽ VTEDY sa o obsahu hovorí."
+        )
 
     if owed:
         riadky.append(
@@ -227,6 +251,11 @@ def guidance(
             "Teraz nič nepredávaj. Ale keď reč príde na to, čo máš na sebe "
             "alebo čo robíš, nechaj to visieť vo vzduchu."
         )
+
+    # AKO to priniesť teraz — vybraté z registra, aby to nebol zakaždým ten
+    # istý postup. Ide na koniec: je to spôsob, nie rozhodnutie.
+    if tah_hint and riadky:
+        riadky.append(tah_hint)
 
     return "\n".join(f"- {r}" for r in riadky)
 

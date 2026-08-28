@@ -33,6 +33,7 @@ import fanmatch
 import fvflow
 import fvmedia
 import fvsync
+import fvtah
 import fvvoice
 import ludskost
 import oznamy
@@ -118,6 +119,9 @@ class Situacia:
     moment: str
     foto_ok: bool
     dlzi: bool
+    # Ktorý ťah sa práve ponúkol modelke. Zapisuje sa do registra po odoslaní,
+    # nech ho ten istý človek nedostane znova.
+    tah: Any
     prompt: str
     tip: str
 
@@ -985,7 +989,14 @@ class FanvueAgent:
         text = str(fan.get("text") or "")
         pyta_fotku = fvmedia.asked_for_photo(text)
         pyta_ostre = fvmedia.wants_spicy(text)
-        moment = fvflow.paid_moment(row, settings, pyta_ostre)
+        # Nadrženie sa stupňuje naprieč správami, nie v jednej vete. Keď to
+        # beží, ponuka doňho neskáče — a keď si o niečo povie, `asked` vyššie
+        # to aj tak zachytí.
+        horuco = fvmedia.rozohriaty(await self._db.history(fan["uuid"]))
+        moment = fvflow.paid_moment(row, settings, pyta_ostre, rozohriaty=horuco)
+        # Ktorým spôsobom to priniesť. Register drží odstup, aby ten istý
+        # postup nedostal ten istý človek dvakrát krátko po sebe.
+        tah = fvtah.vyber(fvtah.pouzite_z(row), moment)
         foto_ok = fvflow.free_photo_ok(row, settings, pyta_fotku, kde)
         dlzi = fvflow.owes_photo(row)
 
@@ -1000,6 +1011,8 @@ class FanvueAgent:
             fvflow.guidance(
                 row, settings, moment, foto_ok, pyta_fotku, kde, dlzi,
                 ma_media=await self._ma_media(settings),
+                rozohriaty=horuco,
+                tah_hint=fvtah.blok(tah),
             ),
             behavior=behavior,
         )
@@ -1014,6 +1027,7 @@ class FanvueAgent:
             moment=moment,
             foto_ok=foto_ok,
             dlzi=dlzi,
+            tah=tah,
             prompt=prompt,
             tip=fvflow.tip(moment, foto_ok, pyta_fotku, dlzi, kde),
         )
@@ -1061,7 +1075,21 @@ class FanvueAgent:
 
         # Semi: namiesto odoslania vygeneruj návrhy a pošli majiteľovi kartu.
         if semi:
-            await self._handoff_semi(fan, row, prompt, history, sit.tip)
+            if await self._handoff_semi(fan, row, prompt, history, sit.tip) and (
+                sit.tah is not None
+            ):
+                # Karta odišla s týmto ťahom — zapíš ho, nech ho majiteľ
+                # nedostane v návrhoch znova o dve správy neskôr.
+                await self._db.update_fan(
+                    fan["uuid"],
+                    {
+                        "used_moves": fvtah.zapis(
+                            fvtah.pouzite_z(row),
+                            sit.tah.key,
+                            datetime.now(timezone.utc),
+                        )
+                    },
+                )
             return
 
         text = (await self._llm.reply(prompt, history)).strip()
@@ -1119,6 +1147,13 @@ class FanvueAgent:
             patch["free_photos"] = int(row.get("free_photos") or 0) + 1
         if moment:
             patch["last_paid_ask_at"] = teraz_iso
+        # Ťah sa zapisuje UŽ PRI POUŽITÍ, nie po overení, či ho model naozaj
+        # využil — rovnako ako vtipy na Telegrame. Radšej ťah raz preskočiť
+        # než ho tomu istému človeku zopakovať.
+        if sit.tah is not None:
+            patch["used_moves"] = fvtah.zapis(
+                fvtah.pouzite_z(row), sit.tah.key, datetime.now(timezone.utc)
+            )
         if cena > 0 or (moment and _offered(text)):
             patch["last_offer_at"] = teraz_iso
             patch["offers_sent"] = int(row.get("offers_sent") or 0) + 1

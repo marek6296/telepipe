@@ -153,6 +153,42 @@ def wants_spicy(text: Any) -> bool:
     return any(phrase in low for phrase in _OSTRE)
 
 
+# Slová, ktoré hovoria o NÁLADE, nie o vypýtaní si obsahu. Zámerne mimo
+# `_OSTRE`: ten zoznam riadi `asked_for_photo` aj `wants_spicy`, teda KEDY sa
+# smie ponúkať a posielať. Keby doň pribudlo „horny", zmenilo by to, kedy
+# odchádzajú fotky — a to je posledné, čo tu chceme meniť.
+_NADRZANY = (
+    "horny", "fuck", "cum", "cock", "dick", "suck", "wet", "hard for",
+    "turn me on", "turned on", "make me", "so bad", "want u", "want you",
+    "kiss", "lick", "touch", "bed with", "moan", "tease",
+)
+
+
+# Koľko posledných správ sa pozerá pri hodnotení, či sa chat rozohrial.
+ROZOHRIATIE_OKNO = 6
+# Koľko z nich musí byť ostrých. Dve, aby jedna narážka nespravila sex chat.
+ROZOHRIATIE_MIN = 2
+
+
+def rozohriaty(history: Any, okno: int = ROZOHRIATIE_OKNO) -> bool:
+    """Beží medzi nimi práve sex chat?
+
+    `wants_spicy` sa pýta len na POSLEDNÚ správu, takže vidí jednu vetu a nie
+    náladu. Nadrženie sa pritom stupňuje naprieč viacerými správami — a práve
+    to je stav, v ktorom sa nemá skákať do reči s ponukou.
+
+    Ráta sa z oboch strán: keď priostruje ona a on ide s ňou, je to sex chat
+    rovnako, ako keď začne on.
+    """
+    riadky = list(history or [])[-okno:]
+    horuce = 0
+    for r in riadky:
+        low = str((r or {}).get("content") or "").lower()
+        if any(w in low for w in _OSTRE) or any(w in low for w in _NADRZANY):
+            horuce += 1
+    return horuce >= ROZOHRIATIE_MIN
+
+
 AUDIENCES = ("subscribers", "followers-and-subscribers")
 
 
