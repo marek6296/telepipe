@@ -340,7 +340,15 @@ export function VoiceStudio({
           stage={stage}
           problem={problem}
           url={url}
-          fileName={clipFileName(live.ambience, live.tempo, new Date().toISOString())}
+          // MP3 tej istej nahrávky, keď sa už stihla objaviť v zozname —
+          // inak by hore visel OGG a o kúsok nižšie MP3 toho istého klipu.
+          mp3={clips[0]?.url === url ? clips[0]?.mp3_url ?? "" : ""}
+          fileName={clipFileName(
+            live.ambience,
+            live.tempo,
+            new Date().toISOString(),
+            clips[0]?.url === url && clips[0]?.mp3_url ? "mp3" : "ogg",
+          )}
         />
       </div>
 
@@ -372,6 +380,7 @@ function clipFileName(
   ambience: string,
   tempo: number | string,
   createdAt: string,
+  ext = "mp3",
 ): string {
   const d = new Date(createdAt);
   const dva = (n: number) => String(n).padStart(2, "0");
@@ -379,18 +388,20 @@ function clipFileName(
     ? "preview"
     : `${d.getFullYear()}${dva(d.getMonth() + 1)}${dva(d.getDate())}-${dva(d.getHours())}${dva(d.getMinutes())}`;
   const kde = String(ambience || "voice").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
-  return `${kedy}-${kde}-${Number(tempo).toFixed(2)}x.ogg`;
+  return `${kedy}-${kde}-${Number(tempo).toFixed(2)}x.${ext}`;
 }
 
 function Stage({
   stage,
   problem,
   url,
+  mp3,
   fileName,
 }: {
   stage: Stage;
   problem: string;
   url: string;
+  mp3: string;
   fileName: string;
 }) {
   if (stage === "idle") return null;
@@ -412,7 +423,7 @@ function Stage({
         <audio controls src={url} preload="metadata" className="w-full" />
         <div className="mt-3 flex items-center gap-4 text-[11.5px]">
           <a
-            href={downloadUrl(url, fileName)}
+            href={downloadUrl(mp3 || url, fileName)}
             className="text-[var(--app-text-2)] underline underline-offset-2 hover:text-[var(--app-text)]"
           >
             Download
@@ -484,8 +495,13 @@ function RecentPreviews({ clips }: { clips: PreviewClip[] }) {
             <audio controls src={clip.url} preload="none" className="w-full" />
             <a
               href={downloadUrl(
-                clip.url,
-                clipFileName(clip.ambience, clip.tempo, clip.created_at),
+                clip.mp3_url || clip.url,
+                clipFileName(
+                  clip.ambience,
+                  clip.tempo,
+                  clip.created_at,
+                  clip.mp3_url ? "mp3" : "ogg",
+                ),
               )}
               className="inline-block text-[11.5px] text-[var(--app-text-3)] underline underline-offset-2 hover:text-[var(--app-text)]"
             >

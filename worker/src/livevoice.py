@@ -687,6 +687,43 @@ async def _mix(
         return out
 
 
+async def to_mp3(ogg: bytes) -> Optional[bytes]:
+    """Prevod hotovej hlasovky do MP3 — LEN pre ukážky na webe.
+
+    PREČO. Hlasovka sa mixuje do Opusu v OGG, lebo presne to Telegram vyžaduje,
+    aby ju ukázal ako nahrávku a nie ako priložený súbor. Ten formát ale macOS
+    natívne neprehrá a Fanvue ho ako hlasovku neprijme, takže stiahnutá ukážka
+    bola Marekovi na nič.
+
+    NA TELEGRAM TO NEMÁ ŽIADNY VPLYV. Odosielaná hlasovka ide ďalej ako OGG;
+    toto vzniká navyše a používa sa výhradne na stiahnutie z dashboardu.
+
+    192 kb/s je zámerne vysoko nad zdrojom: prekódovanie už raz stratového
+    zvuku pridáva ďalšiu stratu a pri takomto strope je nepočuteľná.
+
+    `None` = nepodarilo sa. Volajúci pokračuje s OGG, ukážka sa nezahodí.
+    """
+    if not ogg:
+        return None
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "ffmpeg", "-hide_banner", "-loglevel", "error",
+            "-i", "pipe:0", "-c:a", "libmp3lame", "-b:a", "192k", "-ar", "44100",
+            "-f", "mp3", "pipe:1",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        out, err = await asyncio.wait_for(proc.communicate(ogg), timeout=60)
+    except Exception as exc:  # noqa: BLE001 - MP3 je bonus, nie podmienka
+        log.warning("Prevod ukážky do MP3 zlyhal: %s", exc)
+        return None
+    if proc.returncode != 0 or not out:
+        log.warning("ffmpeg pri prevode do MP3 neprešiel: %s", (err or b"")[:200])
+        return None
+    return out
+
+
 async def speak(
     text: str,
     api_key: str,

@@ -1479,13 +1479,19 @@ class TenantDb:
 
         Cestu skladá volajúci a už je tenant-unikátna (`cfg.supabase_schema`
         == model_id), preto sa tu žiadna predpona nepridáva.
+
+        TYP SA ODVODZUJE Z PRÍPONY. Bol tu natvrdo `audio/ogg`, čo bolo správne,
+        kým sa ukladali len telegramové hlasovky. Odkedy sa k ukážke pridáva aj
+        MP3 na stiahnutie, poslalo by sa s hlavičkou OGG — a Fanvue by ho ako
+        hlasovku neprijalo.
         """
         base = str(self._client.base_url).rsplit("/rest/v1", 1)[0]
+        typ = "audio/mpeg" if path.lower().endswith(".mp3") else "audio/ogg"
         try:
             r = await self._client.post(
                 f"{base}/storage/v1/object/{VOICE_BUCKET}/{path}",
                 content=data,
-                headers={"Content-Type": "audio/ogg", "x-upsert": "true"},
+                headers={"Content-Type": typ, "x-upsert": "true"},
             )
             r.raise_for_status()
         except Exception as exc:  # noqa: BLE001 - archív nesmie zdržať odpoveď

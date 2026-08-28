@@ -190,6 +190,8 @@ export type PreviewClip = {
   strength: string;
   tempo: number;
   url: string;
+  /** MP3 verzia na stiahnutie. Prázdne pri starších ukážkach — vtedy OGG. */
+  mp3_url: string | null;
   bytes: number | null;
   created_at: string;
 };
@@ -202,7 +204,7 @@ export async function recentPreviewsAction(
   const supabase = await createClient();
   const { data } = await supabase
     .from("voice_clips")
-    .select("id, text, ambience, strength, tempo, url, bytes, created_at")
+    .select("id, text, ambience, strength, tempo, url, mp3_url, bytes, created_at")
     .eq("model_id", modelId)
     .eq("kind", "preview")
     .order("id", { ascending: false })

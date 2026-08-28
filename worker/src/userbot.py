@@ -2054,6 +2054,20 @@ class UserBot:
             stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
             cesta = f"{self._cfg.supabase_schema}/generated/{stamp}-{tg_id or 'ukazka'}.ogg"
             url = await self._db.upload_voice(cesta, data)
+
+            # MP3 LEN PRE UKÁŽKY. OGG (Opus) je to, čo Telegram vyžaduje, aby
+            # správu ukázal ako nahrávku — a ten sa nemení. Lenže macOS ho
+            # natívne neprehrá a Fanvue ho ako hlasovku neprijme, takže
+            # stiahnutá ukážka bola na nič. Toto vzniká navyše, výhradne na
+            # stiahnutie z dashboardu, a pri ostrej hlasovke sa nerobí vôbec.
+            mp3_url = ""
+            if kind == "preview":
+                mp3 = await livevoice.to_mp3(data)
+                if mp3:
+                    mp3_url = await self._db.upload_voice(
+                        cesta[: -len(".ogg")] + ".mp3", mp3
+                    )
+
             await self._db.add_voice_clip(
                 {
                     "tg_id": tg_id,
@@ -2064,6 +2078,7 @@ class UserBot:
                     "tempo": float(tempo or behavior.voice_tempo or 1.12),
                     "voice_id": voice_id or behavior.eleven_voice_id or "",
                     "url": url,
+                    "mp3_url": mp3_url,
                     "bytes": len(data),
                     "kind": kind,
                 }
