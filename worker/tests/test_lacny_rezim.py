@@ -214,3 +214,30 @@ class TestZalohaKedLacnyZlyha:
         except RuntimeError:
             return
         raise AssertionError("výnimka mala prejsť von")
+
+
+class TestSkusobnyChatTestujeToIste:
+    """Najzradnejšia časť: keby skúšobný chat bežal na kvalitnom modeli aj pri
+    zapnutom lacnom, majiteľ by otestoval niečo iné, než čo fanúšikom odpisuje —
+    a lacný režim by zapol s pocitom, že je overený."""
+
+    def test_control_bot_ma_jedine_hrdlo(self):
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parents[1] / "src" / "control_bot.py").read_text(
+            "utf-8"
+        )
+        i = src.index("async def _chovanie")
+        assert "set_chat_tier" in src[i : i + 800]
+
+    def test_ziadne_citanie_chovania_mimo_hrdla(self):
+        """Kto obíde hrdlo, obíde aj prepnutie režimu."""
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parents[1] / "src" / "control_bot.py").read_text(
+            "utf-8"
+        )
+        i = src.index("async def _chovanie")
+        j = src.index("async def _skusobna_odpoved")
+        mimo = src[:i] + src[j:]
+        assert "Behavior.from_row(await self._db.get_behavior())" not in mimo

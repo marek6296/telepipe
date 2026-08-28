@@ -685,7 +685,7 @@ class ControlBot:
             return
         try:
             persona = await self._db.get_persona()
-            behavior = Behavior.from_row(await self._db.get_behavior())
+            behavior = await self._chovanie()
             spravy = await generator_mod.napis(
                 self._llm, persona, behavior, brief, pokus
             )
@@ -718,6 +718,23 @@ class ControlBot:
                 log.info("Generátor: kartu sa nepodarilo prepísať: %s", exc)
         await event.respond(text, buttons=buttons, link_preview=False)
 
+    async def _chovanie(self) -> Behavior:
+        """Chovanie modelky + prepnutie režimu konverzácie.
+
+        PREČO NIE `Behavior.from_row(...)` PRIAMO. Lacnejší režim sa prepína na
+        LLM klientovi (`set_chat_tier`) a control bot ten istý klient zdieľa
+        s userbotom. Keby sa tu režim nenastavil, skúšobný chat aj generátor by
+        bežali na kvalitnom modeli AJ pri zapnutom lacnom — a majiteľ by
+        testoval niečo iné, než čo mu naozaj odpisuje fanúšikom.
+        """
+        behavior = Behavior.from_row(await self._db.get_behavior())
+        try:
+            if self._llm is not None:
+                self._llm.set_chat_tier(behavior.chat_tier)
+        except Exception:  # noqa: BLE001 - režim je voľba, nie podmienka
+            log.debug("Režim konverzácie sa nepodarilo prepnúť", exc_info=True)
+        return behavior
+
     async def _skusobna_odpoved(self, event: events.NewMessage.Event) -> None:
         """Majiteľ napísal v skúške — modelka odpovie tu, v bote."""
         text = (event.raw_text or "").strip()
@@ -728,7 +745,7 @@ class ControlBot:
             return
 
         persona = await self._db.get_persona()
-        behavior = Behavior.from_row(await self._db.get_behavior())
+        behavior = await self._chovanie()
         async with self._client.action(event.chat_id, "typing"):
             kusy = await self._skuska.odpoved(
                 event.chat_id, text, persona, behavior, self._llm
@@ -2065,7 +2082,7 @@ class ControlBot:
     async def _send_main(self, event, edit: bool = False) -> None:
         paused = await self._db.is_paused()
         persona = await self._db.get_persona()
-        behavior = Behavior.from_row(await self._db.get_behavior())
+        behavior = await self._chovanie()
 
         mode = "real person" if behavior.mode == bhv.REAL else "disclosed AI"
         labels = {"off": "⛔️ Off", "auto": "🤖 Automatic", "semi": "✋ Semi-automatic"}
@@ -2292,7 +2309,7 @@ class ControlBot:
         await self._render(event, "\n".join(lines), rows, edit)
 
     async def _send_behavior(self, event, edit: bool = False) -> None:
-        behavior = Behavior.from_row(await self._db.get_behavior())
+        behavior = await self._chovanie()
         mode_label = "real person" if behavior.mode == bhv.REAL else "disclosed AI"
         text = (
             _hlavicka("Behaviour", "how she writes and how fast") + "\n\n"
@@ -2395,7 +2412,7 @@ class ControlBot:
         await self._render(event, "\n".join(lines), rows, True)
 
     async def _send_times(self, event, edit: bool = False) -> None:
-        behavior = Behavior.from_row(await self._db.get_behavior())
+        behavior = await self._chovanie()
         text = (
             _hlavicka("Times", "when she is awake, in her own time zone") + "\n\n"
             + _polozka("🕘", "Active", _okno12(behavior.active_start_min, behavior.active_end_min))
@@ -2421,7 +2438,7 @@ class ControlBot:
         Nie sú to len čísla — pri každom je napísané, čo sa stane, keď ho
         zdvihneš. Bez toho sa nedá rozumne rozhodnúť, čo je ešte bezpečné.
         """
-        b = Behavior.from_row(await self._db.get_behavior())
+        b = await self._chovanie()
         naraz = (
             f"*{b.max_active_chats}* at a time" if b.max_active_chats > 0
             else "*no limit*"
@@ -2496,7 +2513,7 @@ class ControlBot:
         from datetime import datetime
         from zoneinfo import ZoneInfo
 
-        behavior = bhv.Behavior.from_row(await self._db.get_behavior())
+        behavior = await self._chovanie()
         teraz = datetime.now(ZoneInfo(behavior.active_tz))
         # Rozvrh si klient nastavuje v dashboarde (migrácia 022); keď ho nemá
         # alebo sa nedá načítať, platí napísaná šablóna a výpis vyzerá ako
