@@ -1055,9 +1055,20 @@ class FanvueAgent:
             # medzitým patrí niekomu inému.
             await self._try_link(fan, row, klik_plati=not int(row.get("msg_count") or 0))
 
-        # Skutočný stav chatu má prednosť pred frontou: Marek mohol odpísať
-        # ručne, doručenie sa mohlo stratiť a poradie Fanvue nezaručuje.
-        if not await self._reconcile(fan, row):
+        # V SEMI SA CHAT NEOTVÁRA. `_reconcile` ťahá `GET /chats/{uuid}/messages`
+        # a po ňom fanúšikovi svieti „videné" — hoci majiteľ ešte nič nečítal
+        # ani neodpísal. V poloautomate rozhoduje on, takže videné má dať až
+        # vtedy, keď naozaj odpisuje: zosúladenie sa preto presunulo do
+        # `deliver_text`/`deliver_photo`, teda za odoslanie.
+        #
+        # Kým sa tak stane, stačí správa z webhooku. Že sa tá istá správa
+        # neskôr stiahne aj so svojím uuid, rieši `texty_bez_uuid` v
+        # `fvsync.missing` — druhýkrát sa nepridá.
+        if semi:
+            await self._db.add_message(fan["uuid"], "user", fan["text"])
+        elif not await self._reconcile(fan, row):
+            # Skutočný stav chatu má prednosť pred frontou: Marek mohol odpísať
+            # ručne, doručenie sa mohlo stratiť a poradie Fanvue nezaručuje.
             return
 
         sit = await self._situacia(fan, row, settings)
@@ -1314,7 +1325,23 @@ class FanvueAgent:
         await self._db.update_fan(
             conv_key, {"msg_count": int(row.get("msg_count") or 0) + 1}
         )
+        await self._dobehni(conv_key, row)
         return True
+
+    async def _dobehni(self, conv_key: str, row: Dict[str, Any]) -> None:
+        """Zosúladenie chatu AŽ TERAZ, keď už odpoveď odišla.
+
+        V poloautomate sa chat počas čakania na majiteľa zámerne neotvára,
+        aby fanúšikovi nesvietilo „videné". Odoslaním sa videné dá tak či tak,
+        takže tu už čítanie nič nepokazí — a je posledná chvíľa, keď sa dajú
+        dotiahnuť správy písané ručne vo Fanvue, nákupy a počet správ.
+
+        Zlyhanie sa prehltne: odpoveď je odoslaná, to je to podstatné.
+        """
+        try:
+            await self._reconcile({"uuid": conv_key, "text": ""}, dict(row or {}))
+        except Exception as exc:  # noqa: BLE001 - dobiehanie je bonus
+            log.warning("Dobehnutie chatu %s zlyhalo: %s", conv_key[:8], exc)
 
     async def photo_folders(self, conv_key: str) -> List[Dict[str, str]]:
         out = []
@@ -1362,6 +1389,7 @@ class FanvueAgent:
         await self._db.update_fan(
             conv_key, {"msg_count": int(row.get("msg_count") or 0) + 1}
         )
+        await self._dobehni(conv_key, row)
         return True
 
     async def generate_voice_preview(self, text: str):
