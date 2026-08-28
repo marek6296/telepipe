@@ -31,6 +31,7 @@ import ludskost
 import odkazy
 import memory
 import photos
+import prezradenie
 import prehlad
 import recall
 import zadanie
@@ -1282,6 +1283,27 @@ class UserBot:
             asyncio.create_task(
                 self._log_judge(tg_id, verdict["text"], text, verdict["why"])
             )
+
+        # POSLEDNÁ POISTKA PRED ODOSLANÍM. Naostro sa pri teste stalo, že model
+        # uprostred konverzácie vypadol z roly a začal odpovedať „I'm Grok,
+        # built by xAI, I'm not a real woman" — a nezachytilo to NIČ. Radšej
+        # nechať fanúšika bez odpovede než mu poslať toto.
+        dovod = prezradenie.unikol(text, behavior.mode)
+        if dovod:
+            log.error("%s: odpoveď vypadla z roly (%s) — zahadzujem: %s",
+                      tg_id, dovod, text[:200])
+            # Sweeper to skúsi znova; je to nedeterministické, takže druhý
+            # pokus zvyčajne prejde.
+            await self._db.update_user(tg_id, {"pending_reply": True})
+            if self._control is not None:
+                try:
+                    await self._control.notify(
+                        f"⚠️ A reply broke character and was not sent ({dovod}). "
+                        "She will try again."
+                    )
+                except Exception:  # noqa: BLE001 - upozornenie nesmie zhodiť chod
+                    log.debug("Upozornenie na vypadnutie z roly neodišlo", exc_info=True)
+            return
 
         chunks = humanize.split_message(text)
         if not chunks:

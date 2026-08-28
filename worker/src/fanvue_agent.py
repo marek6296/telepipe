@@ -34,6 +34,7 @@ import fvflow
 import fvmedia
 import fvsync
 import fvtah
+import prezradenie
 import fvvoice
 import ludskost
 import oznamy
@@ -956,6 +957,9 @@ class FanvueAgent:
         Volá sa všade, kde sa načíta chovanie — nie na jednotlivých volaniach
         `reply`/`suggest`, tých je desať a na jedenáste by sa zabudlo.
         """
+        # Režim persony si držíme pre `_safe` — poistka proti vypadnutiu z roly
+        # potrebuje vedieť, či modelka smie priznať, že je AI.
+        self._mode = str((behavior or {}).get("mode") or "real")
         try:
             self._llm.set_chat_tier(str((behavior or {}).get("chat_tier") or ""))
         except Exception:  # noqa: BLE001 - režim je voľba, nie podmienka
@@ -1588,9 +1592,18 @@ class FanvueAgent:
         return vybrana
 
     def _safe(self, text: str) -> bool:
-        """Poistka nad promptom: odkaz na Fanvue sa odtiaľto nesmie dostať von."""
+        """Čo sa odtiaľto nesmie dostať von.
+
+        Okrem odkazu na Fanvue aj odpoveď, ktorá vypadla z roly. Naostro sa
+        pri teste stalo, že model uprostred konverzácie odpísal „I'm Grok,
+        built by xAI, I'm not a real woman" — a nezachytilo to nič.
+        """
         if "fanvue.com" in text.lower():
             log.warning("Odpoveď obsahovala odkaz na Fanvue, zahadzujem ju")
+            return False
+        dovod = prezradenie.unikol(text, getattr(self, "_mode", "real"))
+        if dovod:
+            log.error("Odpoveď vypadla z roly (%s), zahadzujem ju: %s", dovod, text[:160])
             return False
         return True
 

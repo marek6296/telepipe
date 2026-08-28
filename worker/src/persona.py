@@ -9,6 +9,7 @@ import checkout
 import ludskost
 import humanize
 import jazyky
+import lacny
 import ramec
 import topics as topics_mod
 from behavior import Behavior
@@ -1291,6 +1292,13 @@ def build_system_prompt(
             "nenapadá, radšej odpovedz kratšie alebo sa spýtaj na jeho vec — "
             "krátka nová veta je vždy lepšia než dlhá zopakovaná."
         )
+
+    # Barličky pre lacnejší model — ZÁMERNE AŽ TU, na konci. Slabší model si
+    # najlepšie drží to, čo čítal naposledy, a toto sú veci, na ktorých naostro
+    # padal. Pri kvalitnom režime je to prázdny reťazec a nestojí ani token.
+    lacna_barlicka = lacny.blok(bhv.chat_tier)
+    if lacna_barlicka:
+        sections.append(lacna_barlicka)
 
     sections.append(jazyky.pripomenutie(persona))
 
