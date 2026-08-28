@@ -821,6 +821,7 @@ class FanvueAgent:
 
         persona = await self._db.persona()
         behavior = await self._db.behavior()
+        self._rezim(behavior)
         teraz_local = local_now(behavior)
         prompt = build_prompt(persona, settings, fan, row, None, teraz_local)
         history = (await self._db.history(fan["uuid"])) + [
@@ -949,6 +950,17 @@ class FanvueAgent:
         self._media_at = teraz
         return self._media
 
+    def _rezim(self, behavior: Dict[str, Any]) -> None:
+        """Lacnejší režim konverzácie podľa nastavenia modelky.
+
+        Volá sa všade, kde sa načíta chovanie — nie na jednotlivých volaniach
+        `reply`/`suggest`, tých je desať a na jedenáste by sa zabudlo.
+        """
+        try:
+            self._llm.set_chat_tier(str((behavior or {}).get("chat_tier") or ""))
+        except Exception:  # noqa: BLE001 - režim je voľba, nie podmienka
+            log.debug("Režim konverzácie sa nepodarilo prepnúť", exc_info=True)
+
     async def _situacia(
         self, fan: Dict[str, Any], row: Dict[str, Any], settings: Dict[str, Any]
     ) -> "Situacia":
@@ -961,6 +973,7 @@ class FanvueAgent:
         """
         persona = await self._db.persona()
         behavior = await self._db.behavior()
+        self._rezim(behavior)
         teraz = local_now(behavior)
 
         # Rozvrh je ten istý ako na Telegrame (jeden človek, jeden deň); seed

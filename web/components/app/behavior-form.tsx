@@ -19,6 +19,7 @@ export type BehaviorRow = {
   mode: string;
   heat: string;
   slang: string;
+  chat_tier: string;
   no_diacritics: boolean;
   activity_waves: boolean;
   active_tz: string;
@@ -134,6 +135,16 @@ export function BehaviorForm({ behavior }: { behavior: BehaviorRow }) {
               { value: "medium", label: "Medium — heavy texting slang" },
             ]}
             help="How casual her spelling gets."
+          />
+          <SelectField
+            name="chat_tier"
+            label="Conversation quality"
+            defaultValue={behavior.chat_tier ?? "quality"}
+            options={[
+              { value: "quality", label: "Quality — the best model" },
+              { value: "economy", label: "Economy — cheaper, roughly 10x less" },
+            ]}
+            help="Economy swaps the AI model for a much cheaper one. She follows exactly the same rules and knows exactly the same things — she just writes them less sharply. Everything else is untouched."
           />
           <SliderField
             name="question_chance"

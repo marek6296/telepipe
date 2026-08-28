@@ -25,6 +25,10 @@ const ENUMS: Record<string, readonly string[]> = {
   voice_source: ["own", "managed"],
   heat: ["mild", "medium", "hot"],
   slang: ["none", "light", "medium"],
+  // Kvalita konverzácie. `quality` je predvolené a je to model, na ktorom to
+  // beží dnes; `economy` je rádovo lacnejší model pri NEZMENENOM prompte —
+  // vie presne to isté, čo má robiť, len to napíše menej vycibrene.
+  chat_tier: ["quality", "economy"],
   voice_ambience: [
     "home",
     "bedroom",

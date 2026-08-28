@@ -323,10 +323,19 @@ class UserBot:
 
     async def _behavior(self) -> Behavior:
         try:
-            return Behavior.from_row(await self._db.get_behavior())
+            bhv = Behavior.from_row(await self._db.get_behavior())
         except Exception as exc:  # noqa: BLE001 - defaulty sú bezpečné
             log.warning("Nepodarilo sa načítať chovanie, používam defaulty: %s", exc)
             return Behavior()
+        # Lacnejší režim sa prepína TU, v jedinom hrdle — každý, kto potrebuje
+        # chovanie, prejde cezto. Na volaniach `reply`/`suggest` sa tak nedá
+        # zabudnúť a klient nemôže mať zapnutý lacný režim, ktorý časť správ
+        # aj tak posiela na drahý model.
+        try:
+            self._llm.set_chat_tier(bhv.chat_tier)
+        except Exception:  # noqa: BLE001 - režim je voľba, nie podmienka
+            log.debug("Režim konverzácie sa nepodarilo prepnúť", exc_info=True)
+        return bhv
 
     async def _rozvrh(self):
         """Nastavený deň modelky (migrácia 022). `None` = platí šablóna z `den`.

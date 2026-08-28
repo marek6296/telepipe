@@ -20,7 +20,7 @@ export const metadata: Metadata = {
  * tá istá tabuľka a to isté auto-save (`saveBehaviorAction`), len iná obrazovka.
  */
 const BEHAVIOR_COLUMNS =
-  "model_id, mode, heat, slang, no_diacritics, activity_waves, active_tz, " +
+  "model_id, mode, heat, slang, chat_tier, no_diacritics, activity_waves, active_tz, " +
   "active_start_min, active_end_min, debounce_min_s, debounce_max_s, " +
   "read_delay_min_s, read_delay_max_s, reply_delay_min_s, reply_delay_max_s, " +
   "quick_reply_chance, quick_read_max_s, quick_reply_min_s, quick_reply_max_s, " +

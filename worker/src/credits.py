@@ -114,16 +114,21 @@ class MeteredLlm:
             # Volanie nedošlo k modelu (DNS, timeout pred odpoveďou) — zapisovať
             # nulový riadok by len zaplnil ledger bez informácie.
             return
-        price = await self._reg.pricing(self._slug)
+        # CENNÍK PODĽA MODELU, KTORÝ NAOZAJ BEŽAL. Doteraz sa všetko účtovalo
+        # cenou chatového modelu — aj vízia (qwen) a zvuk (gemini), ktoré majú
+        # inú cenu, aj lacnejší režim, ktorý by inak platil ako ten drahý.
+        # `_slug` ostáva ako záloha, keby volanie model nezaznamenalo.
+        slug = str(getattr(self._llm, "last_model", "") or "") or self._slug
+        price = await self._reg.pricing(slug)
         if price.get("input_usd_per_mtok") or price.get("output_usd_per_mtok"):
             atlas = i / 1e6 * float(price["input_usd_per_mtok"]) \
                   + o / 1e6 * float(price["output_usd_per_mtok"])
         else:
-            if self._slug in _MISSING_PRICE_WARNED:
-                log.debug("Chýba cenník pre %s — fallback %.2f/Mtok", self._slug, self._fallback)
+            if slug in _MISSING_PRICE_WARNED:
+                log.debug("Chýba cenník pre %s — fallback %.2f/Mtok", slug, self._fallback)
             else:
-                _MISSING_PRICE_WARNED.add(self._slug)
-                log.warning("Chýba cenník pre %s — fallback %.2f/Mtok", self._slug, self._fallback)
+                _MISSING_PRICE_WARNED.add(slug)
+                log.warning("Chýba cenník pre %s — fallback %.2f/Mtok", slug, self._fallback)
             atlas = (i + o) / 1e6 * self._fallback
         charged = atlas * float(price.get("multiplier", 2.0))
         try:

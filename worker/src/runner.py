@@ -257,6 +257,9 @@ class TenantRunner:
             g.llm_key, g.model, g.summary_model, g.llm_base_url, g.reasoning_effort,
             g.vision_model, g.audio_model,
         )
+        # Ktorý model je ten lacný. Prepína sa až podľa `behavior.chat_tier`
+        # pri každej odpovedi — tu sa len povie, čo „economy" znamená.
+        raw_llm.set_economy_model(g.economy_model)
 
         # `flood_sleep_threshold=0` je zámerné a dôležité.
         #

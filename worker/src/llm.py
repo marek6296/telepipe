@@ -31,6 +31,13 @@ def _json_or_empty(response: Any) -> Dict[str, Any]:
 
 
 class Llm:
+    # Predvolené hodnoty na TRIEDE, nie len v `__init__`. Testy si `Llm`
+    # stavajú cez `__new__` a dopĺňajú len to, čo potrebujú — bez tohto by
+    # každý taký test spadol na chýbajúcom atribúte, hoci s ním nemá nič
+    # spoločné. Inštancia si ich v `__init__` prepíše vlastnými.
+    _chat_override = ""
+    _economy_model = ""
+
     """OpenAI-kompatibilný chat klient — funguje pre OpenRouter aj priamo pre xAI."""
 
     def __init__(
@@ -45,6 +52,13 @@ class Llm:
     ) -> None:
         self._model = model
         self._summary_model = summary_model or model
+        # Lacnejší režim: prázdne = predvolený model. Nastavuje `set_chat_model`
+        # z nastavenia modelky pri každej odpovedi.
+        self._chat_override = ""
+        # Slug lacnejšieho modelu. Drží ho klient, nie volajúci: `set_chat_tier`
+        # tak berie NÁZOV REŽIMU, a nikto na volaní nepotrebuje vedieť, ktorý
+        # model to je. Fanvue agent ku konfigu prístup nemá.
+        self._economy_model = ""
         # Grok obrázky neberie, preto na videnie fotiek samostatný model.
         self._vision_model = vision_model
         # Zvuk berie Gemini, Grok ani qwen-vl ho neprijmú.
@@ -92,6 +106,30 @@ class Llm:
     async def close(self) -> None:
         await self._client.aclose()
 
+    async def _so_zalohou(
+        self, model: str, messages: List[Dict[str, str]],
+        max_tokens: int, temperature: float,
+    ) -> str:
+        """Volanie s návratom na predvolený model, keď ten iný nevyjde.
+
+        Lacnejší režim vyberá model podľa nastavenia klienta a ten slug môže
+        byť preklep alebo model, ktorý poskytovateľ zrušil. Bez tejto poistky
+        by taká drobnosť ticho zastavila odpisovanie celej modelke — a klient
+        by videl len to, že mu prestala písať.
+
+        Skúša sa RAZ. Keď zlyhá aj predvolený, výnimka ide von ako vždy.
+        """
+        if not model or model == self._model:
+            return await self._chat(self._model, messages, max_tokens, temperature)
+        try:
+            return await self._chat(model, messages, max_tokens, temperature)
+        except Exception as exc:  # noqa: BLE001 - radšej drahšie než ticho
+            log.warning(
+                "Model %s zlyhal (%s) — idem na predvolený %s",
+                model, exc, self._model,
+            )
+            return await self._chat(self._model, messages, max_tokens, temperature)
+
     async def _chat(
         self,
         model: str,
@@ -99,6 +137,10 @@ class Llm:
         max_tokens: int,
         temperature: float,
     ) -> str:
+        # KTORÝ MODEL NAOZAJ BEŽAL. Účtovanie sa doteraz pýtalo na cenník
+        # chatového modelu vždy — aj pri vízii (qwen) a zvuku (gemini), ktoré
+        # majú úplne inú cenu. Odteraz si merač vezme tento údaj.
+        self.last_model = model
         payload: Dict[str, Any] = {
             "model": model,
             "messages": messages,
@@ -155,10 +197,35 @@ class Llm:
                 await asyncio.sleep(wait)
         raise LlmError(f"LLM zlyhal po {_RETRIES} pokusoch: {last_error}")
 
-    async def reply(self, system_prompt: str, history: List[Dict[str, str]]) -> str:
+    def set_economy_model(self, slug: str) -> None:
+        """Ktorý model je ten lacný. Nastavuje runner z konfigurácie."""
+        self._economy_model = str(slug or "")
+
+    def set_chat_tier(self, tier: str) -> None:
+        """Prepne režim konverzácie tejto modelky: `quality` / `economy`.
+
+        JE TO NA KLIENTOVI, NIE NA VOLANÍ. Volaní `reply`/`suggest` je desať
+        na rôznych miestach a na parameter by sa pri jedenástom zabudlo —
+        tichým následkom by bolo, že klient si zapne lacný režim a časť správ
+        mu aj tak beží na drahom. Tenant má vlastnú inštanciu `Llm`, takže sa
+        tým nikomu inému nič nemení.
+
+        Čokoľvek iné než `economy` (aj prázdne) znamená predvolený model —
+        pri neznámej hodnote sa radšej ide na kvalitný, nie na lacný.
+        """
+        self._chat_override = (
+            self._economy_model if str(tier or "") == "economy" else ""
+        )
+
+    async def reply(
+        self, system_prompt: str, history: List[Dict[str, str]], model: str = ""
+    ) -> str:
+        """`model` prepíše chatový model len pre toto volanie."""
         messages = [{"role": "system", "content": system_prompt}] + history
         # Strop musí pokryť reasoning + text; o krátkosť odpovede sa stará prompt.
-        return await self._chat(self._model, messages, max_tokens=1200, temperature=0.9)
+        return await self._so_zalohou(
+            model or self._chat_override, messages, 1200, 0.9
+        )
 
     async def suggest(
         self,
@@ -167,6 +234,7 @@ class Llm:
         n: int = 3,
         angles: Optional[List[str]] = None,
         seed: str = "",
+        model: str = "",
     ) -> List[str]:
         """Semi-auto: `n` alternatívnych odpovedí v jej hlase, prvá je najlepšia
         (tú pošle časový fallback).
@@ -214,7 +282,9 @@ class Llm:
                 "Nezopakuj tie isté vety."
             )
         messages = [{"role": "system", "content": system_prompt + instruction}] + history
-        raw = await self._chat(self._model, messages, max_tokens=1400, temperature=0.95)
+        raw = await self._so_zalohou(
+            model or self._chat_override, messages, 1400, 0.95
+        )
         parts = [p.strip() for p in raw.split(marker)]
         out = [p for p in parts if p]
         if not out:  # model marker nepoužil — ber celú odpoveď ako jediný návrh

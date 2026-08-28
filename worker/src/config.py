@@ -148,6 +148,10 @@ class Config:
 
     # Zvuk berie Gemini — vision model ani hlavný model ho neprijmú.
     audio_model: str = "google/gemini-3.5-flash"
+    # Model pre lacnejší režim konverzácie (`behavior.chat_tier = economy`).
+    # Cez env, aby sa dal vymeniť bez zásahu do kódu — je to technická voľba,
+    # nie obchodná. Predvolená hodnota drží staré volania `Config(...)` funkčné.
+    economy_model: str = "deepseek-ai/deepseek-v4-flash"
     # Hlasovka na mieru z AI Modelka Web. Prázdne = vypnuté, posiela sa text.
     voice_api_url: str = ""
     voice_api_key: str = ""
@@ -176,6 +180,11 @@ class Config:
             llm_base_url=os.getenv("LLM_BASE_URL", _DEFAULT_BASE_URL),
             model=_model,
             summary_model=os.getenv("LLM_SUMMARY_MODEL", "").strip() or _model,
+            # Rádovo lacnejší: pri 100 % vstupných tokenoch (taká je naša
+            # spotreba) je rozdiel 2,09 $/M proti 0,195 $/M, teda ~11×.
+            economy_model=os.getenv(
+                "LLM_ECONOMY_MODEL", "deepseek-ai/deepseek-v4-flash"
+            ).strip(),
             reasoning_effort=os.getenv("LLM_REASONING_EFFORT", "low").strip(),
             vision_model=os.getenv("LLM_VISION_MODEL", "qwen/qwen3-vl-235b-a22b-thinking"),
             # Zvuk berie Gemini, vision model ani hlavný model ho neprijmú.
@@ -260,6 +269,7 @@ class TenantConfig:
     llm_base_url: str = ""
     model: str = ""
     summary_model: str = ""
+    economy_model: str = ""
     reasoning_effort: str = ""
     vision_model: str = ""
     audio_model: str = ""
@@ -343,6 +353,7 @@ class TenantConfig:
             llm_base_url=g.llm_base_url,
             model=g.model,
             summary_model=g.summary_model,
+            economy_model=g.economy_model,
             reasoning_effort=g.reasoning_effort,
             vision_model=g.vision_model,
             audio_model=g.audio_model,

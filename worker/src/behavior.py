@@ -80,6 +80,7 @@ FIELD_LABELS = {
 # Čo sa nedá posúvať číslom: prepínače a výbery z pevného zoznamu.
 _NON_NUMERIC = (
     "mode", "active_tz", "no_diacritics", "slang", "activity_waves", "heat",
+    "chat_tier",
     "voices_enabled", "morning_enabled", "photos_enabled", "voice_ambience", "voice_strength", "voice_source",
     "voice_when_asked", "voice_when_doubted", "voice_when_he_voices",
     "voice_when_away", "voice_on_goodnight", "voice_when_hot",
@@ -139,6 +140,10 @@ class Behavior:
     greeting_gap_hours: int = 6
     no_diacritics: bool = True
     slang: str = "light"
+    # `quality` (predvolené) = model, na ktorom to beží dnes. `economy` =
+    # lacnejší model pri NEZMENENOM prompte. Rozhoduje klient v appke; kód
+    # správania sa tým nemení ani o riadok.
+    chat_tier: str = "quality"
     quick_reply_chance: float = 0.30
     quick_read_max_s: int = 5
     quick_reply_min_s: int = 5
