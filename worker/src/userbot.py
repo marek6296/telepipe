@@ -1260,6 +1260,36 @@ class UserBot:
             raw, behavior, gap, allow_link, jej_nedavne, he_greeted=pozdravil,
             link=kratky, unlock_link=unlock_url,
         )
+
+        # LACNEJŠÍ MODEL ZABÚDA ODKAZ. Namerané na tom istom scenári, kde sa
+        # fanúšik priamo pýta „where can i find it": drahší model poslal odkaz
+        # 10/10, lacnejší 7/10 aj s pokynom v prompte. Zvyšné správy zneli
+        # dobre, len bez adresy — a bez nej sa človek na stránku nedostane.
+        #
+        # Skúsi sa RAZ znova. Odkaz sa NEDOLEPUJE: keď sa modelka rozhodne
+        # nedať ho, je to jej právo (prompt jej to výslovne dovoľuje) a
+        # prilepená adresa by z odpovede spravila reklamu. Toto len dá druhý
+        # pokus tam, kde si ho fanúšik sám vypýtal.
+        if (
+            behavior.chat_tier == "economy"
+            and kratky
+            and allow_link
+            and wants_link
+            and kratky not in text
+        ):
+            log.info("%s: lacný model vynechal odkaz — skúšam druhý raz", tg_id)
+            try:
+                znova = await self._llm.reply(system, history)
+                _, znova = speech.parse_directive(znova)
+                druhy = self._uprav_odpoved(
+                    znova, behavior, gap, allow_link, jej_nedavne,
+                    he_greeted=pozdravil, link=kratky, unlock_link=unlock_url,
+                )
+                if kratky in druhy:
+                    text = druhy
+            except Exception:  # noqa: BLE001 - druhý pokus je bonus
+                log.debug("Druhý pokus o odkaz zlyhal", exc_info=True)
+
         # Sudca — posledná kontrola pred odoslaním. Zlyháva otvorene:
         # keď sa čokoľvek pokazí, odchádza pôvodný návrh.
         # Dostane aj to, čo nedávno napísala — bez toho nemá ako rozoznať, že

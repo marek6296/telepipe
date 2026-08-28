@@ -11,6 +11,10 @@ veciach, a všetky štyri sa dajú povedať nahlas:
   3. FAKTY O ŇOM — v druhej správe povedal, že montuje klimatizácie, v ôsmej
      že je holič. Nevšimol si to; drahší na to nadviazal ešte o tri správy
      neskôr („what do you cut most, fades or longer hair?").
+  5. ODKAZ. Keď mal poslať odkaz, poslal ho v 4 z 8 pokusov — drahší model
+     v 8 z 8. Zvyšok správ znel dobre, len bez adresy, takže sa fanúšik
+     nemal ako dostať na stránku. Toto je priamo v lieviku.
+
   4. ROZBITÁ PERSONA — na pochvalu jej Instagramu odpovedal „I do not actually
      have an Instagram though". Poprel niečo svoje po tom, čo to fanúšik
      pochválil.
@@ -44,7 +48,10 @@ BLOK = """NEŽ ODOŠLEŠ — SKONTROLUJ TOTO
 - NEVYMENÚVAJ, ČO MÁŠ ZA OBSAH. Žiadne zoznamy. Spomeň JEDNU vec tak, aby sa
   pýtal ďalej.
 - JEDNA MYŠLIENKA NA SPRÁVU, dve vety stačia. Radšej kratšie a živšie než
-  dlhé a vysvetľujúce."""
+  dlhé a vysvetľujúce.
+- KEĎ MÁŠ VYŠŠIE ODKAZ A MÁŠ HO POSLAŤ, NAPÍŠ HO CELÝ. Presne tak, ako tam
+  stojí, aj s https. Nestačí povedať „na mojej stránke" ani „poviem ti
+  neskôr" — bez adresy sa tam človek nedostane a celá tá správa je nanič."""
 
 
 def blok(chat_tier: str) -> str:

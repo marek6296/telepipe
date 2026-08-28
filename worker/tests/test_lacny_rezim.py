@@ -241,3 +241,39 @@ class TestSkusobnyChatTestujeToIste:
         j = src.index("async def _skusobna_odpoved")
         mimo = src[:i] + src[j:]
         assert "Behavior.from_row(await self._db.get_behavior())" not in mimo
+
+
+class TestFunkcieNaLacnomModeli:
+    """Namerané na scenári, kde sa fanúšik priamo pýta „where can i find it":
+
+      hlasovka  — oba modely si ju vypýtali 4/4, keď o ňu požiadal. Bez rozdielu.
+      fotky     — riadi ich KÓD (`photos.send_reason`), model do toho nevstupuje.
+      odkaz     — drahší 10/10, lacnejší 4/8. Preto pokyn v barličke aj druhý
+                  pokus v `userbot`; s nimi 8/10.
+    """
+
+    def test_barlicka_pyta_cely_odkaz(self):
+        import lacny
+
+        assert "NAPÍŠ HO CELÝ" in lacny.BLOK
+        assert "https" in lacny.BLOK
+
+    def test_druhy_pokus_je_len_pre_lacny_rezim(self):
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parents[1] / "src" / "userbot.py").read_text("utf-8")
+        i = src.index("lacný model vynechal odkaz")
+        okolie = src[max(0, i - 700) : i]
+        assert 'behavior.chat_tier == "economy"' in okolie
+        assert "wants_link" in okolie, "len keď si odkaz sám vypýtal"
+
+    def test_odkaz_sa_nedolepuje(self):
+        """Keď sa modelka rozhodne odkaz nedať, je to jej právo — prilepená
+        adresa by z odpovede spravila reklamu."""
+        from pathlib import Path
+
+        src = (Path(__file__).resolve().parents[1] / "src" / "userbot.py").read_text("utf-8")
+        i = src.index("lacný model vynechal odkaz")
+        blok = src[i : i + 900]
+        assert "if kratky in druhy:" in blok, "druhý pokus sa berie LEN keď odkaz obsahuje"
+        assert "text +=" not in blok and "text = text +" not in blok
