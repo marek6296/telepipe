@@ -287,6 +287,21 @@ def may_thank(
     )
 
 
+def popis_nakupu(cents: int, kolkykrat: int) -> str:
+    """Hlavička karty na schválenie. PO ANGLICKY — číta to majiteľ v bote.
+
+    Karta za poďakovanie nevzniká z prichádzajúcej správy, takže nemá čo
+    ukázať v náhľade. Bez tohto by tam visel vnútorný pokyn pre model.
+    """
+    kolko = f"${cents / 100:.2f}" if cents > 0 else "something"
+    poradie = " (first purchase)" if kolkykrat <= 1 else f" (purchase #{kolkykrat})"
+    return f"💳 Just bought {kolko}{poradie} — waiting on a thank you."
+
+
+# Karta pre nového predplatiteľa. Rovnaký dôvod ako vyššie.
+POPIS_PREDPLATNEHO = "✨ Just subscribed — nobody has said hello yet."
+
+
 def thanks_hint(cents: int, kolkykrat: int) -> str:
     """Pokyn na poďakovanie za nákup.
 

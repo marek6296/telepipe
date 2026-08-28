@@ -758,17 +758,41 @@ class FanvueAgent:
         if row.get("human_takeover") or not row.get("ai_enabled", True):
             return
 
+        # POĎAKOVANIE JE TIEŽ ODPOVEĎ. Chodí z webhooku o platbe, nie
+        # z prichádzajúcej správy, takže obchádzalo bránu `reply_mode` v
+        # `_reply` — v režime `semi` odpisovala sama, hoci majiteľ schvaľuje
+        # každú správu, a pri `off` písala, hoci mala mlčať.
+        reply_mode = str(settings.get("reply_mode") or "auto")
+        if reply_mode == "off":
+            return
+
         persona = await self._db.persona()
         behavior = await self._db.behavior()
         teraz_local = local_now(behavior)
-        try:
-            text = (
-                await self._llm.reply(
-                    build_prompt(persona, settings, fan, row, None, teraz_local),
-                    (await self._db.history(fan["uuid"]))
-                    + [{"role": "user", "content": fvflow.thanks_hint(cents, kolkykrat)}],
+        prompt = build_prompt(persona, settings, fan, row, None, teraz_local)
+        history = (await self._db.history(fan["uuid"])) + [
+            {"role": "user", "content": fvflow.thanks_hint(cents, kolkykrat)}
+        ]
+
+        if reply_mode == "semi":
+            # Kartu si nechá schváliť ako každú inú odpoveď. Zapisuje sa až
+            # po jej odoslaní, inak by sa pri ďalšom zosúladení chatu
+            # ďakovalo znova a majiteľ by dostal druhú kartu za tú istú platbu.
+            if await self._handoff_semi(
+                fan, row, prompt, history,
+                preview=fvflow.popis_nakupu(cents, kolkykrat),
+            ):
+                await self._db.update_fan(
+                    fan["uuid"],
+                    {
+                        "last_thanks_at": datetime.now(timezone.utc).isoformat(),
+                        "thanks_sent": int(row.get("thanks_sent") or 0) + 1,
+                    },
                 )
-            ).strip()
+            return
+
+        try:
+            text = (await self._llm.reply(prompt, history)).strip()
         except Exception as exc:  # noqa: BLE001 - vďaka je bonus, nie podmienka
             log.warning("Poďakovanie sa nepodarilo napísať: %s", exc)
             return
@@ -815,13 +839,31 @@ class FanvueAgent:
         row = await self._ensure_fan(fan)
         if row.get("greeted"):
             return
+        # Vypnuté AI a prevzatý chat platia aj na privítanie. Doteraz sa
+        # nekontrolovali vôbec — jediná brána bolo `greeted`.
+        if row.get("human_takeover") or not row.get("ai_enabled", True):
+            return
+
+        # Aj privítanie je odpoveď. Chodí z webhooku o novom predplatiteľovi,
+        # takže obchádzalo bránu `reply_mode` rovnako ako poďakovanie.
+        reply_mode = str(settings.get("reply_mode") or "auto")
+        if reply_mode == "off":
+            return
 
         persona = await self._db.persona()
-        text = (await self._llm.reply(
-            build_prompt(persona, settings, fan, row, None), [
-                {"role": "user", "content": GREETING_PROMPT}
-            ]
-        )).strip()
+        prompt = build_prompt(persona, settings, fan, row, None)
+        history = [{"role": "user", "content": GREETING_PROMPT}]
+
+        if reply_mode == "semi":
+            # `greeted` až po odoslanej karte — inak by človek ostal bez
+            # privítania aj bez karty a druhá šanca by už neprišla.
+            if await self._handoff_semi(
+                fan, row, prompt, history, preview=fvflow.POPIS_PREDPLATNEHO
+            ):
+                await self._db.update_fan(fan["uuid"], {"greeted": True})
+            return
+
+        text = (await self._llm.reply(prompt, history)).strip()
         text = self._clean(text)
         if not text or not self._safe(text):
             return
@@ -1060,20 +1102,31 @@ class FanvueAgent:
 
     # ---------- semi-auto: handoff + doručovanie (volá control bot) ----------
 
-    async def _handoff_semi(self, fan, row, prompt, history, tip: str = "") -> None:
-        """Vygeneruj návrhy a pošli majiteľovi kartu (supersede rieši control)."""
+    async def _handoff_semi(
+        self, fan, row, prompt, history, tip: str = "", preview: str = ""
+    ) -> bool:
+        """Vygeneruj návrhy a pošli majiteľovi kartu (supersede rieši control).
+
+        `preview` je pre karty, ktoré nevznikli z prichádzajúcej správy —
+        poďakovanie za nákup a privítanie predplatiteľa. Bez neho by karta
+        ukazovala vnútorný pokyn pre model namiesto dôvodu, prečo prišla.
+
+        Vracia, či karta naozaj odišla: volajúci si podľa toho zapíše, že
+        vybavené (`greeted`, `last_thanks_at`). Keby si to zapísal aj pri
+        neúspechu, človek by ostal bez privítania aj bez karty.
+        """
         if not self._control:
             log.warning("Fanvue semi: control bot nie je pripojený — %s bez karty", fan["uuid"][:8])
-            return
+            return False
         try:
             suggestions = await self._llm.suggest(
                 prompt + prehlad.pokyn_pre_model(history), history, angles=UHLY
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("Fanvue návrhy zlyhali: %s", exc)
-            return
+            return False
         if not suggestions:
-            return
+            return False
         name = row.get("display_name") or fan.get("name") or fan["uuid"][:8]
         # Všetko, na čo ešte neodpovedala — nielen posledná správa. Kým
         # majiteľ rozhoduje, fanúšik píše ďalej a karta sa má dopĺňať.
@@ -1081,11 +1134,14 @@ class FanvueAgent:
             channel="fanvue",
             conv_key=fan["uuid"],
             display_name=name,
-            incoming_preview=prehlad.blok_neodpovedanych(history) or (fan.get("text") or ""),
+            incoming_preview=(
+                preview or prehlad.blok_neodpovedanych(history) or (fan.get("text") or "")
+            ),
             suggestions=suggestions,
             hint=tip,
         )
         log.info("Fanvue semi: karta pre %s %s", fan["uuid"][:8], "poslaná" if ok else "NEposlaná")
+        return bool(ok)
 
     async def regenerate(
         self, conv_key: str, seed: str = "", brief: str = ""
