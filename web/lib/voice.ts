@@ -52,8 +52,23 @@ export const AMBIENCE_LEVEL_DEFAULT = 0.05;
 export const AMBIENCE_DEFAULT = "home";
 export const STRENGTH_DEFAULT = "rough";
 
-/** Dlhší text sa do hlasovky nezmestí a `voice_jobs.text` nie je esej. */
-export const PREVIEW_TEXT_MAX = 400;
+/**
+ * Strop textu v ukážke hlasu.
+ *
+ * Pôvodných 400 znakov vychádzalo z toho, aká dlhá býva SKUTOČNÁ hlasovka
+ * v chate — tie sú krátke a to je správne. Lenže tu sa hlas ladí, a ladiace
+ * scenáre sú dlhšie: samotné značky (`[whispers]`, `[long pause]`, `[sighs]`)
+ * zožerú polovicu miesta bez toho, aby pribudlo hovorené slovo.
+ *
+ * Nejaký strop tu ostáva zámerne. Nie kvôli ElevenLabs (ten znesie rádovo
+ * viac), ale preto, že dlhší text = dlhšia nahrávka, väčší súbor a viac
+ * minútovaného kreditu za jedno kliknutie. 1500 znakov je ~3–4 minúty
+ * scenára so značkami, čo na doladenie hlasu bohato stačí.
+ *
+ * Platí LEN na ukážky. Dĺžku hlasoviek, ktoré modelka naozaj posiela,
+ * riadi prompt, nie táto konštanta.
+ */
+export const PREVIEW_TEXT_MAX = 1500;
 
 export type VoiceSound = {
   ambience: string;

@@ -336,7 +336,12 @@ export function VoiceStudio({
           </span>
         </div>
 
-        <Stage stage={stage} problem={problem} url={url} />
+        <Stage
+          stage={stage}
+          problem={problem}
+          url={url}
+          fileName={clipFileName(live.ambience, live.tempo, new Date().toISOString())}
+        />
       </div>
 
       <RecentPreviews clips={clips} />
@@ -348,7 +353,46 @@ export function VoiceStudio({
 /*  Stav výroby                                                                */
 /* -------------------------------------------------------------------------- */
 
-function Stage({ stage, problem, url }: { stage: Stage; problem: string; url: string }) {
+/**
+ * Adresa, ktorá súbor STIAHNE, nie prehrá.
+ *
+ * Atribút `download` na `<a>` tu nefunguje: nahrávky sedia na verejnom
+ * Supabase storage, teda na inej doméne než appka, a prehliadač ho pri cudzom
+ * pôvode ignoruje — odkaz by súbor len otvoril. Supabase preto pozná vlastný
+ * parameter `?download=<meno>`, ktorý pošle `Content-Disposition: attachment`
+ * priamo zo servera.
+ */
+function downloadUrl(url: string, name: string): string {
+  const oddelovac = url.includes("?") ? "&" : "?";
+  return `${url}${oddelovac}download=${encodeURIComponent(name)}`;
+}
+
+/** Meno súboru, z ktorého sa dá aj o týždeň poznať, čo to bolo. */
+function clipFileName(
+  ambience: string,
+  tempo: number | string,
+  createdAt: string,
+): string {
+  const d = new Date(createdAt);
+  const dva = (n: number) => String(n).padStart(2, "0");
+  const kedy = Number.isNaN(d.getTime())
+    ? "preview"
+    : `${d.getFullYear()}${dva(d.getMonth() + 1)}${dva(d.getDate())}-${dva(d.getHours())}${dva(d.getMinutes())}`;
+  const kde = String(ambience || "voice").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
+  return `${kedy}-${kde}-${Number(tempo).toFixed(2)}x.ogg`;
+}
+
+function Stage({
+  stage,
+  problem,
+  url,
+  fileName,
+}: {
+  stage: Stage;
+  problem: string;
+  url: string;
+  fileName: string;
+}) {
   if (stage === "idle") return null;
 
   if (stage === "failed") {
@@ -366,14 +410,22 @@ function Stage({ stage, problem, url }: { stage: Stage; problem: string; url: st
           Exactly as he would hear it
         </p>
         <audio controls src={url} preload="metadata" className="w-full" />
-        <a
-          href={url}
-          target="_blank"
-          rel="noreferrer"
-          className="mt-3 inline-block text-[11.5px] text-[var(--app-text-3)] underline underline-offset-2 hover:text-[var(--app-text)]"
-        >
-          Open the file
-        </a>
+        <div className="mt-3 flex items-center gap-4 text-[11.5px]">
+          <a
+            href={downloadUrl(url, fileName)}
+            className="text-[var(--app-text-2)] underline underline-offset-2 hover:text-[var(--app-text)]"
+          >
+            Download
+          </a>
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[var(--app-text-3)] underline underline-offset-2 hover:text-[var(--app-text)]"
+          >
+            Open the file
+          </a>
+        </div>
       </div>
     );
   }
@@ -430,6 +482,15 @@ function RecentPreviews({ clips }: { clips: PreviewClip[] }) {
               </p>
             )}
             <audio controls src={clip.url} preload="none" className="w-full" />
+            <a
+              href={downloadUrl(
+                clip.url,
+                clipFileName(clip.ambience, clip.tempo, clip.created_at),
+              )}
+              className="inline-block text-[11.5px] text-[var(--app-text-3)] underline underline-offset-2 hover:text-[var(--app-text)]"
+            >
+              Download
+            </a>
           </div>
         ))}
       </div>
