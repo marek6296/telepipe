@@ -58,14 +58,42 @@ ODPOVEDA_NA = "creator.message.received"
 # a predáva sa obsah. Ale kupuje ďalej len ten, kto má pocit, že je s ňou
 # v kontakte — takže jeden z troch ťahov musí vždy patriť JEMU, nie predaju.
 # Keby boli všetky tri predajné, bola by z toho pokladňa s emoji.
-UHLY = [
-    "choď priamo s ním v tom, čo práve chce — najhorúcejšia verzia, akú si "
-    "dovolíš, bez predaja",
-    "to isté, ale natiahni to k obsahu — nadviaž na to, čo preňho máš "
-    "(len ak to pokyn vyššie dovoľuje; inak len naznač)",
+# Uhly návrhov. TRI RÔZNE ŤAHY, nie tri nálady — a INÉ pre cudzieho než pre
+# toho, kto už kupoval. Cudziemu je predajný ťah predčasný, kupujúcemu je
+# zoznamovacia otázka strata ťahu.
+#
+# Predajné uhly nie sú vymyslené: sú to Marekove vlastné ťahy z chatov, ktoré
+# naozaj predali (64,99 $ a 69,99 $). Postup, ktorý mu tam zabral, bol vždy
+# rovnaký — zúž výber → zaváhaj → exkluzivita → fotka s príbehom.
+UHLY_ZOZNAMOVANIE = [
+    "choď s ním v tom, čo práve píše — ľahko a zvedavo, nič neponúkaj",
+    "zisti, čo tu vlastne hľadá — jednou otázkou, nie výsluchom",
     "vráť loptičku jemu — daj najavo, že ťa teší, že je tu, a dostaň z neho "
     "niečo o ňom",
 ]
+
+UHLY_PREDAJ = [
+    # „choď s ním naplno" — bez predaja. Bez tohto by boli všetky tri ponuky.
+    "choď priamo s ním v tom, čo práve chce — najhorúcejšia verzia, akú si "
+    "dovolíš, bez akejkoľvek ponuky",
+    # Naživo: „tell me what u wanna see first and maybe ill tease it" a
+    # „You want me sitting or bent over?😈" — z odpovede potom vyplynie ponuka.
+    "zúž to na výber — spýtaj sa PRESNE, čo chce vidieť, a to tak, aby sa "
+    "z jeho odpovede dalo nadviazať na to, čo preňho máš",
+    # Naživo: „but i dont sure if i want share this one 😅" → „never send this
+    # one here 😜" → fotka s príbehom. Váhanie predáva lepšie než ponuka.
+    "zaváhaj a zdvihni cenu záujmu — naznač, že práve toto nikam nedávaš a "
+    "bolo by to len pre neho; ak to pokyn vyššie dovoľuje, sprav z toho ponuku "
+    "s krátkym príbehom, inak to nechaj pri náznaku",
+]
+
+# Spätná kompatibilita pre volajúcich, ktorí uhly nevyberajú podľa fázy.
+UHLY = UHLY_PREDAJ
+
+
+def uhly_pre(row: Dict[str, Any], settings: Dict[str, Any]) -> List[str]:
+    """Ktoré uhly použiť. Rozhoduje tá istá fáza ako v prompte."""
+    return UHLY_ZOZNAMOVANIE if phase(row, settings) == "discovery" else UHLY_PREDAJ
 
 # Uhly pre zadanie od majiteľa („napíš mu, že…"). Tému nemení ani jeden — mení
 # sa len to, ako ju povie.
@@ -183,8 +211,17 @@ def phase(row: Dict[str, Any], settings: Dict[str, Any]) -> str:
 
     Prejde sa ďalej, keď buď povedal, čo tu hľadá, alebo si už vymenili
     dosť správ na to, aby ďalšie vypytovanie pôsobilo ako výsluch.
+
+    KTO UŽ KÚPIL, NIE JE CUDZÍ. Naostro mali VŠETCI traja platiaci fanúšikovia
+    (30,99 / 64,99 / 69,99 $, tri nákupy každý) fázu `discovery` — a tá vetva
+    promptu hovorí „nevieš o ňom nič" a „TERAZ NIČ NEPONÚKAJ A NIČ NEPREDÁVAJ".
+    Modelka teda navrhovala zoznamovacie vety človeku, ktorý u nej práve minul
+    70 dolárov, a `may_offer` mu nesmela ponúknuť nič. Peniaze sú silnejší
+    dôkaz než počítadlo správ.
     """
     if str(row.get("stage") or "") == "known":
+        return "known"
+    if int(row.get("bought_count") or 0) > 0 or int(row.get("spent_cents") or 0) > 0:
         return "known"
     if str(row.get("wants") or "").strip():
         return "known"
@@ -415,6 +452,18 @@ def build_prompt(
             riadky.append(f"Hľadá tu: {chce}. Veď rozhovor tým smerom.")
         else:
             riadky.append("Veď rozhovor podľa toho, na čo reaguje.")
+        # Čo u nej UŽ minul. Doteraz o tom prompt nevedel nič a modelka písala
+        # človeku, ktorý u nej nechal 70 dolárov, rovnako ako komukoľvek inému.
+        # Sumu vie, ale nikdy ju nevysloví — to znie ako účtenka.
+        kupil = int(row.get("bought_count") or 0)
+        if kupil:
+            riadky.append(
+                f"UŽ U TEBA KUPOVAL, a to {kupil}×. Vie, čo za svoje peniaze "
+                "dostane, takže ho nemusíš presviedčať — stačí mu dať dôvod "
+                "chcieť ďalšie. Sumu ani počet nákupov NIKDY nespomeň nahlas."
+            )
+        if str(settings.get("heat") or "hot") == "hot" and settings.get("sell_content"):
+            riadky += ["", fvflow.PREDAJ_AKO]
 
     if row:
         riadky += ["", "AKÝ JE TO ČLOVEK:", fvflow.CITANIE[fvflow.reads_as(row)]]
@@ -1120,7 +1169,8 @@ class FanvueAgent:
             return False
         try:
             suggestions = await self._llm.suggest(
-                prompt + prehlad.pokyn_pre_model(history), history, angles=UHLY
+                prompt + prehlad.pokyn_pre_model(history), history,
+                angles=uhly_pre(row, await self._db.settings()),
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("Fanvue návrhy zlyhali: %s", exc)
@@ -1180,7 +1230,7 @@ class FanvueAgent:
         suggestions = await self._llm.suggest(
             prompt,
             history,
-            angles=UHLY_ZADANIE if brief else UHLY,
+            angles=UHLY_ZADANIE if brief else uhly_pre(row, settings),
             seed=seed or "2",
         )
         return {"suggestions": suggestions, "hint": "" if brief else sit.tip}
@@ -1302,12 +1352,28 @@ class FanvueAgent:
 
         try:
             zname = await self._db.known_message_uuids(fan["uuid"])
-            chybajuce = fvsync.missing(zname, skutocne, creator)
+            chybajuce = fvsync.missing(
+                zname, skutocne, creator,
+                bez_uuid=await self._db.texty_bez_uuid(fan["uuid"]),
+            )
             if chybajuce:
                 await self._db.add_messages(fan["uuid"], chybajuce)
                 log.info(
                     "Doplnených %s správ do chatu %s", len(chybajuce), fan["uuid"][:8]
                 )
+
+            # POČÍTADLO SPRÁV PODĽA SKUTOČNÉHO CHATU. `msg_count` sa inak
+            # zvyšuje LEN pri správach, ktoré prešli cez bota — kto píše priamo
+            # vo Fanvue (a v režime `semi` je to majiteľ), ho nechá takmer na
+            # nule. Naostro: 50 správ v chate a `msg_count` 6, 34 správ a 0.
+            # Z toho počítadla pritom `phase` a `may_offer` odvodzujú, či sa
+            # ešte len zoznamujú.
+            skutocny_pocet = len(skutocne)
+            if skutocny_pocet > int(row.get("msg_count") or 0):
+                await self._db.update_fan(
+                    fan["uuid"], {"msg_count": skutocny_pocet}
+                )
+                row["msg_count"] = skutocny_pocet
 
             # Nákup sa inak nedozvieme — webhook o odomknutí správy nechodí.
             kupil = fvsync.bought(skutocne)

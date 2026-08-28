@@ -383,6 +383,27 @@ class TenantFanvueDb:
         )
         return {r["message_uuid"] for r in rows if r.get("message_uuid")}
 
+    async def texty_bez_uuid(self, fan_uuid: str, limit: int = 60) -> set:
+        """Znenia správ uložených BEZ identifikátora Fanvue.
+
+        Poslali sme ich my a Fanvue nám k nim id nevrátilo. Pri zosúladení si
+        ich stiahneme späť — už s vlastným uuid — a dedup podľa uuid ich
+        nespozná, takže by pribudli druhýkrát. Naostro bolo takto zdvojených
+        6 % správ a modelka videla v histórii svoju poslednú vetu dvakrát.
+        """
+        rows = await self._get(
+            FV_MESSAGES,
+            {
+                "model_id": self._mine,
+                "fan_uuid": f"eq.{fan_uuid}",
+                "select": "content",
+                "message_uuid": "is.null",
+                "order": "id.desc",
+                "limit": str(limit),
+            },
+        )
+        return {str(r.get("content") or "") for r in rows if r.get("content")}
+
     async def history(self, fan_uuid: str, limit: int = 16) -> List[Dict[str, str]]:
         rows = await self._get(
             FV_MESSAGES,

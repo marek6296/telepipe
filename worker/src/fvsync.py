@@ -50,12 +50,22 @@ def as_text(message: Dict[str, Any]) -> str:
 
 
 def missing(
-    stored_uuids: set, fetched: Sequence[Dict[str, Any]], creator_uuid: str
+    stored_uuids: set,
+    fetched: Sequence[Dict[str, Any]],
+    creator_uuid: str,
+    bez_uuid: Sequence[str] = (),
 ) -> List[Dict[str, str]]:
     """Správy, ktoré nemáme — od najstaršej, nech poradie v pamäti sedí.
 
     Fanvue vracia najnovšie prvé, takže sa zoznam obracia.
+
+    `bez_uuid` sú znenia, ktoré už máme uložené BEZ identifikátora — poslali
+    sme ich my a Fanvue nám k nim id nevrátilo. Bez tejto poistky by sa každá
+    taká správa pri zosúladení pridala druhýkrát: dedup vyššie pozná len uuid,
+    a to sa jej priradí až teraz. Naostro bolo takto zdvojených 6 % správ
+    a modelka mala v histórii vlastnú poslednú vetu dvakrát.
     """
+    uz_mame = {str(t) for t in bez_uuid}
     out: List[Dict[str, str]] = []
     for message in reversed(list(fetched)):
         uuid = str(message.get("uuid") or "")
@@ -63,6 +73,11 @@ def missing(
             continue
         text = as_text(message)
         if not text:
+            continue
+        if text[:2000] in uz_mame:
+            # Zapíše sa len raz: druhá rovnaká správa v tom istom ťahu je už
+            # naozaj nová (človek zopakoval to isté).
+            uz_mame.discard(text[:2000])
             continue
         out.append(
             {

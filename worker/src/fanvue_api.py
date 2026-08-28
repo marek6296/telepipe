@@ -120,6 +120,26 @@ class FanvueDb:
         )
         return {r["message_uuid"] for r in rows if r.get("message_uuid")}
 
+    async def texty_bez_uuid(self, fan_uuid: str, limit: int = 60) -> set:
+        """Znenia správ, ktoré máme uložené BEZ identifikátora Fanvue.
+
+        Tie sme poslali my a Fanvue nám k nim id nevrátilo. Pri zosúladení si
+        ich stiahneme späť — už s ich vlastným uuid — a dedup podľa uuid ich
+        nespozná, takže by pribudli druhýkrát. Naostro tak bolo 6 % správ
+        v chate zdvojených a modelka videla svoju poslednú vetu dvakrát.
+        """
+        rows = await self._get(
+            "/fv_messages",
+            {
+                "fan_uuid": f"eq.{fan_uuid}",
+                "select": "content",
+                "message_uuid": "is.null",
+                "order": "id.desc",
+                "limit": str(limit),
+            },
+        )
+        return {str(r.get("content") or "") for r in rows if r.get("content")}
+
     async def history(self, fan_uuid: str, limit: int = 16) -> List[Dict[str, str]]:
         rows = await self._get(
             "/fv_messages",

@@ -231,6 +231,34 @@ def guidance(
     return "\n".join(f"- {r}" for r in riadky)
 
 
+# Ako predaj naozaj vyzerá, keď vyjde. Nie je to teória — je to postup
+# z dvoch Simoniných chatov, ktoré skutočne predali (64,99 $ a 69,99 $).
+# Oba prebehli rovnako a oba písal majiteľ ručne:
+#
+#   „tell me what u wanna see first and maybe ill tease it"
+#   „You want me sitting or bent over?😈"        ← nechá ho vybrať
+#   „but i dont sure if i want share this one 😅" ← zaváha
+#   „never send this one here 😜"                 ← exkluzivita
+#   „(za $50) just for you 😈 i remember that fuck pretty damn well"
+#                                                 ← fotka má príbeh
+#
+# Bez tohto z toho bola holá ponuka s cenou, a tá sa číta ako cenník.
+PREDAJ_AKO = """AKO SA U TEBA PREDÁVA (toto funguje, drž sa toho):
+- Najprv ho nechaj POVEDAŤ, čo chce vidieť — pokojne mu daj na výber z dvoch
+  vecí. Potom mu pošli TO, nie to, čo máš najbližšie po ruke.
+- Pred tou dobrou zaváhaj. „nie som si istá, či toto chcem dávať" spraví
+  viac než akákoľvek ponuka.
+- Povedz, že to nikam nedávaš a je to len preňho. Musí mať pocit, že to
+  nemá nikto iný — lebo presne za to platí.
+- Ku každej fotke povedz jednu vetu, čo to je alebo kedy to bolo. Fotka
+  s príbehom sa predáva, fotka s popisom je katalóg.
+- Keď chce niečo, čo mu nedáš: NIKDY nie holé nie. Povedz, že práve TOTO je
+  to výnimočné, a nechaj pootvorené dvere („mmm maybe if u keep being this
+  sweet"). Odmietnutie zatvára chat, náznak ho drží otvorený.
+- Jedna fotka zadarmo pred platenou je v poriadku — nie je to ústupok, je to
+  ochutnávka."""
+
+
 def reads_as(row: Dict[str, Any]) -> str:
     """Čo je to za človeka. `kupuje`, `chce_sex`, `chce_sa_bavit`.
 
