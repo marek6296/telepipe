@@ -736,6 +736,7 @@ class TenantDb:
         incoming_preview: str = "",
         hint: str = "",
         prompt: str = "",
+        display_name: str = "",
     ) -> Optional[Dict[str, Any]]:
         """Zapíše nový čakajúci návrh. Vráti riadok (s `id`) alebo None.
 
@@ -750,7 +751,12 @@ class TenantDb:
                 "channel": channel,
                 "conv_key": str(conv_key),
                 "suggestions": suggestions,
-                "incoming_preview": incoming_preview[:400],
+                # Náhľad je CELÝ ROZHOVOR, nie jedna veta — desať správ s
+                # menami má bežne 700–900 znakov. Pri strope 400 sa uložila
+                # necelá polovica a po „Regenerate" či návrate z foto-wizardu
+                # zmizol z karty zvyšok rozhovoru.
+                "incoming_preview": incoming_preview[:2000],
+                "display_name": display_name[:120],
                 "hint": hint[:300],
                 "prompt": prompt,
             },
@@ -766,7 +772,7 @@ class TenantDb:
                 "conv_key": f"eq.{conv_key}",
                 "status": "eq.awaiting",
                 "select": "id,prompt,hint,conv_key,channel,status,"
-                          "incoming_preview,control_msg_id",
+                          "incoming_preview,display_name,control_msg_id",
                 "order": "created_at.desc",
                 "limit": "1",
             },

@@ -284,6 +284,34 @@ MAX_PIN = 4
 _MAX_CHAT_CTX = 50
 
 
+# Meno pred vetou sa nesmie rozťahovať cez pol obrazovky — fanúšikovia majú na
+# Fanvue dvojslovné prezývky („Fashionable Snipe") a to meno stojí na každom
+# riadku znova.
+MENO_MAX = 18
+
+# „(+6 earlier)" nie je ničia veta — je to poznámka o tom, koľko rozhovoru sa
+# na kartu nezmestilo. Preto sa pozná presne a nedostane meno.
+_SKRYTE = re.compile(r"^\(\+\d+ earlier\)$")
+
+
+def _meno(value: Any, fallback: str) -> str:
+    """Meno do riadku karty. Bez značiek — inak rozbije tučné písmo.
+
+    `bez_znaciek` zámerne necháva `_`, lebo v prezývkach býva častejšie ako
+    značka. Tu ho ale treba odobrať tiež: meno ide do `*…*` a osamotené `_`
+    v ňom Telethonu rozhodí celý riadok.
+    """
+    text = prehlad.bez_znaciek(str(value or "")).replace("_", " ").strip()
+    return _short(text or fallback, MENO_MAX)
+
+
+def _kto(row: Dict[str, Any]) -> str:
+    """Meno fanúšika z uloženej karty. Záloha je `conv_key` — pri starých
+    riadkoch, ktoré meno ešte neniesli. Na Fanvue je to uuid, čo je škaredé,
+    ale je to lepšie než prázdno; nové karty už meno majú."""
+    return str(row.get("display_name") or row.get("conv_key") or "")
+
+
 def _card_lines(
     channel: str,
     display_name: str,
@@ -291,6 +319,7 @@ def _card_lines(
     suggestions: List[str],
     hint: str = "",
     brief: str = "",
+    her_name: str = "",
 ) -> List[str]:
     """Text schvaľovacej karty. Jedno miesto pre všetky tri cesty, ktorými
     karta vzniká (nová správa, „Regenerate", „Say this") — inak sa rozídu a
@@ -302,21 +331,28 @@ def _card_lines(
     """
     plat = "Fanvue" if channel == "fanvue" else "Telegram"
     lines = [f"💬 *{plat} · {display_name}*"]
-    # ROZHOVOR, NIE ZOZNAM. Karta ukazovala len jeho neodpovedané správy pod
-    # sebou — Marek z nej videl päť jeho viet bez toho, čo im predchádzalo od
-    # nej, takže sa nemal na čo napojiť a musel si chat otvárať vedľa.
-    # Jej riadky nesú značku `prehlad.JEJ` a vykresľujú sa odsadené a kurzívou,
-    # jeho ostávajú v úvodzovkách. Vyzerá to potom ako chat na Fanvue.
+    # ROZHOVOR S MENAMI. Karta najprv ukazovala len jeho správy, potom obe
+    # strany — jeho v úvodzovkách, jej odsadené kurzívou. Marek: „vidim aj
+    # modelkyne spravy aj klientove ale vobec neviem ktora je moja a ktora
+    # jeho". Úvodzovky a šípka sú príliš tiché; meno pred vetou nie je.
+    #
+    # V uloženom náhľade ostáva značka `prehlad.JEJ` — mená sa dosádzajú až
+    # tu, pri vykreslení, aby sa riadok nemusel prepisovať, keď sa fanúšik
+    # premenuje.
+    jeho = _meno(display_name, "Him")
+    jej = _meno(her_name, "Her")
     for riadok in str(incoming_preview or "").split("\n"):
         riadok = riadok.strip()
         if not riadok:
             continue
-        if riadok.startswith(prehlad.JEJ.strip()):
-            jej = riadok[len(prehlad.JEJ.strip()):].strip()
-            if jej:
-                lines.append(f"   ↳ _{_short(jej, 200)}_")
+        if _SKRYTE.match(riadok):
+            lines.append(f"_{riadok}_")
+        elif riadok.startswith(prehlad.JEJ.strip()):
+            text = riadok[len(prehlad.JEJ.strip()):].strip()
+            if text:
+                lines.append(f"*{jej}:* {_short(text, 200)}")
         else:
-            lines.append(f"„{_short(riadok, 200)}“")
+            lines.append(f"*{jeho}:* {_short(riadok, 200)}")
     if hint:
         lines.append(f"\n{hint}")
     if brief:
@@ -1235,12 +1271,15 @@ class ControlBot:
         row = await self._db.create_pending(
             channel=channel, conv_key=conv_key,
             suggestions=suggestions, incoming_preview=incoming_preview,
-            hint=hint, prompt=prompt,
+            hint=hint, prompt=prompt, display_name=display_name,
         )
         if not row:
             return False
         pid = row["id"]
-        lines = _card_lines(channel, display_name, incoming_preview, suggestions, hint)
+        lines = _card_lines(
+            channel, display_name, incoming_preview, suggestions, hint,
+            her_name=self._cfg.name,
+        )
         try:
             msg = await self._client.send_message(
                 self._cfg.owner_chat_id, "\n".join(lines),
@@ -1739,10 +1778,11 @@ class ControlBot:
         suggestions = row.get("suggestions") or []
         lines = _card_lines(
             row.get("channel") or "",
-            str(row.get("conv_key") or ""),
+            _kto(row),
             str(row.get("incoming_preview") or ""),
             suggestions,
             str(row.get("hint") or ""),
+            her_name=self._cfg.name,
         )
         await event.edit("\n".join(lines), buttons=self._approval_buttons(len(suggestions)))
 
@@ -1828,11 +1868,12 @@ class ControlBot:
         await self._db.replace_suggestions(pid, suggestions, hint)
         lines = _card_lines(
             row.get("channel") or "",
-            str(row.get("conv_key") or ""),
+            _kto(row),
             str(row.get("incoming_preview") or ""),
             suggestions,
             hint,
             brief=brief,
+            her_name=self._cfg.name,
         )
         buttons = self._approval_buttons(len(suggestions))
         text = "\n".join(lines)

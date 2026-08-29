@@ -105,7 +105,50 @@ class TestObaKanalyToPouzivaju:
             "fanvue", "fan", "prva\ndruha\ntretia", ["a"],
         )
         text = "\n".join(lines)
-        assert "„prva“" in text and "„druha“" in text and "„tretia“" in text
+        assert "*fan:* prva" in text and "*fan:* druha" in text
+        assert "*fan:* tretia" in text
+
+
+class TestKtoToPovedal:
+    """Marek (29. 8., s fotkou karty): „vidim aj modelkyne spravy aj klientove
+    ale vobec neviem ktora je moja a ktora jeho … (Jeho meno): sprava
+    (Modelkyne meno): sprava".
+
+    Úvodzovky a odsadená šípka boli príliš tiché. Meno pred vetou nie je.
+    """
+
+    def _card(self, preview, jeho="Fashionable Snipe", jej="Simona"):
+        import control_bot
+
+        return "\n".join(control_bot._card_lines(  # noqa: SLF001
+            "fanvue", jeho, preview, ["a"], her_name=jej,
+        ))
+
+    def test_meno_pred_kazdou_vetou(self):
+        text = self._card(f"hej\n{prehlad.JEJ}ahoj\nesteraz")
+        assert "*Fashionable Snipe:* hej" in text
+        assert "*Simona:* ahoj" in text
+        assert "*Fashionable Snipe:* esteraz" in text
+
+    def test_pocet_skrytych_nedostane_meno(self):
+        """„(+6 earlier)" nie je ničia veta, je to poznámka o rozsahu."""
+        text = self._card("(+6 earlier)\nhej")
+        assert "_(+6 earlier)_" in text
+        assert "Snipe:* (+6" not in text
+
+    def test_dlhe_meno_sa_oreze(self):
+        """Dvojslovné prezývky z Fanvue by inak zjedli pol riadku."""
+        text = self._card("hej", jeho="Extraordinarily Fashionable Snipe")
+        assert "*Extraordinarily F…:* hej" in text
+
+    def test_podtrznik_v_mene_nerozbije_pismo(self):
+        """Meno ide do `*…*`; osamotené `_` by Telethonu rozhodilo riadok."""
+        text = self._card("hej", jeho="ailqk_1")
+        assert "*ailqk 1:* hej" in text
+
+    def test_bez_mena_modelky_ostane_zastupny_text(self):
+        text = self._card(f"{prehlad.JEJ}ahoj", jej="")
+        assert "*Her:* ahoj" in text
 
 
 class TestBlokRozhovoru:
