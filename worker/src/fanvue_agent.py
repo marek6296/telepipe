@@ -1248,7 +1248,7 @@ class FanvueAgent:
             conv_key=fan["uuid"],
             display_name=name,
             incoming_preview=(
-                preview or prehlad.blok_neodpovedanych(history) or (fan.get("text") or "")
+                preview or prehlad.blok_rozhovoru(history) or (fan.get("text") or "")
             ),
             suggestions=suggestions,
             hint=tip,

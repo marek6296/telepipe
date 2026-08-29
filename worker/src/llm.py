@@ -272,6 +272,17 @@ class Llm:
             "platia pre všetky tri rovnako; líšia sa ťahom, nie tým, či ich "
             "poslúchnu\n"
             "— nesmú byť tri verzie tej istej vety s inými emoji\n"
+            # Naostro prišli tri návrhy po vyše dvesto znakov, všetky tri
+            # opisné — majiteľ z nich nemal čo vybrať, lebo sa líšili len
+            # slovosledom. Čísla nižšie sú namerané na 47 správach z dvoch
+            # chatov, ktoré naozaj predali: medián 67 znakov, štvrtina pod
+            # 36, deväť z desiatich pod 138. Rozpätie je teda skutočné, nie
+            # vymyslené — a práve preto sa nemá zúžiť na jednu dĺžku.
+            "— ROZLOŽ ICH DĹŽKU. PRESNE JEDEN z nich musí byť POD 40 ZNAKOV — "
+            "nie skoro, ale naozaj pod; pár slov, ako keď človek odpíše z "
+            "mobilu bez rozmýšľania. Druhý ~50–90 znakov, tretí ~100–140. "
+            "Nad 160 nechoď ani pri tom najdlhšom. Tri rovnako dlhé texty nie "
+            "sú tri možnosti, to je jedna možnosť trikrát\n"
             f"Zoraď ich od NAJLEPŠEJ po najslabšiu. Oddeľ riadkom, ktorý obsahuje "
             f"len „{marker}“. Žiadne číslovanie, nadpisy ani vysvetlenia."
         )

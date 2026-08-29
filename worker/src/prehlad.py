@@ -280,6 +280,67 @@ def blok_neodpovedanych(history: List[Dict[str, Any]]) -> str:
     return "\n".join([f"(+{skryte} earlier)"] + posledne)
 
 
+# Značka, ktorou sa v uloženom náhľade odlíši JEJ správa od jeho. Náhľad ide
+# do `pending_replies.incoming_preview` ako jeden text a karta sa z neho po
+# návrate z foto-wizardu skladá znova rozdelením na riadky — bez značky by sa
+# po tej ceste stratilo, kto čo povedal.
+JEJ = "\u21b3 "
+
+# Koľko správ rozhovoru ukázať. Dosť na to, aby sa dalo napojiť na niť, a nie
+# toľko, aby sa karta v telefóne nedala prejsť očami.
+OKNO_ROZHOVORU = 10
+# Dokedy sa okno smie roztiahnuť, keď v ňom jej odpoveď nie je, a koľko jej
+# správ tam má byť. Bez rozšírenia by karta pri desiatich jeho správach za
+# sebou ukázala desať jeho viet a nič, na čo sa dá nadviazať.
+STROP_ROZHOVORU = 20
+JEJ_MINIMUM = 2
+
+
+def blok_rozhovoru(history: List[Dict[str, Any]]) -> str:
+    """Posledné správy OBOCH strán tak, ako idú za sebou — ako v chate.
+
+    PREČO. Karta doteraz ukazovala len JEHO neodpovedané správy pod sebou.
+    Marek z nej videl päť jeho viet bez toho, čo im predchádzalo od nej —
+    takže sa nemal na čo napojiť a musel si chat otvárať vedľa. Keď napíše
+    dve za sebou, sú tu dve za sebou; keď medzi tým odpovedala ona, je tam
+    aj jej odpoveď. Presne ako to vyzerá na Fanvue.
+
+    Jej riadky nesú `JEJ` značku, jeho sú bez nej.
+    """
+    vsetko = [
+        r for r in (history or [])
+        if bez_znaciek(str((r or {}).get("content") or "")).strip()
+    ]
+    if not vsetko:
+        return ""
+
+    # Okno sa ROZŠIRUJE, kým v ňom nie sú aspoň dve jej správy. Keď napíše
+    # desať viet za sebou, jej posledná odpoveď by z pevného okna vypadla —
+    # a presne tá je to, na čo sa má majiteľ napojiť. Strop drží kartu
+    # čitateľnou aj vtedy, keď mlčala dlho.
+    kolko = min(OKNO_ROZHOVORU, len(vsetko))
+    while kolko < min(STROP_ROZHOVORU, len(vsetko)):
+        jej = sum(
+            1 for r in vsetko[-kolko:]
+            if str((r or {}).get("role") or "") == "assistant"
+        )
+        if jej >= JEJ_MINIMUM:
+            break
+        kolko += 1
+
+    riadky: List[str] = []
+    for row in vsetko[-kolko:]:
+        text = bez_znaciek(str((row or {}).get("content") or "")).strip()
+        if str((row or {}).get("role") or "") == "assistant":
+            riadky.append(JEJ + text)
+        else:
+            riadky.append(text)
+    skryte = max(0, len(vsetko) - len(riadky))
+    if skryte:
+        riadky.insert(0, f"(+{skryte} earlier)")
+    return "\n".join(riadky)
+
+
 def pokyn_pre_model(history: List[Dict[str, Any]]) -> str:
     """Veta do promptu, keď čaká viac jeho správ naraz. Prázdna = jedna stačí.
 

@@ -2236,7 +2236,7 @@ class UserBot:
             display_name=name,
             # Všetko, na čo ešte neodpovedala — kým majiteľ rozhoduje,
             # človek píše ďalej a karta sa má dopĺňať, nie prepisovať.
-            incoming_preview=prehlad.blok_neodpovedanych(history) or last_user_text,
+            incoming_preview=prehlad.blok_rozhovoru(history) or last_user_text,
             suggestions=suggestions,
             # Snímka sveta pre „Regenerate" a „Say this". Na Telegrame sa
             # neskladá odznova ako na Fanvue: do tohto promptu vstupuje počasie,

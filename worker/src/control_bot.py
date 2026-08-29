@@ -30,6 +30,8 @@ import logging
 import re
 import time
 from datetime import datetime, timedelta, timezone
+
+import prehlad
 from typing import Any, Dict, List, Optional, Tuple
 
 from telethon import Button, TelegramClient, events
@@ -300,12 +302,20 @@ def _card_lines(
     """
     plat = "Fanvue" if channel == "fanvue" else "Telegram"
     lines = [f"💬 *{plat} · {display_name}*"]
-    # Neodpovedaných správ môže byť viac — každá na vlastný riadok. Doteraz
-    # sa celý blok orezal na 220 znakov ako jedna veta, takže z troch správ
-    # bola vidieť prvá a pol.
+    # ROZHOVOR, NIE ZOZNAM. Karta ukazovala len jeho neodpovedané správy pod
+    # sebou — Marek z nej videl päť jeho viet bez toho, čo im predchádzalo od
+    # nej, takže sa nemal na čo napojiť a musel si chat otvárať vedľa.
+    # Jej riadky nesú značku `prehlad.JEJ` a vykresľujú sa odsadené a kurzívou,
+    # jeho ostávajú v úvodzovkách. Vyzerá to potom ako chat na Fanvue.
     for riadok in str(incoming_preview or "").split("\n"):
         riadok = riadok.strip()
-        if riadok:
+        if not riadok:
+            continue
+        if riadok.startswith(prehlad.JEJ.strip()):
+            jej = riadok[len(prehlad.JEJ.strip()):].strip()
+            if jej:
+                lines.append(f"   ↳ _{_short(jej, 200)}_")
+        else:
             lines.append(f"„{_short(riadok, 200)}“")
     if hint:
         lines.append(f"\n{hint}")

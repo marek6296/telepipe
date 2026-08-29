@@ -86,13 +86,16 @@ class TestPokynPreModel:
 
 
 class TestObaKanalyToPouzivaju:
-    def test_karta_dostane_cely_blok(self):
+    def test_karta_dostane_cely_rozhovor(self):
+        """Od 29. 8. karta ukazuje ROZHOVOR, nie len jeho neodpovedané správy —
+        bez jej odpovedí sa Marek nemal na čo napojiť a musel si otvárať chat
+        vedľa. Oba kanály to musia stavať rovnako, inak sa rozídu."""
         from pathlib import Path
 
         src = Path(__file__).resolve().parents[1] / "src"
         for subor in ("userbot.py", "fanvue_agent.py"):
             text = (src / subor).read_text("utf-8")
-            assert "blok_neodpovedanych" in text, subor
+            assert "blok_rozhovoru" in text, subor
             assert "pokyn_pre_model" in text, subor
 
     def test_karta_vypise_kazdu_na_vlastny_riadok(self):
