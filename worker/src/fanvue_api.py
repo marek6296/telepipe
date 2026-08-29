@@ -349,12 +349,26 @@ class Fanvue:
             "Content-Type": "application/json",
         }
 
-    async def chat_messages(self, user_uuid: str, limit: int = 30) -> List[Dict[str, Any]]:
-        """Skutočný stav chatu, od najnovšej správy. Prázdne = nedalo sa."""
+    async def chat_messages(
+        self, user_uuid: str, limit: int = 30, mark_read: bool = True
+    ) -> List[Dict[str, Any]]:
+        """Skutočný stav chatu, od najnovšej správy. Prázdne = nedalo sa.
+
+        `mark_read=False` prečíta chat BEZ toho, aby fanúšikovi svietilo
+        „videné". Fanvue to má priamo v API (`markAsRead`, predvolene `true`)
+        a naostro overené: chat s dvomi neprečítanými správami ostal po
+        stiahnutí dvadsiatich správ naďalej na `unreadMessagesCount = 2`.
+
+        Bez toho sa v poloautomate nedalo čítať vôbec — a tým pádom sme
+        nevideli, čo majiteľ fanúšikovi odpísal priamo z Fanvue appky.
+        """
         try:
             r = await self._client.get(
                 f"/chats/{user_uuid}/messages",
-                params={"size": max(1, min(50, limit))},
+                params={
+                    "size": max(1, min(50, limit)),
+                    "markAsRead": "true" if mark_read else "false",
+                },
                 headers=await self._headers(),
             )
             r.raise_for_status()

@@ -1072,20 +1072,20 @@ class FanvueAgent:
             # medzitým patrí niekomu inému.
             await self._try_link(fan, row, klik_plati=not int(row.get("msg_count") or 0))
 
-        # V SEMI SA CHAT NEOTVÁRA. `_reconcile` ťahá `GET /chats/{uuid}/messages`
-        # a po ňom fanúšikovi svieti „videné" — hoci majiteľ ešte nič nečítal
-        # ani neodpísal. V poloautomate rozhoduje on, takže videné má dať až
-        # vtedy, keď naozaj odpisuje: zosúladenie sa preto presunulo do
-        # `deliver_text`/`deliver_photo`, teda za odoslanie.
+        # ČÍTA SA VŽDY, „VIDENÉ" NIE. Fanvue má na to prepínač: `markAsRead`
+        # na `GET /chats/{uuid}/messages`. V poloautomate ide na `false`, takže
+        # chat vidíme celý, ale fanúšikovi nesvieti videné skôr, než sa majiteľ
+        # rozhodne odpovedať. Overené naostro: dve neprečítané správy ostali po
+        # stiahnutí dvadsiatich naďalej neprečítané.
         #
-        # Kým sa tak stane, stačí správa z webhooku. Že sa tá istá správa
-        # neskôr stiahne aj so svojím uuid, rieši `texty_bez_uuid` v
-        # `fvsync.missing` — druhýkrát sa nepridá.
-        if semi:
-            await self._db.add_message(fan["uuid"], "user", fan["text"])
-        elif not await self._reconcile(fan, row):
-            # Skutočný stav chatu má prednosť pred frontou: Marek mohol odpísať
-            # ručne, doručenie sa mohlo stratiť a poradie Fanvue nezaručuje.
+        # Predtým sa v semi nečítalo vôbec a do pamäte šla len správa
+        # z webhooku. Fanvue ale webhookom NEPOSIELA to, čo majiteľ odpíše
+        # priamo z ich appky — a tak v karte aj v promptoch chýbala celá jedna
+        # strana rozhovoru: 24 jeho správ za sebou a ani jedna jej.
+        #
+        # Skutočný stav chatu má prednosť pred frontou: doručenie sa mohlo
+        # stratiť a poradie Fanvue nezaručuje.
+        if not await self._reconcile(fan, row, mark_read=not semi):
             return
 
         sit = await self._situacia(fan, row, settings)
@@ -1418,14 +1418,19 @@ class FanvueAgent:
     async def deliver_voice(self, conv_key: str, text: str, ogg: bytes) -> bool:
         return False
 
-    async def _reconcile(self, fan: Dict[str, Any], row: Dict[str, Any]) -> bool:
+    async def _reconcile(
+        self, fan: Dict[str, Any], row: Dict[str, Any], mark_read: bool = True
+    ) -> bool:
         """Doplní, čo v pamäti chýba. False = teraz sa neodpisuje.
 
         Keď sa chat nedá prečítať, pokračuje sa aj tak — uložená správa
         z webhooku je lepšia než mlčanie. Fail-open všade.
+
+        `mark_read=False` je pre poloautomat: chat sa prečíta, ale fanúšikovi
+        „videné" nesvieti, kým majiteľ naozaj neodpíše.
         """
         creator = str((await self._db.settings()).get("creator_uuid") or "")
-        skutocne = await self._api.chat_messages(fan["uuid"])
+        skutocne = await self._api.chat_messages(fan["uuid"], mark_read=mark_read)
         if not skutocne:
             await self._db.add_message(fan["uuid"], "user", fan["text"])
             return True

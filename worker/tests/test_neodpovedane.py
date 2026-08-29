@@ -106,3 +106,44 @@ class TestObaKanalyToPouzivaju:
         )
         text = "\n".join(lines)
         assert "„prva“" in text and "„druha“" in text and "„tretia“" in text
+
+
+class TestBlokRozhovoru:
+    """Karta ukazuje CHAT, nie zoznam jeho správ.
+
+    Marek (29. 8., s fotkou karty): „vidim iba jeho spravy … proste 10
+    poslednych sprav v chate dokopy jeho aj moje na fanvue aby som videl, a ak
+    napise on zasebou 10 tak bude iba jeho spravy vidno."
+    """
+
+    def test_obe_strany_v_poradi(self):
+        h = _h(("user", "1"), ("assistant", "a"), ("user", "2"))
+        assert prehlad.blok_rozhovoru(h) == f"1\n{prehlad.JEJ}a\n2"
+
+    def test_jej_riadky_su_oznacene(self):
+        """Bez značky by sa po ceste cez `incoming_preview` stratilo, kto je kto."""
+        h = _h(("assistant", "ahoj"))
+        assert prehlad.blok_rozhovoru(h) == f"{prehlad.JEJ}ahoj"
+
+    def test_desat_dokopy_nie_desat_jeho(self):
+        """Šesť jeho a šesť jej = dvanásť. Na kartu patrí posledných desať."""
+        h = _h(*[(("user" if i % 2 else "assistant"), f"s{i}") for i in range(12)])
+        out = prehlad.blok_rozhovoru(h).splitlines()
+        assert out[0] == "(+2 earlier)"
+        assert len(out) == prehlad.SPOLU + 1
+        assert out[-1].endswith("s11")
+        assert not any(r.endswith("s1") for r in out), "prvé dve sa už nezmestili"
+
+    def test_ked_napise_desat_za_sebou_su_tam_len_jeho(self):
+        h = _h(("assistant", "stara"), *[("user", f"s{i}") for i in range(10)])
+        out = prehlad.blok_rozhovoru(h).splitlines()
+        assert out[0] == "(+1 earlier)"
+        assert all(prehlad.JEJ not in r for r in out[1:])
+
+    def test_prazdna_historia(self):
+        assert prehlad.blok_rozhovoru([]) == ""
+        assert prehlad.blok_rozhovoru(None) == ""
+
+    def test_prazdne_spravy_sa_nepocitaju(self):
+        h = _h(("user", "   "), ("user", "ozaj"))
+        assert prehlad.blok_rozhovoru(h) == "ozaj"

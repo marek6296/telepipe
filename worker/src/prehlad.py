@@ -286,24 +286,23 @@ def blok_neodpovedanych(history: List[Dict[str, Any]]) -> str:
 # po tej ceste stratilo, kto čo povedal.
 JEJ = "\u21b3 "
 
-# Koľko JEHO správ ukázať. Keď ich napíše dvadsať za sebou, na kartu patrí
-# posledných desať — zvyšok sa zhrnie do „(+N earlier)". Jej odpovede, ktoré
-# medzi nimi sedia, sa pridávajú NAVYŠE a do tohto počtu sa nerátajú.
-JEHO_MAX = 10
-
-# Keby v tom úseku jej odpoveď nebola vôbec (napísal desať viet za sebou),
-# doberie sa ešte toľkoto riadkov dozadu, aby bolo na čo nadviazať.
-DOBRAT_MAX = 10
+# Koľko posledných správ ukázať — DOKOPY, jeho aj jej. Marek: „proste 10
+# poslednych sprav v chate dokopy jeho aj moje … a ak napise on zasebou 10 tak
+# bude iba jeho spravy vidno". Nie desať jeho a jej navyše: karta by narástla
+# na dvadsať riadkov a on chce jednu obrazovku.
+SPOLU = 10
 
 
 def blok_rozhovoru(history: List[Dict[str, Any]]) -> str:
-    """Posledné správy OBOCH strán tak, ako idú za sebou — ako v chate.
+    """Posledných `SPOLU` správ OBOCH strán tak, ako idú za sebou — ako v chate.
 
-    PREČO. Karta doteraz ukazovala len JEHO neodpovedané správy pod sebou.
-    Marek z nej videl päť jeho viet bez toho, čo im predchádzalo od nej —
-    takže sa nemal na čo napojiť a musel si chat otvárať vedľa. Keď napíše
-    dve za sebou, sú tu dve za sebou; keď medzi tým odpovedala ona, je tam
-    aj jej odpoveď. Presne ako to vyzerá na Fanvue.
+    PREČO. Karta doteraz ukazovala len JEHO správy pod sebou. Marek z nej videl
+    desať jeho viet bez toho, čo im od nej predchádzalo — takže sa nemal na čo
+    napojiť a musel si chat otvárať vedľa.
+
+    Keď napíše desať za sebou, je tu desať jeho a nič jej; keď sa striedali, je
+    tu striedanie. Nič sa neprepočítava podľa toho, kto je autor — berie sa
+    posledných desať riadkov, bodka.
 
     Jej riadky nesú `JEJ` značku, jeho sú bez nej.
     """
@@ -314,39 +313,13 @@ def blok_rozhovoru(history: List[Dict[str, Any]]) -> str:
     if not vsetko:
         return ""
 
-    def jeho(row: Dict[str, Any]) -> bool:
-        return str((row or {}).get("role") or "") != "assistant"
-
-    # Odzadu, kým nemáme desať JEHO správ. Jej odpovede cestou beriem so
-    # sebou — sú to práve tie, ktoré medzi jeho správami naozaj padli.
-    vybrane: List[Dict[str, Any]] = []
-    jeho_pocet = 0
-    i = len(vsetko) - 1
-    while i >= 0 and jeho_pocet < JEHO_MAX:
-        if jeho(vsetko[i]):
-            jeho_pocet += 1
-        vybrane.append(vsetko[i])
-        i -= 1
-
-    # Keď v tom úseku nič jej nie je (napísal desať viet za sebou), doberie sa
-    # UŽ LEN jej posledná odpoveď — nie jeho správy cestou k nej. Inak by
-    # strop na desať jeho správ nič neznamenal.
-    if all(jeho(r) for r in vybrane):
-        for k in range(i, max(-1, i - DOBRAT_MAX), -1):
-            if not jeho(vsetko[k]):
-                vybrane.append(vsetko[k])
-                break
-
-    vybrane.reverse()
+    vybrane = vsetko[-SPOLU:]
     riadky = [
-        (JEJ if not jeho(r) else "") + bez_znaciek(str(r.get("content") or "")).strip()
+        ("" if str((r or {}).get("role") or "") != "assistant" else JEJ)
+        + bez_znaciek(str(r.get("content") or "")).strip()
         for r in vybrane
     ]
-    # „(+N earlier)" hovorí, koľko toho je pred prvým zobrazeným riadkom —
-    # nie koľko riadkov chýba celkovo. Jej dobratá odpoveď môže byť spred
-    # niekoľkých jeho správ, ktoré sa nezobrazia, a to je v poriadku.
-    prvy = vsetko.index(vybrane[0])
-    skryte = prvy
+    skryte = len(vsetko) - len(vybrane)
     if skryte:
         riadky.insert(0, f"(+{skryte} earlier)")
     return "\n".join(riadky)
