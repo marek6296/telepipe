@@ -278,11 +278,13 @@ class Llm:
             # chatov, ktoré naozaj predali: medián 67 znakov, štvrtina pod
             # 36, deväť z desiatich pod 138. Rozpätie je teda skutočné, nie
             # vymyslené — a práve preto sa nemá zúžiť na jednu dĺžku.
-            "— ROZLOŽ ICH DĹŽKU. PRESNE JEDEN z nich musí byť POD 40 ZNAKOV — "
-            "nie skoro, ale naozaj pod; pár slov, ako keď človek odpíše z "
-            "mobilu bez rozmýšľania. Druhý ~50–90 znakov, tretí ~100–140. "
-            "Nad 160 nechoď ani pri tom najdlhšom. Tri rovnako dlhé texty nie "
-            "sú tri možnosti, to je jedna možnosť trikrát\n"
+            "— DĹŽKY SÚ DANÉ a každý návrh má svoju:\n"
+            "   1. 5–20 znakov — pár slov, ako keď človek odpíše jednou rukou\n"
+            "   2. 15–60 znakov — bežná odpoveď do chatu\n"
+            "   3. 50–170 znakov — tá najdlhšia, ale stále JEDNA myšlienka\n"
+            "  Rozsahy sa prekrývajú zámerne, aby to neznelo odmerané. Tri "
+            "rovnako dlhé texty nie sú tri možnosti, to je jedna možnosť "
+            "trikrát — a majiteľ si nemá z čoho vybrať\n"
             f"Zoraď ich od NAJLEPŠEJ po najslabšiu. Oddeľ riadkom, ktorý obsahuje "
             f"len „{marker}“. Žiadne číslovanie, nadpisy ani vysvetlenia."
         )

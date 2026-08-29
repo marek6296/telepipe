@@ -286,14 +286,14 @@ def blok_neodpovedanych(history: List[Dict[str, Any]]) -> str:
 # po tej ceste stratilo, kto čo povedal.
 JEJ = "\u21b3 "
 
-# Koľko správ rozhovoru ukázať. Dosť na to, aby sa dalo napojiť na niť, a nie
-# toľko, aby sa karta v telefóne nedala prejsť očami.
-OKNO_ROZHOVORU = 10
-# Dokedy sa okno smie roztiahnuť, keď v ňom jej odpoveď nie je, a koľko jej
-# správ tam má byť. Bez rozšírenia by karta pri desiatich jeho správach za
-# sebou ukázala desať jeho viet a nič, na čo sa dá nadviazať.
-STROP_ROZHOVORU = 20
-JEJ_MINIMUM = 2
+# Koľko JEHO správ ukázať. Keď ich napíše dvadsať za sebou, na kartu patrí
+# posledných desať — zvyšok sa zhrnie do „(+N earlier)". Jej odpovede, ktoré
+# medzi nimi sedia, sa pridávajú NAVYŠE a do tohto počtu sa nerátajú.
+JEHO_MAX = 10
+
+# Keby v tom úseku jej odpoveď nebola vôbec (napísal desať viet za sebou),
+# doberie sa ešte toľkoto riadkov dozadu, aby bolo na čo nadviazať.
+DOBRAT_MAX = 10
 
 
 def blok_rozhovoru(history: List[Dict[str, Any]]) -> str:
@@ -314,28 +314,39 @@ def blok_rozhovoru(history: List[Dict[str, Any]]) -> str:
     if not vsetko:
         return ""
 
-    # Okno sa ROZŠIRUJE, kým v ňom nie sú aspoň dve jej správy. Keď napíše
-    # desať viet za sebou, jej posledná odpoveď by z pevného okna vypadla —
-    # a presne tá je to, na čo sa má majiteľ napojiť. Strop drží kartu
-    # čitateľnou aj vtedy, keď mlčala dlho.
-    kolko = min(OKNO_ROZHOVORU, len(vsetko))
-    while kolko < min(STROP_ROZHOVORU, len(vsetko)):
-        jej = sum(
-            1 for r in vsetko[-kolko:]
-            if str((r or {}).get("role") or "") == "assistant"
-        )
-        if jej >= JEJ_MINIMUM:
-            break
-        kolko += 1
+    def jeho(row: Dict[str, Any]) -> bool:
+        return str((row or {}).get("role") or "") != "assistant"
 
-    riadky: List[str] = []
-    for row in vsetko[-kolko:]:
-        text = bez_znaciek(str((row or {}).get("content") or "")).strip()
-        if str((row or {}).get("role") or "") == "assistant":
-            riadky.append(JEJ + text)
-        else:
-            riadky.append(text)
-    skryte = max(0, len(vsetko) - len(riadky))
+    # Odzadu, kým nemáme desať JEHO správ. Jej odpovede cestou beriem so
+    # sebou — sú to práve tie, ktoré medzi jeho správami naozaj padli.
+    vybrane: List[Dict[str, Any]] = []
+    jeho_pocet = 0
+    i = len(vsetko) - 1
+    while i >= 0 and jeho_pocet < JEHO_MAX:
+        if jeho(vsetko[i]):
+            jeho_pocet += 1
+        vybrane.append(vsetko[i])
+        i -= 1
+
+    # Keď v tom úseku nič jej nie je (napísal desať viet za sebou), doberie sa
+    # UŽ LEN jej posledná odpoveď — nie jeho správy cestou k nej. Inak by
+    # strop na desať jeho správ nič neznamenal.
+    if all(jeho(r) for r in vybrane):
+        for k in range(i, max(-1, i - DOBRAT_MAX), -1):
+            if not jeho(vsetko[k]):
+                vybrane.append(vsetko[k])
+                break
+
+    vybrane.reverse()
+    riadky = [
+        (JEJ if not jeho(r) else "") + bez_znaciek(str(r.get("content") or "")).strip()
+        for r in vybrane
+    ]
+    # „(+N earlier)" hovorí, koľko toho je pred prvým zobrazeným riadkom —
+    # nie koľko riadkov chýba celkovo. Jej dobratá odpoveď môže byť spred
+    # niekoľkých jeho správ, ktoré sa nezobrazia, a to je v poriadku.
+    prvy = vsetko.index(vybrane[0])
+    skryte = prvy
     if skryte:
         riadky.insert(0, f"(+{skryte} earlier)")
     return "\n".join(riadky)
@@ -356,7 +367,13 @@ def pokyn_pre_model(history: List[Dict[str, Any]]) -> str:
         return ""
     return (
         f"\n\n[ČAKÁ VIAC SPRÁV] Napísal ti {kolko} správy za sebou a ani na "
-        "jednu si ešte neodpovedala. Odpovedz na ne AKO NA CELOK — jednou "
+        "jednu si ešte neodpovedala. Odpovedz na ne AKO NA CELOK — JEDNOU "
         "správou, ktorá sedí na všetky, nie len na tú poslednú. Keď sa v nich "
-        "pýta na niečo konkrétne, na to odpovedz najskôr."
+        "pýta na niečo konkrétne, na to odpovedz najskôr.\n"
+        "NEODPOVEDAJ NA KAŽDÚ ZVLÁŠŤ. Nie každá si odpoveď pýta — „ok“, "
+        "smajlík alebo tvoje meno sú len prikývnutie a reagovať na ne "
+        "osobitne vyzerá, akoby si odpisovala zoznamu. Vyber to, čo naozaj "
+        "niečo hovorí, a na to odpovedz.\n"
+        "A NEPÍŠ PRETO DLHŠIE. Tri jeho správy neznamenajú trikrát dlhšiu "
+        "odpoveď — dĺžka ostáva rovnaká, ako keby napísal jednu."
     )
