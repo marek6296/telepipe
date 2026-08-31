@@ -235,6 +235,14 @@ _EMOJI_CHAR_RE = re.compile(
 _EMOJI_ZVYSKY_RE = re.compile("[️︎‍⃣]")
 
 
+# Nad týmto podielom posledných správ sú emoji vzor, nie výraz. Merané na
+# 852 jej správach proti 1176 správam mužov v tých istých chatoch: ona 77 %,
+# oni 33 %. Strop je medzi tým — spadnúť rovno na tretinu by z nej spravilo
+# inú osobu, a emoji sú kus jej tónu, ktorý si klient nastavuje.
+EMOJI_PODIEL = 0.55
+EMOJI_OKNO = 8
+
+
 def thin_emoji(text: str, recent: List[str], streak: int = 3) -> str:
     """Občas správa bez emoji — inak ich má každá jedna a to je vzor.
 
@@ -243,13 +251,26 @@ def thin_emoji(text: str, recent: List[str], streak: int = 3) -> str:
     ten istý prípad ako diakritika — pravidlo, na ktoré sa model nedá chytiť,
     musí ustrážiť kód.
 
-    Zasahuje sa až po sérii: keď mali emoji tri jej správy za sebou, štvrtá
-    ide bez. Nie náhodne — náhoda by občas vyrobila sériu piatich.
+    Dva dôvody zasiahnuť, oba merané na jej vlastných správach:
+
+    * SÉRIA — tri za sebou s emoji, štvrtá bez. Nie náhodne; náhoda by občas
+      vyrobila sériu piatich.
+    * PODIEL — séria sama nestačila. Stačí jedna správa bez emoji spomedzi
+      štyroch a séria sa preruší, takže sa strop drží nad 70 % donekonečna:
+      naostro 77 % oproti 33 % u skutočných ľudí v tých istých chatoch. Preto
+      sa nad `EMOJI_PODIEL` zasahuje bez ohľadu na to, či séria beží.
     """
     if not _EMOJI_CHAR_RE.search(text or ""):
         return text
-    posledne = [t for t in recent if (t or "").strip()][-streak:]
-    if len(posledne) < streak or not all(_EMOJI_CHAR_RE.search(t) for t in posledne):
+    vsetky = [t for t in recent if (t or "").strip()][-EMOJI_OKNO:]
+    prevaha = (
+        len(vsetky) >= EMOJI_OKNO
+        and sum(1 for t in vsetky if _EMOJI_CHAR_RE.search(t)) / len(vsetky)
+        > EMOJI_PODIEL
+    )
+    posledne = vsetky[-streak:]
+    seria = len(posledne) >= streak and all(_EMOJI_CHAR_RE.search(t) for t in posledne)
+    if not (prevaha or seria):
         return text
     out = _EMOJI_ZVYSKY_RE.sub("", _EMOJI_CHAR_RE.sub("", text))
     out = re.sub(r"[ \t]{2,}", " ", out)
@@ -908,8 +929,14 @@ def no_shouting(text: str) -> str:
     return re.sub(r"[ \t]{2,}", " ", out).strip()
 
 
-def thin_commas(text: str, keep: float = 0.15, rng: Optional[random.Random] = None) -> str:
-    """Väčšinu čiarok zahodí. Zopár nechá, aby to nebolo strojovo dokonalé."""
+def thin_commas(text: str, keep: float = 0.4, rng: Optional[random.Random] = None) -> str:
+    """Väčšinu čiarok zahodí. Zopár nechá, aby to nebolo strojovo dokonalé.
+
+    `keep` bolo 0,15 a to bolo priveľa zahodených. Merané na tých istých
+    chatoch: čiarku mala v 11 % správ, skutoční muži v 20 %. Bodku 7 %,
+    oni 23 %. Správa bez jediného interpunkčného znamienka je rovnaký vzor
+    ako správa s dokonalou interpunkciou — len opačný, a rovnako nápadný.
+    """
     r = rng or random
 
     def nahrad(_m):

@@ -1293,6 +1293,18 @@ def build_system_prompt(
             "krátka nová veta je vždy lepšia než dlhá zopakovaná."
         )
 
+    # KRÁTKA SPRÁVA — meranie, nie prosba. Rozhoduje `ludskost.ma_byt_kratka`
+    # z jej vlastných posledných správ: keď v celom okne nie je ani jedna
+    # krátka, táto ňou bude. Je to úmyselne AŽ TU, hneď pred generovaním —
+    # medzi štyridsiatimi sekciami by sa jedna veta o dĺžke stratila rovnako,
+    # ako sa strácalo „neopakuj sa" vyššie.
+    if her_recent is not None and ludskost.ma_byt_kratka(
+        [{"role": "assistant", "content": m} for m in her_recent],
+        jeho_sprava=last_incoming or "",
+        caka_odpoved=humanize.wants_a_real_answer(last_incoming or ""),
+    ):
+        sections.append(ludskost.KRATKA_TERAZ)
+
     # Barličky pre lacnejší model — ZÁMERNE AŽ TU, na konci. Slabší model si
     # najlepšie drží to, čo čítal naposledy, a toto sú veci, na ktorých naostro
     # padal. Pri kvalitnom režime je to prázdny reťazec a nestojí ani token.

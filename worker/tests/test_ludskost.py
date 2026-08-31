@@ -154,3 +154,65 @@ class TestPodlahaNaCislach:
 
         b = bhv.Behavior.from_row(None)
         assert b.reply_delay_min_s >= 3
+
+
+class TestKratkaSprava:
+    """Nemá krátke správy — a to je zo všetkých rozdielov ten najväčší.
+
+    Merané 29. 8. na 852 jej správach proti 1176 správam mužov v tých istých
+    chatoch (muži sú ľudský základ — sú to skutoční ľudia v tom istom médiu):
+
+                          ona     oni
+      medián dĺžky         68      35 znakov
+      desiaty percentil    32       7 znakov
+      kratšie ako 15 zn.    3 %    21 %
+
+    Marek: „dako divne sa mi zda ze odpisuje, nezda sa ti je to taka divna
+    konverzacia a nieje to uplne ako clovek". Toto je z toho merateľná časť.
+    """
+
+    def _jej(self, *dlzky):
+        return [{"role": "assistant", "content": "x" * d} for d in dlzky]
+
+    def test_ked_su_vsetky_dlhe_ma_byt_kratka(self):
+        assert ludskost.ma_byt_kratka(self._jej(40, 50, 60, 70, 45, 55))
+
+    def test_jedna_kratka_v_okne_staci(self):
+        """Nevynucuje sa rytmus, len sa bráni tomu, aby krátke chýbali úplne."""
+        assert not ludskost.ma_byt_kratka(self._jej(40, 50, 8, 70, 45, 55))
+
+    def test_na_zaciatku_rozhovoru_nie(self):
+        """Vynútené „lol" na tretiu vetu v živote vyzerá ako nezáujem."""
+        assert not ludskost.ma_byt_kratka(self._jej(40, 50, 60))
+
+    def test_ked_sa_pyta_na_nieco_vazne_nie(self):
+        """Na otázku sa tromi slovami odpovedať nedá — bolo by to horšie."""
+        assert not ludskost.ma_byt_kratka(
+            self._jej(40, 50, 60, 70, 45, 55), caka_odpoved=True
+        )
+
+    def test_na_dlhu_spravu_nie(self):
+        """Odpovedať „lol" na odsek nie je ľudské, to je odbitie."""
+        dlha = " ".join(["slovo"] * 20)
+        assert not ludskost.ma_byt_kratka(self._jej(40, 50, 60, 70, 45, 55), dlha)
+
+    def test_pokyn_ziada_najviac_tri_slova(self):
+        assert "tri slová" in ludskost.KRATKA_TERAZ
+
+
+class TestNoveSituacie:
+    def test_odbitie_sa_neopakuje_a_nesľubuje(self):
+        """Naostro: to isté odbitie dvakrát a on odpísal „ill hold you up to
+        that". Sľub s odloženou platnosťou si ľudia pamätajú lepšie než nie."""
+        assert "ODBÍJAŠ DRUHÝKRÁT" in ludskost.SITUACIE
+        assert "Nič nesľubuj" in ludskost.SITUACIE
+
+    def test_stretnutie_nesmie_znieť_ani_pekne(self):
+        """„would be nice to meet one day" je sľub napísaný mäkko."""
+        assert "STRETLI" in ludskost.SITUACIE
+
+    def test_nehlasi_co_prave_robi(self):
+        assert "NEHLÁS, ČO PRÁVE ROBÍŠ" in ludskost.NIKDY
+
+    def test_nesuhlasi_so_vsetkym(self):
+        assert "NEPRIKYVUJ MU NA VŠETKO" in ludskost.NIKDY

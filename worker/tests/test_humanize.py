@@ -474,3 +474,47 @@ class TestOdkazySaNecistia:
         out = humanize.sanitize("some _text_ here https://a.com/?x_y=1", keep_greeting=True)
         assert "_text_" not in out
         assert "https://a.com/?x_y=1" in out
+
+
+class TestEmojiPodiel:
+    """Séria sama nestačila — stačí jedna správa bez emoji spomedzi štyroch
+    a séria sa preruší, takže sa strop drží nad 70 % donekonečna.
+
+    Namerané 29. 8.: emoji v 77 % jej správ, 33 % u skutočných mužov v tých
+    istých chatoch.
+    """
+
+    def test_prevaha_zasiahne_aj_bez_serie(self):
+        # 7 z 8 s emoji = 87 %, ale séria nikdy nedosiahne tri (posledná bez).
+        recent = ["a 😄", "b 😄", "c", "d 😄", "e 😄", "f 😄", "g 😄", "h 😄"]
+        assert "😘" not in humanize.thin_emoji("ahoj 😘", recent)
+
+    def test_pod_stropom_emoji_ostane(self):
+        recent = ["a 😄", "b", "c", "d 😄", "e", "f", "g 😄", "h"]
+        assert "😘" in humanize.thin_emoji("ahoj 😘", recent)
+
+    def test_seria_plati_dalej(self):
+        """Krátke okno na podiel nestačí, ale tri za sebou sú tri za sebou."""
+        assert "😘" not in humanize.thin_emoji("ahoj 😘", ["a 😄", "b 😄", "c 😄"])
+
+    def test_bez_histórie_sa_nezasahuje(self):
+        assert "😘" in humanize.thin_emoji("ahoj 😘", [])
+
+
+class TestCiarkyNieSuNula:
+    """Správa bez jediného interpunkčného znamienka je rovnaký vzor ako
+    správa s dokonalou interpunkciou — len opačný, a rovnako nápadný.
+
+    Namerané: čiarku mala v 11 % správ, muži v 20 %. Bodku 7 %, oni 23 %.
+    """
+
+    def test_vacsina_ciarok_prezije_pri_novom_strope(self):
+        import random
+
+        veta = "ahoj, ako, sa, mas, dnes, vecer, u, teba"
+        ostalo = sum(
+            humanize.thin_commas(veta, rng=random.Random(i)).count(",")
+            for i in range(200)
+        )
+        # 7 čiarok × 200 behov × keep 0.4 ≈ 560; strop 0,15 by dal ~210.
+        assert 400 < ostalo < 750, ostalo
