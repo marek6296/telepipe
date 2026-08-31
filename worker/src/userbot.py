@@ -1354,7 +1354,14 @@ class UserBot:
         # Oslovenie a čiarky rieši kód, nie prosba v prompte — model obe
         # pravidlá ignoroval, nech boli napísané akokoľvek dôrazne.
         meno = (user.get("partner_name") or "").strip()
-        chunks = [humanize.thin_commas(humanize.enforce_name(c, meno, use_name)) for c in chunks]
+        # Čiarky aj bodky preč — v chate sa píše bez nich. Bodku rieši
+        # `thin_stops`, lebo práve ona z chatovej správy spraví vetu z mailu.
+        chunks = [
+            humanize.thin_stops(
+                humanize.thin_commas(humanize.enforce_name(c, meno, use_name))
+            )
+            for c in chunks
+        ]
         if chosen_voice:
             prepis = chosen_voice.get("transcript") or ""
             pred = len(chunks)

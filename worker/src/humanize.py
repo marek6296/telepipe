@@ -235,11 +235,18 @@ _EMOJI_CHAR_RE = re.compile(
 _EMOJI_ZVYSKY_RE = re.compile("[️︎‍⃣]")
 
 
-# Nad týmto podielom posledných správ sú emoji vzor, nie výraz. Merané na
-# 852 jej správach proti 1176 správam mužov v tých istých chatoch: ona 77 %,
-# oni 33 %. Strop je medzi tým — spadnúť rovno na tretinu by z nej spravilo
-# inú osobu, a emoji sú kus jej tónu, ktorý si klient nastavuje.
-EMOJI_PODIEL = 0.55
+# Nad týmto podielom posledných správ sú emoji vzor, nie výraz.
+#
+# MERANIE HOVORÍ NIEČO INÉ NEŽ ZADANIE — a rozhoduje zadanie. Na 852 jej
+# správach proti 1176 správam mužov v tých istých chatoch mala emoji v 77 %
+# správ, oni v 33 %. Na jeden deň bol strop 0,55 a podiel spadol na 60 %;
+# Marek to vrátil: „emoji viacej aspon 70 %". Je to jeho produkt a emoji sú
+# kus hlasu, ktorý predáva — nie chyba, ktorú treba odmerať preč.
+#
+# Strop je preto vysoko a v praxi drží len séria (tri za sebou → štvrtá bez),
+# čo dáva zhruba 75 %. Podiel zasiahne až pri extréme, keď má emoji naozaj
+# všetko.
+EMOJI_PODIEL = 0.85
 EMOJI_OKNO = 8
 
 
@@ -420,24 +427,31 @@ def mirror_length_hint(incoming: str, msg_count: int = 0, allow_long: bool = Tru
     deep = wants_a_real_answer(text)
     early = msg_count < EARLY_MESSAGES
 
+    # ČÍSLA SÚ NIŽŠIE, NEŽ BOLI. Namerané naostro: medián jej správy 68 znakov,
+    # skutoční muži v tých istých chatoch 35. Marek: „trocha kratsie tie spravy
+    # lebo pise strasne dlhe casto." Pásma preto klesli o zhruba tretinu a
+    # namiesto viet sa hovorí v slovách — „dve vety" si model vyloží ako dva
+    # riadky, „do 12 slov" je jednoznačné.
     if early:
         base = (
-            "Ešte sa len spoznávate, takže píš KRÁTKO — jedna veta, nanajvýš "
-            "dve, dohromady do 18 slov. Dlhé správy hneď na začiatku pôsobia "
-            "nasilu."
+            "Ešte sa len spoznávate, takže píš KRÁTKO — jedna veta, do 12 slov. "
+            "Dlhé správy hneď na začiatku pôsobia nasilu."
         )
         if deep:
-            base += " Aj keď sa pýta na niečo väčšie, odpovedz stručne, do 25 slov."
+            base += " Aj keď sa pýta na niečo väčšie, odpovedz stručne, do 18 slov."
         return base + " Nikdy neprednášaj."
 
     if words <= 3:
         base = "Napísal len pár slov — stačí pol vety, pokojne tri slová."
     elif words <= 12:
-        base = "Píše krátko — odpovedz JEDNOU krátkou vetou."
+        base = "Píše krátko — odpovedz JEDNOU krátkou vetou, do 8 slov."
     elif words <= 40:
-        base = "Píše normálne — odpovedz jednou, nanajvýš dvoma vetami."
+        base = "Píše normálne — odpovedz jednou vetou, do 12 slov."
     else:
-        base = "Napísal dlhšiu správu — aj tak odpovedz nanajvýš dvoma vetami."
+        base = (
+            "Napísal dlhšiu správu — aj tak odpovedz krátko, do 16 slov. "
+            "Chyť sa jednej veci, nie všetkého."
+        )
 
     if deep and allow_long:
         base += (
@@ -448,9 +462,10 @@ def mirror_length_hint(incoming: str, msg_count: int = 0, allow_long: bool = Tru
         base += " Odpovedz mu na to poriadne, ale drž sa pri zemi."
 
     # Ľudia si v chate nepíšu odseky ani vtedy, keď majú čo povedať. Strop bol
-    # 70 slov, čo je pol obrazovky na mobile — a tak to aj vyzeralo.
+    # 70 slov, čo je pol obrazovky na mobile — a tak to aj vyzeralo. Potom 35,
+    # a to bolo stále dvakrát viac, než sa reálne písalo.
     return base + (
-        " TVRDÝ STROP: 35 slov na celú odpoveď. Nikdy nepíš odsek a nikdy "
+        " TVRDÝ STROP: 22 slov na celú odpoveď. Nikdy nepíš odsek a nikdy "
         "neprednášaj. Keď máš toho viac, povedz len to najdôležitejšie — "
         "zvyšok sa dá dopovedať v ďalšej správe, keď sa spýta."
     )
@@ -929,13 +944,47 @@ def no_shouting(text: str) -> str:
     return re.sub(r"[ \t]{2,}", " ", out).strip()
 
 
-def thin_commas(text: str, keep: float = 0.4, rng: Optional[random.Random] = None) -> str:
-    """Väčšinu čiarok zahodí. Zopár nechá, aby to nebolo strojovo dokonalé.
+# Bodka, ktorá nie je súčasťou „..." ani desatinného čísla. Zápor pred ňou
+# aj za ňou drží tri bodky pokope — inak by z „..." ostala jedna a to je
+# horšie než keby tam neboli žiadne.
+_STOP_RE = re.compile(r"(?<![.\d])\.(?!\.)(?!\d)")
 
-    `keep` bolo 0,15 a to bolo priveľa zahodených. Merané na tých istých
-    chatoch: čiarku mala v 11 % správ, skutoční muži v 20 %. Bodku 7 %,
-    oni 23 %. Správa bez jediného interpunkčného znamienka je rovnaký vzor
-    ako správa s dokonalou interpunkciou — len opačný, a rovnako nápadný.
+
+def thin_stops(text: str, keep: float = 0.05, rng: Optional[random.Random] = None) -> str:
+    """Takmer všetky bodky zahodí. Trojbodka a odkazy ostávajú.
+
+    Čiarky riešil `thin_commas` a bodky nikto — a práve bodka na konci vety
+    je to, čo z chatovej správy spraví vetu z e-mailu. Marek chce interpunkciu
+    zhruba v každej dvadsiatej správe, takže sa `keep` drží nízko.
+
+    Odkaz sa vyberie bokom a vráti nedotknutý: `telepipe.me` bez bodky nie je
+    odkaz, a je to jediné, čo fanúšikovi dáva cestu na stránku.
+    """
+    r = rng or random
+    odkazy: list[str] = []
+
+    def _odloz(match: "re.Match[str]") -> str:
+        odkazy.append(match.group(0))
+        return f"\x00{len(odkazy) - 1}\x00"
+
+    out = _URL_RE.sub(_odloz, text or "")
+    out = _STOP_RE.sub(lambda _m: "." if r.random() < keep else "", out)
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    out = re.sub(r"\s+([,!?])", r"\1", out)
+    out = "\n".join(line.strip() for line in out.splitlines()).strip()
+    for i, odkaz in enumerate(odkazy):
+        out = out.replace(f"\x00{i}\x00", odkaz)
+    return out
+
+
+def thin_commas(text: str, keep: float = 0.05, rng: Optional[random.Random] = None) -> str:
+    """Takmer všetky čiarky zahodí.
+
+    Marek: „interpunkcie nechcem aby pouzivali, iba tak 5 %, ziadne ciarky
+    a tak." Meranie ukázalo, že skutoční muži v tých istých chatoch bodku
+    či čiarku majú v 36 % správ a ona v 19 % — takže toto NIE JE krok
+    k ľudskejšiemu priemeru, je to voľba hlasu. Píše sa tak, ako píše
+    dievča, ktoré to trieska do mobilu jednou rukou.
     """
     r = rng or random
 

@@ -178,7 +178,7 @@ class TestWritingLikeAGirl:
         """Keď sa už poznajú, dĺžka sa riadi jeho správou."""
         assert "pol vety" in humanize.mirror_length_hint("hey", self.KNOWN)
         assert "JEDNOU" in humanize.mirror_length_hint("hey what are you up today", self.KNOWN)
-        assert "dvoma vetami" in humanize.mirror_length_hint(" ".join(["word"] * 60), self.KNOWN)
+        assert "do 16 slov" in humanize.mirror_length_hint(" ".join(["word"] * 60), self.KNOWN)
 
     def test_real_question_unlocks_a_longer_answer(self):
         hint = humanize.mirror_length_hint("why did you move to california?", self.KNOWN, True)
@@ -195,9 +195,11 @@ class TestWritingLikeAGirl:
 
     def test_there_is_still_a_ceiling(self):
         """Strop bol 70 slov, čo je na mobile pol obrazovky — a tak to aj
-        vyzeralo. Ľudia si v chate nepíšu odseky ani keď majú čo povedať."""
+        vyzeralo. Potom 35, a to bolo stále dvakrát viac, než sa reálne písalo:
+        medián jej správy 68 znakov proti 35 u skutočných mužov v tých istých
+        chatoch. Marek: „trocha kratsie tie spravy lebo pise strasne dlhe"."""
         for message in ("hey", "why did you move?", " ".join(["w"] * 80)):
-            assert "35 slov" in humanize.mirror_length_hint(message, self.KNOWN)
+            assert "22 slov" in humanize.mirror_length_hint(message, self.KNOWN)
 
     def test_detects_open_questions(self):
         assert humanize.wants_a_real_answer("what do you think about that")
@@ -213,11 +215,11 @@ class TestEarlyConversation:
         for message in ("hey", "hey whats up how are you doing today"):
             hint = humanize.mirror_length_hint(message, msg_count=3)
             assert "KRÁTKO" in hint
-            assert "nanajvýš dve" in hint
+            assert "do 12 slov" in hint
 
     def test_even_a_real_question_stays_brief_early(self):
         hint = humanize.mirror_length_hint("tell me about california", msg_count=4)
-        assert "do 25 slov" in hint
+        assert "do 18 slov" in hint
         assert "vetu navyše" not in hint
 
     def test_long_message_does_not_unlock_it_early(self):
@@ -467,8 +469,8 @@ class TestModelArtifacts:
         assert humanize.sanitize(text, keep_greeting=True) == text
 
     def test_early_hint_counts_words_not_just_sentences(self):
-        assert "18 slov" in humanize.mirror_length_hint("hey", msg_count=3)
-        assert "25 slov" in humanize.mirror_length_hint("tell me about it", msg_count=3)
+        assert "12 slov" in humanize.mirror_length_hint("hey", msg_count=3)
+        assert "18 slov" in humanize.mirror_length_hint("tell me about it", msg_count=3)
 
 
 class TestForeignLanguage:

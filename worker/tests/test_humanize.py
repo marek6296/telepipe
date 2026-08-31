@@ -484,13 +484,14 @@ class TestEmojiPodiel:
     istých chatoch.
     """
 
-    def test_prevaha_zasiahne_aj_bez_serie(self):
-        # 7 z 8 s emoji = 87 %, ale séria nikdy nedosiahne tri (posledná bez).
-        recent = ["a 😄", "b 😄", "c", "d 😄", "e 😄", "f 😄", "g 😄", "h 😄"]
+    def test_prevaha_zasiahne_len_pri_extreme(self):
+        """Strop je 0,85 — zasiahne, až keď má emoji naozaj skoro všetko."""
+        recent = ["a 😄"] * 7 + ["b"]
         assert "😘" not in humanize.thin_emoji("ahoj 😘", recent)
 
-    def test_pod_stropom_emoji_ostane(self):
-        recent = ["a 😄", "b", "c", "d 😄", "e", "f", "g 😄", "h"]
+    def test_sedem_z_desiatich_je_v_poriadku(self):
+        """Marek chce emoji aspoň v 70 % správ — tam sa nezasahuje."""
+        recent = ["a 😄", "b 😄", "c", "d 😄", "e 😄", "f", "g 😄", "h 😄"]
         assert "😘" in humanize.thin_emoji("ahoj 😘", recent)
 
     def test_seria_plati_dalej(self):
@@ -501,14 +502,15 @@ class TestEmojiPodiel:
         assert "😘" in humanize.thin_emoji("ahoj 😘", [])
 
 
-class TestCiarkyNieSuNula:
-    """Správa bez jediného interpunkčného znamienka je rovnaký vzor ako
-    správa s dokonalou interpunkciou — len opačný, a rovnako nápadný.
+class TestBezInterpunkcie:
+    """Marek: „interpunkcie nechcem aby pouzivali, iba tak 5 %, ziadne ciarky."
 
-    Namerané: čiarku mala v 11 % správ, muži v 20 %. Bodku 7 %, oni 23 %.
+    Meranie hovorí niečo iné — skutoční muži v tých istých chatoch majú bodku
+    alebo čiarku v 36 % správ, ona v 19 %. Je to napriek tomu voľba hlasu,
+    nie priemeru, a o tej rozhoduje majiteľ produktu.
     """
 
-    def test_vacsina_ciarok_prezije_pri_novom_strope(self):
+    def test_ciarky_takmer_vsetky_padnu(self):
         import random
 
         veta = "ahoj, ako, sa, mas, dnes, vecer, u, teba"
@@ -516,5 +518,28 @@ class TestCiarkyNieSuNula:
             humanize.thin_commas(veta, rng=random.Random(i)).count(",")
             for i in range(200)
         )
-        # 7 čiarok × 200 behov × keep 0.4 ≈ 560; strop 0,15 by dal ~210.
-        assert 400 < ostalo < 750, ostalo
+        # 7 čiarok × 200 behov × keep 0,05 ≈ 70.
+        assert ostalo < 140, ostalo
+
+    def test_bodky_padnu_tiez(self):
+        """Bodka na konci vety je to, čo z chatovej správy spraví mail."""
+        import random
+
+        out = humanize.thin_stops("som doma. dnes je pekne. fakt.", rng=random.Random(0))
+        assert "." not in out
+
+    def test_trojbodka_prezije(self):
+        """Z „..." nesmie ostať jedna bodka — to je horšie než nič."""
+        assert "..." in humanize.thin_stops("hmm... tak neviem", rng=random.Random(0))
+
+    def test_otaznik_ostava(self):
+        assert humanize.thin_stops("co robis?", rng=random.Random(0)).endswith("?")
+
+    def test_odkaz_ostane_cely(self):
+        """`telepipe.me` bez bodky nie je odkaz — a je to jediná cesta na stránku."""
+        odkaz = "https://telepipe.me/r/C8RM7rwg"
+        out = humanize.thin_stops(f"mrkni sem {odkaz}. je to tam", rng=random.Random(0))
+        assert odkaz in out
+
+    def test_desatinne_cislo_prezije(self):
+        assert "27.5" in humanize.thin_stops("mam 27.5 roka", rng=random.Random(0))
