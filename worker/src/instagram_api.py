@@ -1,11 +1,7 @@
 """Instagram Graph API — čítanie konverzácií a odosielanie správ.
 
-POLLOVANIE, NIE WEBHOOKY
-------------------------
-Webhooky Instagramu vyžadujú Advanced Access AJ overenie firmy (dokumentácia
-„Setup Webhooks Subscriptions"), takže na vlastnom účte sa zapnúť nedajú.
-Conversations API si vystačí so Standard Access. Agent preto konverzácie ťahá
-sám — je to pomalšie o dĺžku kola, ale funguje to hneď a bez review.
+Unified Login používa graph.facebook.com a explicitné ID Instagram účtu.
+/me je systémový používateľ, nie Instagram profil. Agent konverzácie polluje.
 
 ČO HOVORÍ DOKUMENTÁCIA A ČO Z TOHO PLYNIE
 -----------------------------------------
@@ -29,8 +25,8 @@ from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
 
-GRAPH = "https://graph.instagram.com"
-VERZIA = "v23.0"
+GRAPH = "https://graph.facebook.com"
+VERZIA = "v27.0"
 
 # Strop dĺžky správy podľa dokumentácie. V BAJTOCH.
 MAX_BAJTOV = 1000
@@ -92,12 +88,12 @@ def _url(cesta: str, token: str, **params: Any) -> str:
     return f"{GRAPH}/{VERZIA}/{cesta.lstrip('/')}?{urllib.parse.urlencode(params)}"
 
 
-def profil(token: str) -> Dict[str, Any]:
+def profil(token: str, account_id: str) -> Dict[str, Any]:
     """Kto sme. Slúži aj ako kontrola, či token ešte žije."""
-    return _volaj(_url("me", token, fields="id,username,account_type"))
+    return _volaj(_url(account_id, token, fields="id,username,account_type"))
 
 
-def konverzacie(token: str, limit: int = 25) -> List[Dict[str, Any]]:
+def konverzacie(token: str, limit: int = 25, *, account_id: str) -> List[Dict[str, Any]]:
     """Konverzácie aj so správami, zoradené od najnovšie aktívnej.
 
     Správy sa ťahajú rovno v jednom dotaze (`messages{...}`) — inak by to bolo
@@ -105,7 +101,7 @@ def konverzacie(token: str, limit: int = 25) -> List[Dict[str, Any]]:
     """
     out = _volaj(
         _url(
-            "me/conversations",
+            f"{account_id}/conversations",
             token,
             platform="instagram",
             fields=f"id,updated_time,participants,messages.limit({HISTORIA})"
@@ -116,18 +112,18 @@ def konverzacie(token: str, limit: int = 25) -> List[Dict[str, Any]]:
     return list(out.get("data") or [])
 
 
-def posli_text(token: str, igsid: str, text: str) -> Dict[str, Any]:
+def posli_text(token: str, igsid: str, text: str, *, account_id: str) -> Dict[str, Any]:
     """Pošle text. Vracia odpoveď Instagramu (obsahuje `message_id`)."""
     orezany = orez(text)
     if not orezany:
         raise InstagramError("prázdna správa")
     return _volaj(
-        _url("me/messages", token),
+        _url(f"{account_id}/messages", token),
         {"recipient": {"id": str(igsid)}, "message": {"text": orezany}},
     )
 
 
-def prispevky_s_komentarmi(token: str, limit: int = 8) -> List[Dict[str, Any]]:
+def prispevky_s_komentarmi(token: str, limit: int = 8, *, account_id: str) -> List[Dict[str, Any]]:
     """Posledné príspevky aj s komentármi — JEDNÝM volaním.
 
     Komentáre sa ťahajú vnorene (`comments.limit(...)`) a s nimi aj odpovede
@@ -137,7 +133,7 @@ def prispevky_s_komentarmi(token: str, limit: int = 8) -> List[Dict[str, Any]]:
     """
     out = _volaj(
         _url(
-            "me/media",
+            f"{account_id}/media",
             token,
             fields=(
                 "id,caption,timestamp,"

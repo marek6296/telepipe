@@ -3,22 +3,20 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getViewerRole } from "@/lib/admin";
 import { encrypt } from "@/lib/crypto";
 import { encryptionKey } from "@/lib/env";
-import { exchangeCode, longLivedToken, profile } from "@/lib/instagram";
+import { configId, exchangeCode, profile } from "@/lib/instagram";
 import { getModel } from "@/lib/models";
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Návrat z Instagramu: kód → krátkodobý token → dlhodobý (60 dní) → uloženie.
+ * Unified Login: kód → Business Integration System User token → priradený Instagram účet.
  *
  * Chyby sa nevyhadzujú na obrazovku ako pád aplikácie — vrátia sa späť na kartu
  * ako text v adrese, nech je vidno, čo sa pokazilo. Klient, ktorý sa nepripojil,
  * potrebuje vedieť prečo.
  *
- * DLHODOBÝ TOKEN SA BERIE HNEĎ. Krátkodobý platí hodinu; keby sa uložil on,
- * pripojenie by prestalo fungovať ešte v ten deň a vyzeralo by to ako náhodná
- * porucha.
+ * Token bez expirácie sa ukladá s NULL; neobnovuje sa Instagram refresh endpointom.
  *
  * Vlastníctvo sa overuje ZNOVA (cookie `ig_model` je len údaj z prehliadača) a
  * zápis ide service kľúčom, lebo na `access_token_enc` a `connected` klient
@@ -64,16 +62,18 @@ export async function GET(request: NextRequest) {
 
   try {
     const kratky = await exchangeCode(request.nextUrl.origin, code);
-    const dlhy = await longLivedToken(kratky.accessToken);
-    const me = await profile(dlhy.accessToken);
+    const me = await profile(kratky.accessToken);
 
     const admin = createServiceClient();
     const { error: dbError } = await admin.from("instagram").upsert(
       {
         model_id: model.id,
         connected: true,
-        access_token_enc: await encrypt(dlhy.accessToken, encryptionKey()),
-        token_expires_at: new Date(Date.now() + dlhy.expiresIn * 1000).toISOString(),
+        access_token_enc: await encrypt(kratky.accessToken, encryptionKey()),
+        token_expires_at: kratky.expiresIn > 0 ? new Date(Date.now() + kratky.expiresIn * 1000).toISOString() : null,
+        token_type: "unified",
+        client_business_id: me.businessId,
+        login_config_id: configId(),
         scope: kratky.permissions,
         ig_user_id: me.id,
         username: me.username,

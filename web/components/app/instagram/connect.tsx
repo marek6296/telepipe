@@ -30,7 +30,7 @@ export function InstagramConnect({
     <div className="flex flex-col gap-5">
       {!configured && (
         <Callout tone="danger">
-          Instagram is not switched on for this deployment — the Meta app id and secret
+          Instagram is not switched on for this deployment — the connection settings
           are missing. Connecting will not work until they are set.
         </Callout>
       )}
@@ -62,16 +62,15 @@ export function InstagramConnect({
                 label="Access expires"
                 value={
                   dni === null
-                    ? "unknown"
+                    ? "No scheduled expiry"
                     : dni > 14
                       ? `in ${dni} days — renews itself`
                       : `in ${dni} days`
                 }
               />
               <p className="pt-1 text-[11.5px] leading-relaxed text-[var(--app-text-4)]">
-                Instagram access lasts 60 days and we renew it for you every night. It only
-                dies if this dashboard cannot reach Instagram for two months straight — then
-                you simply connect again.
+                Access stays active until you revoke it or Meta requires you to reconnect.
+                Moving your Instagram to a different business portfolio may require reconnection.
               </p>
               <div className="pt-2">
                 <a
@@ -111,7 +110,7 @@ export function InstagramConnect({
           <Krok
             cislo={2}
             title="You do not need a Facebook page"
-            text="Instagram asks about linking one during the switch. Skip it. This connection works without it — we use Instagram's own login, not Facebook's."
+            text="A Facebook Page is not required. During connection, select the business portfolio that owns her Instagram and share only her account. While testing, her account must first accept the Telepipe Instagram Tester invitation."
           />
           <Krok
             cislo={3}

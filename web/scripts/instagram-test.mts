@@ -32,25 +32,9 @@ function eq(actual: unknown, expected: unknown, message: string): void {
   );
 }
 
-/* ------------------------------------------------------------------ scopes */
-{
-  check(
-    SCOPES.includes("instagram_business_manage_messages"),
-    "pýtame si prístup k správam — bez toho agent nemá čo robiť",
-  );
-  check(
-    SCOPES.includes("instagram_business_basic"),
-    "a základné oprávnenie, ktoré je podmienkou obnovovania tokenu",
-  );
-  check(
-    !SCOPES.some((s) => s.includes("content_publish")),
-    "publikovanie NEPÝTAME — appka nepostuje a každé oprávnenie navyše sťažuje review",
-  );
-  check(
-    SCOPES.every((s) => s.startsWith("instagram_business_")),
-    "staré scope hodnoty (bez prefixu) Meta zrušila 27. 1. 2025",
-  );
-}
+check(SCOPES.includes("instagram_manage_messages"), "Unified Login requires messages");
+check(SCOPES.includes("instagram_basic"), "Unified Login requires basic");
+check(SCOPES.includes("instagram_content_publish"), "publishing configured by owner");
 
 /* ------------------------------------------------------------ redirect URI */
 {

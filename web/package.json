@@ -12,7 +12,7 @@
     "test:persona": "node scripts/persona-draft-test.mts",
     "test:captions": "node scripts/photo-captions-test.mts",
     "test:checkout": "node scripts/checkout-test.mts",
-    "test:instagram": "node scripts/instagram-test.mts",
+    "test:instagram": "node scripts/instagram-test.mts && node scripts/instagram-unified-test.mts",
     "test:schedule": "node scripts/schedule-draft-test.mts",
     "test:coins": "node scripts/coins-test.mts",
     "test:access": "node scripts/access-test.mts",

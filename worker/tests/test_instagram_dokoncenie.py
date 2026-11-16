@@ -60,7 +60,7 @@ class TestStartBezPripojenia:
         assert asyncio.run(agent._kolo()) is False
 
     def test_pripojene_kolo_je_aktivne(self, monkeypatch):
-        monkeypatch.setattr(api, "konverzacie", lambda token, limit=25: [])
+        monkeypatch.setattr(api, "konverzacie", lambda token, limit=25, **kwargs: [])
         agent = instagram_agent.InstagramAgent(FakeDb(), FakeLlm())
         assert asyncio.run(agent._kolo()) is True
 
@@ -89,9 +89,9 @@ def _semi(monkeypatch, llm=None, control=None, konv=None):
     llm = llm or FakeLlm()
     control = control or FakeControl()
     odoslane = []
-    monkeypatch.setattr(api, "konverzacie", lambda token, limit=25: konv or [_konverzacia("ahoj krasavica")])
+    monkeypatch.setattr(api, "konverzacie", lambda token, limit=25, **kwargs: konv or [_konverzacia("ahoj krasavica")])
 
-    def fake_posli(token, igsid, text):
+    def fake_posli(token, igsid, text, **kwargs):
         odoslane.append((igsid, text))
         return {"message_id": "out-1"}
 
@@ -133,7 +133,7 @@ class TestSemiKarta:
 
     def test_bez_control_bota_nic_nepadne(self, monkeypatch):
         db = FakeDb(reply_mode="semi")
-        monkeypatch.setattr(api, "konverzacie", lambda token, limit=25: [_konverzacia()])
+        monkeypatch.setattr(api, "konverzacie", lambda token, limit=25, **kwargs: [_konverzacia()])
         agent = instagram_agent.InstagramAgent(db, FakeLlm())
         asyncio.run(agent._kolo())  # nesmie hodiť
 
@@ -161,7 +161,7 @@ class TestDorucenieZKarty:
     def test_chyba_instagramu_vrati_false(self, monkeypatch):
         agent, _, _, _, _ = _semi(monkeypatch)
 
-        def rozbite(token, igsid, text):
+        def rozbite(token, igsid, text, **kwargs):
             raise api.InstagramError("outside of allowed window", kod=10)
 
         monkeypatch.setattr(api, "posli_text", rozbite)
@@ -225,8 +225,8 @@ def _komentare(monkeypatch, prispevky, llm=None, **nastavenia):
     db = FakeDb(reply_comments=True, username="simona", **nastavenia)
     llm = llm or FakeLlm("ďakujem 🥰")
     odpovede = []
-    monkeypatch.setattr(api, "konverzacie", lambda token, limit=25: [])
-    monkeypatch.setattr(api, "prispevky_s_komentarmi", lambda token, limit=8: prispevky)
+    monkeypatch.setattr(api, "konverzacie", lambda token, limit=25, **kwargs: [])
+    monkeypatch.setattr(api, "prispevky_s_komentarmi", lambda token, limit=8, **kwargs: prispevky)
 
     def fake_odpoved(token, comment_id, text):
         odpovede.append((comment_id, text))
@@ -252,7 +252,7 @@ class TestKomentare:
 
     def test_vypnute_komentare_mlcia(self, monkeypatch):
         db = FakeDb(reply_comments=False)
-        monkeypatch.setattr(api, "konverzacie", lambda token, limit=25: [])
+        monkeypatch.setattr(api, "konverzacie", lambda token, limit=25, **kwargs: [])
         volane = []
         monkeypatch.setattr(api, "prispevky_s_komentarmi", lambda *a, **k: volane.append(1) or [])
         asyncio.run(instagram_agent.InstagramAgent(db, FakeLlm())._kolo())
@@ -310,7 +310,7 @@ class TestKomentare:
 
     def test_chyba_instagramu_sa_zapise_a_neopakuje(self, monkeypatch):
         db = FakeDb(reply_comments=True)
-        monkeypatch.setattr(api, "konverzacie", lambda token, limit=25: [])
+        monkeypatch.setattr(api, "konverzacie", lambda token, limit=25, **kwargs: [])
         monkeypatch.setattr(api, "prispevky_s_komentarmi", lambda *a, **k: [_prispevok(_komentar())])
 
         def rozbite(token, cid, text):

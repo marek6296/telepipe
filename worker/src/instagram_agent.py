@@ -151,13 +151,19 @@ class InstagramAgent:
             return False
 
         self._moje_id = str(nastavenia.get("ig_user_id") or "")
+        if not self._moje_id:
+            await self._db.save({"last_error": "Missing Instagram account ID. Please reconnect.", "connected": False})
+            return False
 
         try:
-            konverzacie = await asyncio.to_thread(api.konverzacie, token)
+            konverzacie = await asyncio.to_thread(api.konverzacie, token, account_id=self._moje_id)
         except api.InstagramError as exc:
             # Vypršaný token je bežná vec, nie porucha — klient to musí vidieť
             # na karte a agent má prestať skúšať dokola.
             log.warning("Instagram: konverzácie sa nepodarilo načítať (%s)", exc)
+            if exc.kod == 190:
+                await self._db.save({"connected": False, "last_error": "Instagram access was revoked. Please reconnect.", "poll_error": str(exc)[:400]})
+                return False
             await self._db.save({"poll_error": str(exc)[:400]})
             return True
 
@@ -333,7 +339,7 @@ class InstagramAgent:
         nastavenia: Dict[str, Any],
     ) -> bool:
         try:
-            odpoved = await asyncio.to_thread(api.posli_text, token, igsid, text)
+            odpoved = await asyncio.to_thread(api.posli_text, token, igsid, text, account_id=str(nastavenia.get("ig_user_id") or ""))
         except api.InstagramError as exc:
             log.warning("Instagram %s: správa neodišla (%s)", igsid, exc)
             await self._db.save({"poll_error": str(exc)[:400]})
@@ -484,7 +490,7 @@ class InstagramAgent:
             return 0
 
         try:
-            prispevky = await asyncio.to_thread(api.prispevky_s_komentarmi, token)
+            prispevky = await asyncio.to_thread(api.prispevky_s_komentarmi, token, account_id=str(nastavenia.get("ig_user_id") or ""))
         except api.InstagramError as exc:
             log.warning("Instagram: komentáre sa nepodarilo načítať (%s)", exc)
             return 0

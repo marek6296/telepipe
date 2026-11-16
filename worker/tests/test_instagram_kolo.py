@@ -136,10 +136,10 @@ def _konverzacia(text="hi", pred_h=0, mid="m1"):
 def _spusti(db, llm, konverzacie, monkeypatch, odoslane=None):
     odoslane = odoslane if odoslane is not None else []
 
-    def fake_konverzacie(token, limit=25):
+    def fake_konverzacie(token, limit=25, **kwargs):
         return konverzacie
 
-    def fake_posli(token, igsid, text):
+    def fake_posli(token, igsid, text, **kwargs):
         odoslane.append((igsid, text))
         return {"message_id": "odoslana-1"}
 
@@ -214,10 +214,10 @@ class TestVypinace:
         control = FakeControl()
         odoslane = []
 
-        def fake_konverzacie(token, limit=25):
+        def fake_konverzacie(token, limit=25, **kwargs):
             return [_konverzacia()]
 
-        def fake_posli(token, igsid, text):
+        def fake_posli(token, igsid, text, **kwargs):
             odoslane.append(text)
             return {}
 
@@ -284,7 +284,7 @@ class TestPadyNezhodiaAgenta:
     def test_pad_api_len_zapise_chybu(self, monkeypatch):
         db, llm = FakeDb(), FakeLlm()
 
-        def rozbite(token, limit=25):
+        def rozbite(token, limit=25, **kwargs):
             raise api.InstagramError("token expired", kod=190)
 
         monkeypatch.setattr(api, "konverzacie", rozbite)
@@ -295,10 +295,10 @@ class TestPadyNezhodiaAgenta:
     def test_pad_odoslania_nezhodi_kolo(self, monkeypatch):
         db, llm = FakeDb(), FakeLlm()
 
-        def rozbite_poslanie(token, igsid, text):
+        def rozbite_poslanie(token, igsid, text, **kwargs):
             raise api.InstagramError("rate limited", kod=4)
 
-        monkeypatch.setattr(api, "konverzacie", lambda token, limit=25: [_konverzacia()])
+        monkeypatch.setattr(api, "konverzacie", lambda token, limit=25, **kwargs: [_konverzacia()])
         monkeypatch.setattr(api, "posli_text", rozbite_poslanie)
         agent = instagram_agent.InstagramAgent(db, llm)
         asyncio.run(agent._kolo())  # nesmie hodiť

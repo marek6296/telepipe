@@ -28,7 +28,7 @@ const PRAH_DNI = 14;
 
 function authorized(request: NextRequest): boolean {
   const secret = cronSecret();
-  if (!secret) return true; // nenakonfigurované (dev) → povoliť
+  if (!secret) return false;
   if (request.headers.get("authorization") === `Bearer ${secret}`) return true;
   if (request.nextUrl.searchParams.get("secret") === secret) return true;
   return false;
@@ -46,6 +46,7 @@ export async function GET(request: NextRequest) {
     .from("instagram")
     .select("model_id, access_token_enc, token_expires_at")
     .eq("connected", true)
+    .eq("token_type", "instagram")
     .lt("token_expires_at", hranica);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
