@@ -1,6 +1,27 @@
 # Instagram a spoločná pamäť konverzácií
 
-Stav: **návrh na posúdenie, nie nasadená implementácia**. Autor: Codex, 2026-11-16. Východisko: požiadavky Mareka, audit `main` na `4f8cd9c` a aktuálna dokumentácia Meta. Číselné nastavenia nižšie sú návrh produktu, nie limity garantujúce účet bez blokácie.
+Stav: **spoločná vrstva a Instagram fronta implementované a nasadené 2026-11-16** podľa realizačného plánu a Marekovho pokynu prevziať všetky rozhodnutia. Instagram zostáva Off s povoleným importom; živý outbound test a následné zapnutie sú na majiteľovi. Číselné limity sú produktové stropy, nie záruka účtu bez blokácie. Sekcie 1–18 zachovávajú pôvodný návrh; presný rozsah a overenie dodávky sú nižšie.
+
+## Nasadený výsledok a overenie
+
+- Worker `fa7040fb6f01f56f24a03176ad0ff0fdd9295963`, Railway deployment `c8cdd9bf-6efb-4eb1-922b-473a7c6d2c77` SUCCESS. Vercel web READY, pôvodne `dpl_7LFWs5HvqGMzToLGrG5xvNS4sXLL`; DB doplnenie `11e1894` nemení worker/web runtime.
+- Supabase aplikované migrácie `shared_conversations`, `conversation_rollout_controls`, `identity_change_pending_replies`. Nové tabuľky majú owner-read RLS, mutačné RPC iba service_role; overené aj na produkčných grantoch.
+- TG/IG/FV používajú uložený spoločný deň, stabilný mierny tón, auditované identity a kontext overenej osoby. Automatické rozpoznanie zostáva vratnou indíciou. Potvrdenie súkromnej pamäte dnes robí majiteľ v Telepipe; automatický bezpečnostný challenge medzi účtami nie je súčasťou dodávky.
+- Pamäť používa existujúce kanálové archívy a posledných 12 správ z každého ďalšieho overeného účtu (max 16 000 znakov spolu). Pôvodná vlastná pamäť každého kanála zostáva. Rozsiahly nový graf faktov/epizód z návrhu nebol zavedený a nejde o garanciu úplnej znalosti všetkých historických detailov.
+- IG: durable ingest/fronta, pôvodné časy, LA dostupnosť, reprodukovateľné odstupy, databázové rezervácie a limity, versioned Semi, kontrola aktuálneho remote kontextu, ručný takeover, uncertain bez slepého retry. Komentáre iba v Auto; DM a reakcie rešpektujú zvolený režim. API verejné lajky a týždenné organické follow-upy sa nezapínajú.
+- URL iba presný Telegram alebo Linkovne profil, max 2/LA deň aj rolling 24 h, aspoň 4 h odstup, jeden propagačný URL na osobu. Highlights/reminder formuluje persona kontextovo, nie zo šablóny. Jedna schválená aktívna SFW fotka; žiadny IG hlas. Pozvania/fotka vyžadujú dospelý vek deklarovaný používateľom alebo doložený platformou; neznámy/sporný vek ich nepovolí.
+- Opt-out sa prenáša na overené účty. Nová konkrétna otázka po odmietnutí kontaktu môže dostať obyčajnú reaktívnu odpoveď; neobnovuje odkazy ani proaktívny kontakt. Výslovný súhlas obnoví odpovede, nie marketing. Zmena/odmietnutie identity zneplatní čakajúce návrhy na všetkých kanáloch.
+- Simona: `connected=true`, `reply_mode=off`, `enabled=false`, import/reactions/comments/highlights/typo nakonfigurované; Telegram `simapussina`. Linkovne URL čaká na majiteľa. Fotky vypnuté, kým vyberie konkrétny obrázok. Existujúce TG/FV režimy sa nemenili.
+- Živý read-only dôkaz: profil, Conversations a posts/comments API úspešné; import ukladá skutočné konverzácie a manuálne odoslania. Prvá Meta chyba 1 bola dočasná: rovnaká požiadavka následne úspešná, bezpečnostná pauza ručne zrušená až po overení, bez úpravy API kontraktu.
+- Majiteľ explicitne identifikoval `dony.donoval` ako seba; spojený s modelkiným párovaným `owner_chat_id`. Reálne volania ConversationHub overili súkromný kontext IG → TG aj TG → IG bez generovania/odosielania správy.
+- **Testy:** 2 413 worker testov prešlo, 2 integračné deselected; pôvodne chýbajúci ffmpeg vyriešený izolovaným lokálnym binárnym súborom, bez zmeny závislostí aplikácie. Všetky tri skutočné migrácie prešli disposable PGlite kontraktmi, vrátane opravy identity/kvót/lease/RLS. PGlite je jedna connection, nie test súbehu dvoch reálnych serverových spojení. Web typecheck, zmenené ESLint súbory, Instagram skripty a production build prešli. Produkčné nastavenia overené v prihlásenom prehliadači.
+- **Hranica overenia:** žiadne živé DM/reakcie/fotky/komentáre fanúšikom sa neposielali; outbound Meta flow a výsledná kvalita textu ešte vyžadujú majiteľov Semi test. Štandardný prístup/aplikácia v development režime nie je Advanced Access pre cudzích klientov. Úplný starý archív ani 100 % správne rozhodnutie v každej situácii sa nesľubuje.
+
+### Záver nezávislého review
+
+Čerstvý whole-branch review: 0 Critical, 6 Important, 1 Minor. Všetko opravené s regresiami: (1) CHECK manuálneho importu a obnoviteľné vedľajšie účinky, (2) správne miesto overenia platobnej identity, (3) spoločný stop na send hraniciach TG/FV aj staré schválenia, (4) rovný/typografický apostrof v odmietnutí, (5) znovu overený foto zámer/vek pri retry, (6) návrat po opt-out bez obnovenia marketingu. Minor o preklepe po schválení prehodnotený na Important: schválený text sa nemení. Žiadne odložené drobnosti. Následná kontrola nasadenia pridala SQL regresiu a trigger zneplatnenia návrhov všetkých kanálov po zmene identity (RED → GREEN).
+
+Rozhodnutia pri realizácii: delegované schválenie pokrýva merge/push/deploy bez ďalšieho menu; žiadny paralelný lokálny Telethon worker; automatické rozpoznanie neznamená prístup k cudzej súkromnej histórii; nepodporované Meta schopnosti sa nesimulujú. Podrobný [realizačný plán](../plans/2026-11-16-shared-conversations.md).
 
 ## 1. Výsledok, ktorý chceme
 
@@ -363,6 +384,6 @@ Rollback je vypnutie nových odosielateľov/feature flagov a ponechanie ingestu 
 - Comment likes sa pri aktuálnom Unified Login nesľubujú; neskoršia zmena prístupu je samostatná úloha.
 - Stabilný mierny tón a prirodzený štýl, pravdivá identita AI postavy a možnosť zásahu Mareka.
 
-Tieto voľby sú súčasťou návrhu. V tejto práci neboli zmenené produkčné prompty, limity, databázová schéma ani režim odpisovania.
+Tieto voľby pochádzajú z návrhu. Následná schválená implementácia zmenila prompty, limity a schému v rozsahu úvodného stavu; IG odpisovanie ostáva Off.
 
 Návrh prešiel samostatným builder-check review. Zapracované otázky: spoločné vypnutie starého párovania a odvodených stavov, pravdivý rozsah detekcie zmazaných správ pri pollingu, vekové stavy pri navigačných pozvaniach a presný návrat po opt-out. Číselné a produktové defaulty sú návrhy autora; nedoriešené schopnosti API sú explicitne vypnuté, nie domyslené.
