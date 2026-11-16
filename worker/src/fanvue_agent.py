@@ -570,6 +570,12 @@ class FanvueAgent:
             settings = await self._db.settings()
             if row.get("human_takeover") or not row.get("ai_enabled", True) or settings.get("reply_mode") == "off":
                 return None
+        # Polling a návrhy zostávajú neprečítané. „Seen“ až po kontrolách,
+        # bezprostredne pred provider send (aj po schválení v Semi).
+        try:
+            await self._api.chat_messages(conv_key, limit=1, mark_read=True)
+        except Exception as exc:  # noqa: BLE001 - seen nesmie zhodiť odpoveď
+            log.warning("Fanvue seen pre %s zlyhalo: %s", conv_key[:8], exc)
         return await self._api.send(conv_key, text, *args)
 
     async def run(self) -> None:
@@ -1115,7 +1121,7 @@ class FanvueAgent:
             await self._try_link(fan, row, klik_plati=not int(row.get("msg_count") or 0))
 
         # ČÍTA SA VŽDY, „VIDENÉ" NIE. Fanvue má na to prepínač: `markAsRead`
-        # na `GET /chats/{uuid}/messages`. V poloautomate ide na `false`, takže
+        # na `GET /chats/{uuid}/messages`. Pri synchronizácii vždy `false`, takže
         # chat vidíme celý, ale fanúšikovi nesvieti videné skôr, než sa majiteľ
         # rozhodne odpovedať. Overené naostro: dve neprečítané správy ostali po
         # stiahnutí dvadsiatich naďalej neprečítané.
@@ -1127,7 +1133,7 @@ class FanvueAgent:
         #
         # Skutočný stav chatu má prednosť pred frontou: doručenie sa mohlo
         # stratiť a poradie Fanvue nezaručuje.
-        if not await self._reconcile(fan, row, mark_read=not semi):
+        if not await self._reconcile(fan, row, mark_read=False):
             return
         if hub := getattr(self._db, "hub", None):
             if not await hub.can_reply("fanvue", fan["uuid"]):
@@ -1393,10 +1399,9 @@ class FanvueAgent:
     async def _dobehni(self, conv_key: str, row: Dict[str, Any]) -> None:
         """Zosúladenie chatu AŽ TERAZ, keď už odpoveď odišla.
 
-        V poloautomate sa chat počas čakania na majiteľa zámerne neotvára,
-        aby fanúšikovi nesvietilo „videné". Odoslaním sa videné dá tak či tak,
-        takže tu už čítanie nič nepokazí — a je posledná chvíľa, keď sa dajú
-        dotiahnuť správy písané ručne vo Fanvue, nákupy a počet správ.
+        Dotiahne správy písané ručne vo Fanvue, nákupy a počet správ.
+        Synchronizácia nemení „videné“: nová správa mohla prísť až po našej
+        odpovedi a má zostať neprečítaná do ďalšieho odosielania.
 
         Zlyhanie sa prehltne: odpoveď je odoslaná, to je to podstatné.
         """
@@ -1464,15 +1469,15 @@ class FanvueAgent:
         return False
 
     async def _reconcile(
-        self, fan: Dict[str, Any], row: Dict[str, Any], mark_read: bool = True
+        self, fan: Dict[str, Any], row: Dict[str, Any], mark_read: bool = False
     ) -> bool:
         """Doplní, čo v pamäti chýba. False = teraz sa neodpisuje.
 
         Keď sa chat nedá prečítať, pokračuje sa aj tak — uložená správa
         z webhooku je lepšia než mlčanie. Fail-open všade.
 
-        `mark_read=False` je pre poloautomat: chat sa prečíta, ale fanúšikovi
-        „videné" nesvieti, kým majiteľ naozaj neodpíše.
+        Predvolené `mark_read=False` načíta chat bez „videné“ v oboch
+        režimoch. Potvrdenie prečítania patrí až do `_send_checked`.
         """
         creator = str((await self._db.settings()).get("creator_uuid") or "")
         skutocne = await self._api.chat_messages(fan["uuid"], mark_read=mark_read)

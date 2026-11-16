@@ -820,20 +820,10 @@ class UserBot:
             await asyncio.sleep(quick[0])
         elif not testing:
             await asyncio.sleep(bhv.read_delay(behavior, factor=factor))
-        await self._mark_read(tg_id)
-        # Chat je od tejto chvíle prečítaný, takže reakcia už sedí. Fotka má
-        # prednosť pred textom; obe sa vyberú, nech textová nevisí do budúcna.
-        caka = self._photo_reaction.pop(tg_id, None)
-        na_text = self._text_reaction.pop(tg_id, None)
-        if caka:
-            asyncio.create_task(self._react_to_photo(tg_id, *caka))
-        elif na_text:
-            asyncio.create_task(self._react(tg_id, na_text[0], na_text[1], "správu"))
-
-        # 2) občas nechá len „videné“ a odpíše až po pár minútach
+        # 2) krátka pauza pred odpoveďou; „videné“ až pri odoslaní
         seen_wait = 0.0 if (testing or semi or quick) else bhv.seen_only_delay(behavior)
         if seen_wait:
-            log.info("%s: len videné, odpoveď za %.0f s", tg_id, seen_wait)
+            log.info("%s: odpoveď za %.0f s", tg_id, seen_wait)
             await self._defer(tg_id, seen_wait)
             await asyncio.sleep(seen_wait)
 
@@ -1054,6 +1044,7 @@ class UserBot:
         )
         if (
             media_ok
+            and not semi
             and behavior.voices_enabled
             and not vie_generovat
             and not cudzi_jazyk
@@ -1520,6 +1511,7 @@ class UserBot:
             async with self._client.action(tg_id, "typing"):
                 await asyncio.sleep(humanize.typing_delay(chunk))
             try:
+                await self._mark_read(tg_id)
                 await self._client.send_message(tg_id, chunk)
             except Exception as exc:  # noqa: BLE001
                 # Flood chyba sa nesmie stratiť v logu ako hocijaká iná —
@@ -2006,6 +1998,7 @@ class UserBot:
             # a force_document=False z toho urobia normálnu fotku v bubline.
             buffer = io.BytesIO(data)
             buffer.name = photo_filename(photo["url"])
+            await self._mark_read(tg_id)
             await self._client.send_file(tg_id, buffer, force_document=False)
             await self._db.record_photo_send(int(photo["id"]), tg_id)
             await self._db.update_user(tg_id, {"last_photo_at": _utc_iso()})
@@ -2206,6 +2199,7 @@ class UserBot:
             prevedene = await _to_opus(data) or data
             buffer = io.BytesIO(prevedene)
             buffer.name = "voice.ogg"
+            await self._mark_read(tg_id)
             await self._client.send_file(tg_id, buffer, voice_note=True)
             await self._db.update_user(tg_id, {"last_voice_at": _utc_iso()})
             await self._db.add_message(tg_id, "assistant", f"(hlasovka) {text}".strip())
@@ -2226,6 +2220,7 @@ class UserBot:
             # pauza vyprší.
             if await self._note_flood(exc, tg_id):
                 return
+            await self._mark_read(tg_id)
             await self._client.send_message(tg_id, text)
             await self._db.add_message(tg_id, "assistant", text)
 
@@ -2372,6 +2367,7 @@ class UserBot:
         try:
             async with self._client.action(tg_id, "typing"):
                 await asyncio.sleep(humanize.typing_delay(text))
+            await self._mark_read(tg_id)
             await self._client.send_message(tg_id, text)
         except Exception as exc:  # noqa: BLE001
             if await self._note_flood(exc, tg_id):
@@ -2422,6 +2418,7 @@ class UserBot:
             buffer.name = photo_filename(photo["url"])
             async with self._client.action(tg_id, "photo"):
                 await asyncio.sleep(humanize.typing_delay("x" * 40))
+            await self._mark_read(tg_id)
             await self._client.send_file(
                 tg_id, buffer, caption=caption or "", force_document=False
             )
@@ -2487,6 +2484,7 @@ class UserBot:
                 data = await _to_opus(data) or data
             buffer = io.BytesIO(data)
             buffer.name = "voice.ogg"
+            await self._mark_read(tg_id)
             await self._client.send_file(tg_id, buffer, voice_note=True)
             await self._db.record_voice_send(int(voice["id"]), tg_id)
             await self._db.update_user(tg_id, {"last_voice_at": _utc_iso()})
@@ -2565,11 +2563,18 @@ class UserBot:
             log.warning("Zoznam zablokovaných sa nepodarilo načítať: %s", exc)
 
     async def _mark_read(self, tg_id: int) -> None:
-        """Bez toho ostane v chate „neprečítané“ a vyzerá to mŕtvo."""
+        """Potvrď prečítanie tesne pred odoslaním, nikdy pri tvorbe návrhu."""
         try:
             await self._client.send_read_acknowledge(tg_id)
         except Exception as exc:  # noqa: BLE001 - nesmie zablokovať odpoveď
             log.warning("Nepodarilo sa označiť ako prečítané pre %s: %s", tg_id, exc)
+        # Reakcie tiež čakajú na skutočné odosielanie (vrátane Semi approval).
+        caka = self._photo_reaction.pop(tg_id, None)
+        na_text = self._text_reaction.pop(tg_id, None)
+        if caka:
+            asyncio.create_task(self._react_to_photo(tg_id, *caka))
+        elif na_text:
+            asyncio.create_task(self._react(tg_id, na_text[0], na_text[1], "správu"))
 
     async def _post_send_update(
         self,

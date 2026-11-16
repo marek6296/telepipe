@@ -261,6 +261,12 @@ def react(token: str, account_id: str, igsid: str, mid: str) -> Dict[str, Any]:
         'payload': {'message_id': mid, 'reaction': 'love'}})
 
 
+def mark_seen(token: str, account_id: str, igsid: str) -> Dict[str, Any]:
+    """Explicit receipt, used only immediately before an approved/reserved reply."""
+    return _volaj(_url(f'{account_id}/messages', token), {
+        'recipient': {'id': igsid}, 'sender_action': 'mark_seen'})
+
+
 def send_photo(token: str, account_id: str, igsid: str, url: str) -> Dict[str, Any]:
     return _volaj(_url(f'{account_id}/messages', token), {
         'recipient': {'id': igsid}, 'message': {'attachment': {

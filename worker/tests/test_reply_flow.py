@@ -609,8 +609,8 @@ class TestOdpovedaNaAktualnuSpravu:
     """Medzi načítaním správ a odoslaním odpovede ubehnú minúty až hodina.
 
     Kým spí, môže napísať ďalšie správy, Marek môže konverzáciu prevziať alebo
-    odpoveď medzitým odíde inou cestou. `_mark_read` je tu zástupca za tie
-    pauzy — beží presne medzi prvým načítaním a obnovením stavu.
+    odpoveď medzitým odíde inou cestou. Zmenu simulujeme pred skutočným
+    obnovením stavu po pauze; „videné“ vzniká až tesne pred odoslaním.
     """
 
     @staticmethod
@@ -621,10 +621,13 @@ class TestOdpovedaNaAktualnuSpravu:
             "odpoved",
         )
 
-        async def mark_read(_tg_id):
-            zmena(db)
+        refresh = bot._refresh_after_wait
 
-        bot._mark_read = mark_read
+        async def after_wait(*args, **kwargs):
+            zmena(db)
+            return await refresh(*args, **kwargs)
+
+        bot._refresh_after_wait = after_wait
         return bot, db, llm, client, notes
 
     def test_pouzije_spravu_ktora_prisla_pocas_pauzy(self):

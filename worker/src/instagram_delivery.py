@@ -154,9 +154,10 @@ class InstagramDelivery:
             await self.db.cancel_actions(igsid, 'outbound_is_latest')
             return
         source = parse_time(last.get('created_time'))
-        watermark = parse_time(cfg.get('replies_started_at'))
-        if (bootstrap or not cfg.get('enabled') or cfg.get('reply_mode') == 'off' or not watermark
-                or not source or source < watermark or not in_window(source)
+        # A fresh remote snapshot, not enable time, decides whether a DM is unanswered.
+        # This also recovers messages received while Off or while the worker was down.
+        if (bootstrap or not cfg.get('enabled') or cfg.get('reply_mode') == 'off'
+                or not source or not in_window(source)
                 or user.get('human_takeover') or not user.get('ai_enabled', True)
                 or (user.get('no_initiate') and not direct_request(last['content']))):
             return
@@ -165,6 +166,8 @@ class InstagramDelivery:
             return
         due = choose_due(kind, source, f'{self.db.model_id}:{last["mid"]}',
                          active=bool(parse_time(user.get('last_reply_at')) and utcnow()-parse_time(user['last_reply_at']) < timedelta(minutes=15)))
+        if cfg.get('reply_mode') == 'semi' and kind == 'dm':
+            due = utcnow()  # Owner receives a draft now and chooses when to send.
         # Queue uses provider time and deterministic delay; retries never reroll it.
         await self.db.rpc('enqueue', key=f'{cfg["ig_user_id"]}:{kind}:{last["mid"]}', kind=kind,
             igsid=igsid, target=chat['id'], source_mid=last['mid'], source_at=source.isoformat(),
@@ -201,7 +204,7 @@ class InstagramDelivery:
         block, _ = await self.db.hub.day(local, den.Rozvrh.from_row(await self.db.schedule()))
         testing = (action['igsid'] and cfg.get('test_igsid') == action['igsid']
                    and parse_time(cfg.get('test_until')) and parse_time(cfg['test_until']) > utcnow())
-        if not testing and (not block or not in_active_window(local, behavior.active_start_min, behavior.active_end_min)):
+        if cfg.get('reply_mode') != 'semi' and not testing and (not block or not in_active_window(local, behavior.active_start_min, behavior.active_end_min)):
             await self.defer(action, 'sleeping')
             return
         link_target = ''
@@ -240,7 +243,7 @@ class InstagramDelivery:
                         import prehlad
                         ok = await self.agent._control.post_approval(channel='instagram', conv_key=f'{action["igsid"]}:{action["id"]}',
                             display_name=user.get('username') or action['igsid'], incoming_preview=prehlad.blok_rozhovoru(history),
-                            suggestions=proposals, hint='Approval queues this exact reply; current window, schedule and limits still apply.')
+                            suggestions=proposals, hint='Approve at any time. This exact reply still respects the messaging window and delivery limits.')
                         if not ok:
                             await self.db.change_action(action, {'state': 'pending', 'due_at': (utcnow()+timedelta(minutes=15)).isoformat()}, state='approval')
                     return
@@ -284,6 +287,14 @@ class InstagramDelivery:
             reserved = await self.db.rpc('reserve', action=action['id'], lease=action['lease_token'], text=text, link=link, reminder=reminder)
             if not reserved.get('ok'):
                 return
+            if action['kind'] in ('dm', 'photo'):
+                # Read receipts are a separate provider write. Never emit one while
+                # polling, generating a proposal, waiting for approval, or blocked.
+                try:
+                    await asyncio.to_thread(api.mark_seen, cfg['access_token'], cfg['ig_user_id'], action['igsid'])
+                except api.InstagramError as exc:
+                    # Optional acknowledgement failure must not lose an unsent reply.
+                    log.warning('Instagram read receipt unavailable (Meta %s)', exc.kod)
             try:
                 if action['kind'] == 'comment':
                     response = await asyncio.to_thread(api.odpovedz_na_komentar, cfg['access_token'], action['target_id'], text)

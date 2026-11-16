@@ -38,18 +38,14 @@ class TestPosielanieBezKarty:
     def test_pid_je_volitelny_pri_kazdom_odoslani(self):
         """Text, fotka aj hlasovka sa musia dať poslať bez čakajúceho riadku.
 
-        Výnimka je časový fallback: ten vzniká Z RIADKU, takže `pid` tam vždy
-        je a podmienka by len zakrývala, že sa niečo pokazilo.
+        Časový fallback už neodosiela; všetky send cesty vyžadujú owner akciu.
         """
         nechranene = [
             riadok.strip()
             for riadok in SRC.splitlines()
             if "claim_pending(pid)" in riadok and "pid and" not in riadok
         ]
-        assert len(nechranene) == 1, nechranene
-        fallback = SRC.index("async def _auto_send")
-        koniec = SRC.index("async def recover_cards")
-        assert nechranene[0] in SRC[fallback:koniec], "nechránené je inde než vo fallbacku"
+        assert not nechranene, nechranene
 
     def test_zapisy_do_pending_su_podmienene(self):
         """`mark_pending(None, …)` by spadlo na strane databázy."""

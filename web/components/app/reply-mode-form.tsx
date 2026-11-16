@@ -2,19 +2,18 @@
 
 import { saveReplyModeAction } from "@/app/app/m/[id]/reply-mode-actions";
 import { AutoSaveForm } from "@/components/app/forms/auto-save";
-import { NumberField, SelectField } from "@/components/app/forms/fields";
+import { SelectField } from "@/components/app/forms/fields";
 import { Card, CardHeader } from "@/components/app/ui";
 
 /**
  * Prepínač režimu odpovedania pre jeden kanál (Telegram alebo Fanvue).
- * Off / Auto / Semi + čas do auto-odoslania (len pri Semi). Auto-save cez
+ * Off / Auto / Semi; Semi vždy čaká na majiteľa. Auto-save cez
  * `saveReplyModeAction`; worker číta tie isté stĺpce.
  */
 export function ReplyModeForm({
   modelId,
   channel,
   mode,
-  fallbackMinutes,
 }: {
   modelId: string;
   channel: "telegram" | "fanvue";
@@ -42,15 +41,7 @@ export function ReplyModeForm({
               { value: "auto", label: "Automatic — she replies on her own" },
               { value: "semi", label: "Semi-automatic — you approve every reply" },
             ]}
-            help="Semi-automatic sends every draft to your Telegram control bot: pick one of three suggestions, write your own, or attach a photo or voice note. Everything you send is saved with full context, so switching back to Automatic continues seamlessly."
-          />
-          <NumberField
-            name="fallback_minutes"
-            label="Auto-send after (minutes)"
-            defaultValue={fallbackMinutes ?? 0}
-            min={0}
-            max={1440}
-            help="Semi-automatic only: if you don't decide within this many minutes, she sends the top suggestion herself. 0 = wait forever until you decide."
+            help="Automatic follows her daily schedule. Semi sends drafts to your control bot at any time and waits for your approval, with no automatic timeout. You choose when to reply; context is saved across modes."
           />
         </div>
       </Card>

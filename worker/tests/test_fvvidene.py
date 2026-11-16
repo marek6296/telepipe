@@ -15,13 +15,12 @@ TERAZ. `GET /chats/{uuid}/messages` má parameter `markAsRead` (predvolene
 Overené naostro proti Fanvue — chat s `unreadMessagesCount = 2` ostal po
 stiahnutí dvadsiatich správ naďalej na dvoch.
 
-Po odoslaní (`deliver_text` / `deliver_photo`) sa číta normálne: videné dáva
-tak či tak samotné odoslanie.
+Tesne pred odoslaním (`deliver_text` / `deliver_photo`) sa explicitne
+potvrdí prečítanie; následné dobehnutie už nové správy neoznačuje ako videné.
 """
 from __future__ import annotations
 
 import inspect
-import re
 
 import fanvue_agent
 
@@ -79,17 +78,17 @@ def _agent():
     return a
 
 
-class TestPoOdoslaniSaCitaNormalne:
+class TestOdoslaniePotvrdiPrecitanie:
     async def test_odoslanie_textu_dobehne_chat(self):
-        """Videné tu už dáva samotné odoslanie — čítanie nič nepokazí."""
+        """Seen pred send, následná synchronizácia nechá nové správy neprečítané."""
         a = _agent()
         assert await a.deliver_text("fan-1", "ahoj") is True
-        assert a._api.citania == [("fan-1", True)]
+        assert a._api.citania == [("fan-1", True), ("fan-1", False)]
 
     async def test_odoslanie_fotky_dobehne_chat(self):
         a = _agent()
         assert await a.deliver_photo("fan-1", "media-1", "caption") is True
-        assert a._api.citania == [("fan-1", True)]
+        assert a._api.citania == [("fan-1", True), ("fan-1", False)]
 
     async def test_dobehnutie_nezhodi_odoslanie(self):
         """Odpoveď je odoslaná — to je podstatné, zvyšok je bonus."""
@@ -108,30 +107,11 @@ class TestSemiCitaBezVideneho:
         assert await a._reconcile({"uuid": "fan-1", "text": "hey"}, {}, mark_read=False)
         assert a._api.citania == [("fan-1", False)]
 
-    async def test_predvolene_sa_videne_dava(self):
-        """Auto režim ostáva, ako bol — tam odpovedá modelka hneď."""
+    async def test_predvolene_sa_videne_nedava(self):
+        """Aj Auto má pred odoslaním generovanie a čakanie."""
         a = _agent()
         assert await a._reconcile({"uuid": "fan-1", "text": "hey"}, {})
-        assert a._api.citania == [("fan-1", True)]
-
-    def test_semi_riadi_prepinac_a_nie_preskocenie(self):
-        """Zdrojová poistka: keby sa `mark_read` z tej vetvy stratil, videné
-        by sa začalo dávať znova a v testoch by to nebolo vidno."""
-        telo = inspect.getsource(fanvue_agent.FanvueAgent._reply)
-        assert "mark_read=not semi" in telo
-
-    def test_chat_sa_cita_len_z_reconcile(self):
-        """Keby pribudlo druhé miesto, ktoré ťahá správy, videné by unikalo."""
-        src = inspect.getsource(fanvue_agent)
-        volania = []
-        aktualna = ""
-        for line in src.splitlines():
-            m = re.match(r"    async def (\w+)", line)
-            if m:
-                aktualna = m.group(1)
-            if "self._api.chat_messages(" in line:
-                volania.append(aktualna)
-        assert volania == ["_reconcile"], f"správy chatu ťahá aj: {volania}"
+        assert a._api.citania == [("fan-1", False)]
 
     def test_dobehnutie_volaju_obe_dorucenia(self):
         src = inspect.getsource(fanvue_agent)

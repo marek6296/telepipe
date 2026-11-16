@@ -31,7 +31,7 @@ export function InstagramSettingsForm({ row }: { row: InstagramRow }) {
               { value: "auto", label: "Auto — she answers on her own" },
               { value: "semi", label: "Semi — you approve each reply" },
             ]}
-            help="Semi queues a reply after your approval. Both modes still follow her shared daily schedule, the messaging window and delivery limits."
+            help="Auto follows her LA schedule. Semi prepares drafts at any time and sends after your approval, within the messaging window and delivery limits. Recent unanswered chats are recovered when enabled."
           />
           <SelectField
             name="heat"

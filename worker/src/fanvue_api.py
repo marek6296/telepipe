@@ -350,7 +350,7 @@ class Fanvue:
         }
 
     async def chat_messages(
-        self, user_uuid: str, limit: int = 30, mark_read: bool = True
+        self, user_uuid: str, limit: int = 30, mark_read: bool = False
     ) -> List[Dict[str, Any]]:
         """Skutočný stav chatu, od najnovšej správy. Prázdne = nedalo sa.
 

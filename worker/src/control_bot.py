@@ -1206,8 +1206,7 @@ class ControlBot:
         self._senders[channel] = sender
 
     def start_fallback_poller(self) -> "asyncio.Task":
-        """Poller: neschválené návrhy staršie ako per-kanálový `fallback_minutes`
-        odošle prvým (AI-top) návrhom. Beží, aj keď je web/Telegram zavretý."""
+        """Legacy supervisor hook; Semi never sends on a timer."""
         return asyncio.create_task(self._fallback_loop())
 
     async def _fallback_loop(self) -> None:
@@ -1219,45 +1218,12 @@ class ControlBot:
             await asyncio.sleep(30)
 
     async def _fallback_tick(self) -> None:
-        rows = await self._db.awaiting_pending()
-        if not rows:
-            return
-        tg = await self._db.tg_reply_mode()
-        fv = await self._db.fanvue_reply_mode()
-        now = datetime.now(timezone.utc)
-        for row in rows:
-            channel = row.get("channel")
-            if channel == "telegram":
-                fb = tg["fallback_minutes"]
-            elif channel == "fanvue":
-                fb = fv["fallback_minutes"]
-            else:
-                # Instagram časový fallback nemá: je verejný a v semi chce
-                # majiteľ vidieť každú odpoveď skôr, než odíde.
-                continue
-            if not fb:
-                continue
-            created = _parse_iso(row.get("created_at"))
-            if created and (now - created).total_seconds() >= fb * 60:
-                await self._auto_send(row)
+        """Semi always waits for the owner, including legacy timed-fallback settings."""
+        return
 
     async def _auto_send(self, row: Dict[str, Any]) -> None:
-        sender = self._senders.get(row.get("channel"))
-        sugg = row.get("suggestions") or []
-        if not sender or not sugg:
-            return
-        pid = row["id"]
-        if not await self._db.claim_pending(pid):
-            return
-        ok = await sender.deliver_text(row["conv_key"], sugg[0])
-        cmid = row.get("control_msg_id")
-        if ok:
-            await self._db.mark_pending(pid, "sent", chosen_text=sugg[0], kind="text")
-            await self._forget_card(int(cmid or 0))
-            if cmid:
-                await self._clear_card(int(cmid), "⏱ _Sent automatically (time elapsed)._")
-        else:
-            await self._db.mark_pending(pid, "awaiting")
+        """Compatibility no-op: elapsed time is never owner approval."""
+        return
 
     async def recover_cards(self) -> None:
         """Po štarte/prevzatí modelky obnov mapu kariet z DB, nech staré karty

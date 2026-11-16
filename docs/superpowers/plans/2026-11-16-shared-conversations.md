@@ -102,3 +102,12 @@ Marek requested Telegram somewhat more often than Linkovne, no repeated recipien
 - [x] RED → GREEN actual SQL destination/rolling/gap/recipient/unknown/manual/allowlist contracts.
 - [x] Full worker suite 2423 passed, 2 deselected; web typecheck/ESLint/Instagram scripts/build pass.
 - [x] Fresh review (Important manual URL classifier + Minor reminder destination fixed with RED→GREEN regressions); migration applied, exact runtime `9984dfc` deployed on Railway SUCCESS and Vercel READY; both + Semi enabled 15:42 UTC. Live read-only Meta conversations request passed (5 chats, 9.9 s); runtime poll 15:42:48 UTC healthy, empty poll_error, no circuit pause and no automated actions. No live fan messages sent.
+
+## Follow-up: unanswered recovery, owner-timed Semi and late read receipts
+
+Marek explicitly requested recovery of unanswered conversations after Off/restart, read receipts shortly before actual replies, and Semi approval at any time across IG/TG/FV. Auto retains the shared LA schedule. Instagram still respects the provider messaging window, current-source/manual-takeover/consent/identity gates and quotas. Existing sent/uncertain/skipped actions must never be resurrected. Only work cancelled by channel pause can be re-enqueued after a fresh read; historical import alone remains read-only. Semi has no timed auto-send fallback.
+
+- [ ] TDD IG recent unanswered recovery after Off/restart, idempotent requeue only for channel pause, Semi proposal/send outside schedule; Auto stays scheduled.
+- [ ] Verify provider read APIs; no read receipts during polling or proposals, only at actual send boundaries. TG/FV independent implementation delegated via dispatching-parallel-agents.
+- [ ] Remove Semi timed fallback and misleading UI; preserve other send gates.
+- [ ] Focused tests, DB migration contracts, full suite/web checks, fresh review; apply/deploy exact SHA; read-only production verification and vault update.

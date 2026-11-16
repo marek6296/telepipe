@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 
 /**
- * Uloženie režimu odpovedania (Off / Auto / Semi) + času do auto-odoslania.
+ * Uloženie režimu odpovedania; Semi vždy čaká na explicitné schválenie.
  * Per kanál a nezávisle: Telegram žije na `settings` (tg_reply_mode,
  * tg_fallback_minutes), Fanvue na `fanvue` (reply_mode, fallback_minutes).
  * Ide cez RLS klienta (owner policy), nie service kľúčom — je to obyčajný
@@ -27,12 +27,9 @@ export async function saveReplyModeAction(
     body[channel === "telegram" ? "tg_reply_mode" : "reply_mode"] = patch.mode;
   }
 
-  if (patch.fallback_minutes !== undefined) {
-    // 0 / prázdne / neplatné = „čakaj navždy" (NULL). Inak 1–1440 min.
-    let minutes: number | null = Number(patch.fallback_minutes);
-    if (!Number.isFinite(minutes) || minutes < 1) minutes = null;
-    else minutes = Math.min(1440, Math.round(minutes));
-    body[channel === "telegram" ? "tg_fallback_minutes" : "fallback_minutes"] = minutes;
+  // Clear deprecated timers, including submissions from an older open browser tab.
+  if (patch.mode !== undefined || patch.fallback_minutes !== undefined) {
+    body[channel === "telegram" ? "tg_fallback_minutes" : "fallback_minutes"] = null;
   }
 
   if (Object.keys(body).length === 0) return {};

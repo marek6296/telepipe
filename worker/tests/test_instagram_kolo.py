@@ -187,6 +187,7 @@ def tick(agent, db):
 
 
 def mock_threads(monkeypatch, threads):
+    monkeypatch.setattr(api, 'mark_seen', lambda *a, **k: {'success': True})
     monkeypatch.setattr(api, 'conversation_page', lambda *a, **k: {'data': threads, 'after': ''})
     monkeypatch.setattr(api, 'conversation', lambda *a, **k: threads[0])
 

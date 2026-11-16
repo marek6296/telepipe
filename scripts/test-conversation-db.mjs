@@ -30,6 +30,7 @@ try {
   await db.exec(await read('20261116093007_conversation_rollout_controls.sql'));
   await db.exec(await read('20261116101120_identity_change_pending_replies.sql'));
   await db.exec(await read('20261116152955_instagram_destination_budgets.sql'));
+  await db.exec(await read('20261116154902_instagram_unanswered_recovery.sql'));
   const seeded=(await db.query(`select status,last_invite_at from conversation_identities where model_id=$1 and external_id='999'`,[m])).rows[0];
   assert.equal(seeded.status,'local','backfill must not verify a heuristic identity');
   assert.ok(seeded.last_invite_at);
@@ -162,6 +163,26 @@ try {
   assert.equal((await linkCase([],'telegram',{url:'https://t.me/simapussina.evil'})).reason,'link_target_unavailable');
   assert.equal((await linkCase([],'telegram',{flag:false})).reason,'unmarked_url');
   assert.equal((await linkCase([],'telegram',{flag:false,url:'linkovne.com/simonakralova'})).reason,'unmarked_url');
+
+  const recovery='00000000-0000-4000-8000-000000000099';
+  await db.query('insert into models(id) values($1)',[recovery]);
+  await db.query(`insert into instagram(model_id,connected,enabled,reply_mode,ig_user_id) values($1,true,true,'semi','acct')`,[recovery]);
+  const recoverArgs=[recovery,'recover','dm','recover-fan','thread','recover-source',new Date(Date.now()-3600000),new Date(Date.now()+3600000),new Date(Date.now()+7200000),{account_id:'acct'}];
+  const recoverAction=await rpc('instagram_enqueue',recoverArgs);
+  for(const state of ['sent','uncertain','skipped','cancelled']) {
+    await db.query(`update instagram_actions set state=$2,reason='identity_changed' where id=$1`,[recoverAction.id,state]);
+    assert.equal((await rpc('instagram_enqueue',recoverArgs)).state,state,'terminal work is not silently replayed');
+  }
+  for(const reason of ['channel_off','channel_changed']) {
+    await db.query(`update instagram_actions set state='cancelled',reason=$2,payload='{"account_id":"acct","approved_source_mid":"recover-source"}' where id=$1`,[recoverAction.id,reason]);
+    const revived=await rpc('instagram_enqueue',recoverArgs);
+    assert.equal(revived.state,'pending','fresh unanswered snapshot revives work cancelled only by channel pause');
+    assert.equal(revived.payload.approved_source_mid,undefined,'pause invalidates old approval');
+  }
+  assert.equal((await rpc('instagram_claim',[recovery])).id,recoverAction.id,'Semi draft does not wait for Auto due time');
+  await db.query(`update instagram_actions set state='pending',due_at=now()+interval '1 hour',lease_until=null where id=$1`,[recoverAction.id]);
+  await db.query(`update instagram set reply_mode='auto' where model_id=$1`,[recovery]);
+  assert.equal(await rpc('instagram_claim',[recovery]),null,'Auto keeps scheduled due time');
 
   await db.exec('set role authenticated');
   assert.equal((await db.query('select * from conversation_identities')).rows.length,0,'RLS hides other owners');

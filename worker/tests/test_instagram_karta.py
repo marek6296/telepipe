@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import pytest
 from datetime import datetime, timedelta, timezone
 
 import control_bot as cb
@@ -96,15 +97,16 @@ class TestPrevzatie:
 
 
 class TestFallback:
-    def test_instagram_karta_neodide_sama(self):
-        """Instagram je verejný — v semi nesmie nič odísť bez majiteľa."""
+    @pytest.mark.parametrize('channel',['telegram','fanvue','instagram'])
+    def test_semi_karta_neodide_sama(self,channel):
+        """Žiadny Semi kanál nesmie odoslať návrh bez majiteľa."""
         bot = _bot()
         stara = (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat()
         odoslane = []
 
         class Db:
             async def awaiting_pending(self):
-                return [{"id": "p1", "channel": "instagram", "conv_key": "999",
+                return [{"id": "p1", "channel": channel, "conv_key": "999",
                          "suggestions": ["x"], "created_at": stara}]
 
             async def tg_reply_mode(self):
