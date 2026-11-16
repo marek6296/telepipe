@@ -5,6 +5,8 @@ raz, že sa neodpovie po okne, že tá istá správa nespôsobí druhú odpoveď
 hlavne, že do Instagramu neodíde nič, čo tam nesmie.
 """
 import asyncio
+from unittest.mock import AsyncMock
+import den
 from datetime import datetime, timedelta, timezone
 
 import instagram_agent
@@ -20,7 +22,18 @@ MOJE_ID = "17841400000000000"
 
 class FakeDb:
     def __init__(self, **nastavenia):
+        self.model_id = "model"
+        self.hub = AsyncMock()
+        self.hub.restrictions.return_value = {}
+        self.hub.context.return_value = ""
+        self.hub.linked.return_value = []
+        self.hub.day.return_value = (den.Blok(0, 2880, "home", "relaxing", 1), "relaxed")
+        self.hub.mood_prompt = lambda mood: "stable mood"
+        self.queue = {}
         self.nastavenia = {
+            "sync_completed_at": _teraz(48),
+            "sync_started_at": _teraz(48),
+            "replies_started_at": _teraz(24),
             "connected": True,
             "enabled": True,
             "access_token": "token",
@@ -41,6 +54,7 @@ class FakeDb:
 
     async def save(self, patch):
         self.ulozene.append(patch)
+        self.nastavenia.update(patch)
 
     async def persona(self):
         return {
@@ -51,7 +65,7 @@ class FakeDb:
         }
 
     async def behavior(self):
-        return {"mode": "real"}
+        return {"mode": "real", "active_start_min": 0, "active_end_min": 0}
 
     async def user(self, igsid):
         return self.users.get(igsid)
@@ -60,7 +74,7 @@ class FakeDb:
         return self.users.setdefault(
             igsid,
             {"igsid": igsid, "username": username, "msg_count": 0, "pointed_count": 0,
-             "ai_enabled": True, "human_takeover": False},
+             "age_state": "adult_self_declared", "ai_enabled": True, "human_takeover": False},
         )
 
     async def update_user(self, igsid, patch):
@@ -70,7 +84,7 @@ class FakeDb:
     async def known_mids(self, igsid, limit=60):
         return {s["mid"] for s in self.spravy if s["igsid"] == igsid and s["mid"]}
 
-    async def add_message(self, igsid, role, content, mid=""):
+    async def add_message(self, igsid, role, content, mid="", **kwargs):
         self.spravy.append({"igsid": igsid, "role": role, "content": content, "mid": mid})
 
     async def history(self, igsid, limit=16):
@@ -87,6 +101,87 @@ class FakeDb:
 
     async def save_comment(self, row):
         self.__dict__.setdefault("komentare", []).append(dict(row))
+
+    async def schedule(self):
+        return {}
+
+    async def sfw_photo(self):
+        return None
+
+    async def cancel_actions(self, igsid='', reason='channel_off'):
+        for a in self.queue.values():
+            if (not igsid or a['igsid'] == igsid) and a['state'] in ('pending','ready','leased','approval'):
+                a.update(state='cancelled', reason=reason)
+
+    async def actions(self, **params):
+        rows = list(self.queue.values())
+        for key, value in params.items():
+            if value.startswith('eq.'):
+                expected = value[3:]
+                rows = [r for r in rows if str(r.get(key, '')).lower() == expected.lower()]
+            elif value == 'not.is.null':
+                rows = [r for r in rows if r.get(key) is not None]
+            elif value.startswith('in.('):
+                rows = [r for r in rows if r.get(key) in value[4:-1].split(',')]
+        return [dict(r) for r in rows]
+
+    async def action(self, id):
+        return dict(self.queue[id]) if id in self.queue else None
+
+    async def change_action(self, action, patch, state='leased'):
+        a = self.queue[action['id']]
+        if a['state'] != state:
+            return []
+        a.update(patch)
+        return [dict(a)]
+
+    async def rpc(self, name, **args):
+        if name == 'enqueue':
+            for a in self.queue.values():
+                if a['dedupe_key'] == args['key']:
+                    return dict(a)
+            id = str(len(self.queue)+1)
+            self.queue[id] = {**args, 'id': id, 'dedupe_key': args['key'], 'target_id': args['target'],
+                'state': 'pending', 'due_at': args['due'], 'expires_at': args['expires'], 'text': ''}
+            return dict(self.queue[id])
+        if name == 'claim':
+            for a in self.queue.values():
+                if a['state'] in ('pending','ready') and datetime.fromisoformat(a['due_at']) <= datetime.now(timezone.utc):
+                    a.update(state='leased',lease_token='lease')
+                    return dict(a)
+            return None
+        if name == 'reserve':
+            a = self.queue[args['action']]
+            user = self.users.get(a['igsid'], {})
+            if self.nastavenia['reply_mode'] == 'off' or not self.nastavenia['enabled'] or user.get('human_takeover'):
+                a['state'] = 'blocked'
+                return {'ok': False, 'reason': 'off'}
+            a.update(state='sending', text=args['text'], contains_link=args['link'], contains_reminder=args['reminder'], reserved_at=_teraz())
+            return {'ok': True}
+        if name == 'finish':
+            a = self.queue[args['action']]
+            a.update(state='blocked' if args['outcome']=='failed' else args['outcome'], provider_id=args.get('provider',''))
+            if args['outcome']=='sent' and a['igsid'] in self.users:
+                self.users[a['igsid']]['msg_count'] += 1
+                if a.get('contains_link'):
+                    self.users[a['igsid']]['link_sent_at'] = _teraz()
+            return True
+        if name == 'record_manual':
+            return None
+        raise AssertionError(name)
+
+
+def tick(agent, db):
+    """Explicitly advance queued due times; production never skips the delay."""
+    for a in db.queue.values():
+        if a['state'] in ('pending','ready'):
+            a['due_at'] = _teraz(1)
+    asyncio.run(agent._delivery.process_one(db.nastavenia))
+
+
+def mock_threads(monkeypatch, threads):
+    monkeypatch.setattr(api, 'conversation_page', lambda *a, **k: {'data': threads, 'after': ''})
+    monkeypatch.setattr(api, 'conversation', lambda *a, **k: threads[0])
 
 
 class FakeLlm:
@@ -143,11 +238,12 @@ def _spusti(db, llm, konverzacie, monkeypatch, odoslane=None):
         odoslane.append((igsid, text))
         return {"message_id": "odoslana-1"}
 
-    monkeypatch.setattr(api, "konverzacie", fake_konverzacie)
+    mock_threads(monkeypatch, konverzacie)
     monkeypatch.setattr(api, "posli_text", fake_posli)
 
     agent = instagram_agent.InstagramAgent(db, llm)
     asyncio.run(agent._kolo())
+    tick(agent, db)
     return odoslane
 
 
@@ -221,12 +317,13 @@ class TestVypinace:
             odoslane.append(text)
             return {}
 
-        monkeypatch.setattr(api, "konverzacie", fake_konverzacie)
+        mock_threads(monkeypatch, [_konverzacia()])
         monkeypatch.setattr(api, "posli_text", fake_posli)
         agent = instagram_agent.InstagramAgent(db, llm, control=control)
         asyncio.run(agent._kolo())
 
         assert odoslane == [], "v semi režime sa neodosiela"
+        tick(agent, db)
         assert control.karty, "návrh musí prísť majiteľovi ako karta"
 
 
@@ -237,14 +334,13 @@ class TestNicZakazaneNeodide:
         db = FakeDb()
         llm = FakeLlm("nájdeš ma na https://fanvue.com/simona babe")
         odoslane = _spusti(db, llm, [_konverzacia()], monkeypatch)
-        assert odoslane, "odpoveď má odísť"
-        assert "fanvue.com" not in odoslane[0][1]
+        assert not odoslane, "unsafe generated invitation is rejected"
 
     def test_akykolvek_odkaz_sa_odstrani(self, monkeypatch):
         db = FakeDb()
         llm = FakeLlm("pozri https://linkovne.com/simona")
         odoslane = _spusti(db, llm, [_konverzacia()], monkeypatch)
-        assert "http" not in odoslane[0][1]
+        assert not odoslane
 
     def test_dlha_odpoved_sa_oreze(self, monkeypatch):
         db = FakeDb()
@@ -255,7 +351,7 @@ class TestNicZakazaneNeodide:
     def test_prompt_zakazuje_platene_platformy(self, monkeypatch):
         db, llm = FakeDb(), FakeLlm()
         _spusti(db, llm, [_konverzacia()], monkeypatch)
-        assert "NIKDY nespomeň" in llm.prompty[0]
+        assert "Never promote or name Fanvue" in llm.prompty[0]
         assert "ODKAZ JE TERAZ ZAKÁZANÝ" in llm.prompty[0]
 
     def test_prompt_ma_aj_ludsku_vrstvu(self, monkeypatch):
@@ -269,10 +365,10 @@ class TestNicZakazaneNeodide:
 class TestPozvanie:
     def test_spocita_ked_povie_telegram(self, monkeypatch):
         db = FakeDb()
-        llm = FakeLlm("napis mi na simona_here, tam sa pobavime")
+        llm = FakeLlm("come say hi [[LINK]]")
         _spusti(db, llm, [_konverzacia()], monkeypatch)
         posledny = db.users["999"]
-        assert posledny.get("pointed_count") == 1
+        assert posledny.get("link_sent_at")
 
     def test_bezna_odpoved_sa_nerata(self, monkeypatch):
         db, llm = FakeDb(), FakeLlm("hey you 😄")
@@ -287,7 +383,7 @@ class TestPadyNezhodiaAgenta:
         def rozbite(token, limit=25, **kwargs):
             raise api.InstagramError("token expired", kod=190)
 
-        monkeypatch.setattr(api, "konverzacie", rozbite)
+        monkeypatch.setattr(api, "conversation_page", rozbite)
         agent = instagram_agent.InstagramAgent(db, llm)
         asyncio.run(agent._kolo())
         assert any("poll_error" in u for u in db.ulozene)
@@ -298,7 +394,7 @@ class TestPadyNezhodiaAgenta:
         def rozbite_poslanie(token, igsid, text, **kwargs):
             raise api.InstagramError("rate limited", kod=4)
 
-        monkeypatch.setattr(api, "konverzacie", lambda token, limit=25, **kwargs: [_konverzacia()])
+        mock_threads(monkeypatch, [_konverzacia()])
         monkeypatch.setattr(api, "posli_text", rozbite_poslanie)
         agent = instagram_agent.InstagramAgent(db, llm)
         asyncio.run(agent._kolo())  # nesmie hodiť

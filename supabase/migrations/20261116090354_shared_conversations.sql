@@ -211,6 +211,7 @@ begin
   elsif exists(select 1 from settings where model_id=p_model and (ai_paused or paused_until>now())) then deny:='global_pause';
   elsif exists(select 1 from models where id=p_model and status<>'active') then deny:='model_inactive';
   elsif a.expires_at<=now() then deny:='window_expired';
+  elsif cfg.reply_mode='semi' and coalesce(a.payload->>'approved_source_mid','')<>a.source_mid then deny:='approval_required';
   elsif a.kind='comment' and (not cfg.reply_comments or cfg.reply_mode<>'auto') then deny:='comments_off';
   elsif a.kind='reaction' and not cfg.reactions_enabled then deny:='reactions_off';
   elsif a.kind='photo' and not cfg.photos_enabled then deny:='photos_off';
@@ -221,6 +222,7 @@ begin
     select * into u from ig_users where model_id=p_model and igsid=a.igsid;
     if not found then deny:='unknown_contact';
     elsif u.human_takeover or not u.ai_enabled then deny:='takeover';
+    elsif u.no_initiate then deny:='contact_opt_out';
     elsif u.last_source_mid<>a.source_mid then deny:='stale_context';
     elsif u.last_incoming_at is null or u.last_incoming_at>now() or u.last_incoming_at<=now()-interval '24 hours' then deny:='window_expired';
     elsif (p_link or p_reminder) and (u.no_links or u.no_initiate or u.age_state not in ('adult_self_declared','adult_platform_verified')) then deny:='invitation_not_allowed';
@@ -229,6 +231,7 @@ begin
   select person_id into identity_person from conversation_identities where model_id=p_model and platform='instagram' and external_id=a.igsid and account_scope=cfg.ig_user_id limit 1;
   select array_agg(external_id) into contact_ids from conversation_identities where model_id=p_model and platform='instagram' and person_id=identity_person;
   contact_ids:=coalesce(contact_ids,array[a.igsid]);
+  if exists(select 1 from conversation_people where model_id=p_model and id=identity_person and no_initiate) then deny:='contact_opt_out'; end if;
   if (p_link or p_reminder) and exists(select 1 from conversation_people where model_id=p_model and id=identity_person and (no_links or no_initiate or age_state='minor_or_conflicting')) then deny:='contact_opt_out'; end if;
   if deny<>'' then
     update instagram_actions set state=case when deny='window_expired' then 'expired' else 'blocked' end,reason=deny where model_id=p_model and id=a.id;
@@ -303,6 +306,21 @@ begin
   return true;
 end $$;
 
+create function public.instagram_record_manual(p_model uuid,p_key text,p_igsid text,p_occurred timestamptz,p_text text,p_photo boolean,p_account text)
+returns void language plpgsql security definer set search_path=public,pg_temp as $$
+declare has_link boolean;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_model::text,0));
+  if p_occurred>now() then return; end if;
+  has_link:=p_text ~* '(https?://|www[.]|t[.]me/)';
+  insert into instagram_actions(model_id,dedupe_key,kind,igsid,target_id,source_mid,source_at,due_at,expires_at,state,text,contains_link,reserved_at,sent_at,provider_id,payload)
+  values(p_model,p_account||':manual:'||p_key,case when p_photo then 'photo' else 'dm' end,p_igsid,'',p_key,p_occurred,p_occurred,p_occurred,'sent',p_text,has_link,p_occurred,p_occurred,p_key,jsonb_build_object('account_id',p_account,'manual',true))
+  on conflict(model_id,dedupe_key) do nothing;
+  update ig_users set link_sent_at=case when has_link then coalesce(link_sent_at,p_occurred) else link_sent_at end,
+    photo_sent_at=case when p_photo then coalesce(photo_sent_at,p_occurred) else photo_sent_at end
+    where model_id=p_model and igsid=p_igsid;
+end $$;
+
 do $$
 declare t text; f record;
 begin
@@ -314,7 +332,7 @@ begin
     execute format('create policy owner_read on public.%I for select to authenticated using (model_id in (select id from public.models where account_id=(select auth.uid())))',t);
   end loop;
   for f in select p.oid::regprocedure as signature from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname in
-    ('conversation_ensure_identity','conversation_pair','instagram_enqueue','instagram_claim','instagram_reserve','instagram_finish') loop
+    ('conversation_ensure_identity','conversation_pair','instagram_enqueue','instagram_claim','instagram_reserve','instagram_finish','instagram_record_manual') loop
     execute format('revoke all on function %s from public,anon,authenticated',f.signature);
     execute format('grant execute on function %s to service_role',f.signature);
   end loop;

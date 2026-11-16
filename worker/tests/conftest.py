@@ -73,3 +73,12 @@ def transport(http_calls):
 @pytest.fixture
 def db(transport):
     return TenantDb(transport, TEST_MODEL_ID)
+
+
+@pytest.fixture(autouse=True)
+def no_live_instagram_http(request, monkeypatch):
+    if request.node.fspath.basename.startswith('test_instagram'):
+        import instagram_api
+        def blocked(*args, **kwargs):
+            raise AssertionError('Instagram test attempted live HTTP; mock the provider boundary')
+        monkeypatch.setattr(instagram_api, '_volaj', blocked)

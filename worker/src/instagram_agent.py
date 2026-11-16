@@ -1,45 +1,5 @@
-"""Instagram agent — odpovedá na DM tou istou personou ako na Telegrame.
-
-AKO TO BEŽÍ
------------
-Kolo za kolom ťahá konverzácie (`me/conversations`), nájde tie, kde je posledná
-správa jeho a ešte sme na ňu neodpovedali, a odpovie. Webhooky by boli rýchlejšie,
-ale vyžadujú Advanced Access aj overenie firmy — pollovanie stačí Standard Access
-a funguje hneď.
-
-Agent beží CELÝ ŽIVOT TENANTA, aj keď Instagram ešte nie je pripojený. Pripojenie
-v dashboarde preto zaberie do pár minút bez reštartu modelky (reštart by znamenal
-aj odpojenie Telethon session). Kým pripojený nie je, pozerá do databázy len raz
-za `NECINNE_S`, nie každých 45 sekúnd.
-
-REŽIMY
-------
-* `auto` — odpíše sám.
-* `semi` — tri návrhy prídu majiteľovi do control bota ako schvaľovacia karta
-  (tá istá ako pri Telegrame a Fanvue). Doručuje `deliver_text`, ktorý volá
-  control bot po kliknutí. Časový fallback tu NIE JE: Instagram je verejný
-  a nechcený automat je presne to, čo chce majiteľ v semi vylúčiť.
-* `off` — mlčí.
-
-KOMENTÁRE
----------
-Keď je zapnuté `reply_comments` a režim je `auto`, raz za `KOMENTARE_KAZDE` kôl
-pozrie komentáre pod poslednými príspevkami a krátko, verejne a bez flirtu
-odpovie. V semi sa komentáre nevybavujú — karta v control bote je pre DM.
-
-ČO SI TENTO SÚBOR NEROBÍ SÁM
-----------------------------
-Prompt stavia `persona.build_system_prompt`, teda to isté, čo Telegram: tá istá
-osoba, tá istá ľudská vrstva, tie isté jazyky. Odlišnosti Instagramu pridáva
-`instagram_pravidla` ako poslednú sekciu. Čistenie odpovede ide cez `humanize`.
-Keby si tu agent písal vlastný prompt, o týždeň by to bola iná žena.
-
-ČO TU ZÁMERNE NIE JE
---------------------
-Fotky, hlasovky, ranné oslovenie, okno konverzácie ani útlm. Na Instagrame
-modelka nepíše prvá (Instagram to ani neumožňuje: „Conversations only begin when
-an Instagram user sends a message"), neposiela médiá a nemá čo utlmovať —
-konverzácia sa skončí tým, že prestane písať on.
+"""Instagram persona adapter. Durable ingest, approvals and send gates live in
+instagram_delivery; this module shares Telegram's established voice and cleaner.
 """
 from __future__ import annotations
 
@@ -119,6 +79,8 @@ class InstagramAgent:
         self._idle_s = idle_s
         self._moje_id = ""
         self._kolo_c = 0
+        from instagram_delivery import InstagramDelivery
+        self._delivery = InstagramDelivery(db, self)
 
     def set_control(self, control) -> None:
         self._control = control
@@ -136,103 +98,7 @@ class InstagramAgent:
     # ---------- jedno kolo ----------
 
     async def _kolo(self) -> bool:
-        """Jedno kolo. Vracia, či je Instagram aktívny (určuje tempo slučky)."""
-        nastavenia = await self._db.settings()
-        if not nastavenia.get("connected") or not nastavenia.get("enabled"):
-            return False
-
-        token = str(nastavenia.get("access_token") or "")
-        if not token:
-            log.info("Instagram: chýba token, kolo preskakujem")
-            return False
-
-        rezim = str(nastavenia.get("reply_mode") or "off")
-        if rezim == "off":
-            return False
-
-        self._moje_id = str(nastavenia.get("ig_user_id") or "")
-        if not self._moje_id:
-            await self._db.save({"last_error": "Missing Instagram account ID. Please reconnect.", "connected": False})
-            return False
-
-        try:
-            konverzacie = await asyncio.to_thread(api.konverzacie, token, account_id=self._moje_id)
-        except api.InstagramError as exc:
-            # Vypršaný token je bežná vec, nie porucha — klient to musí vidieť
-            # na karte a agent má prestať skúšať dokola.
-            log.warning("Instagram: konverzácie sa nepodarilo načítať (%s)", exc)
-            if exc.kod == 190:
-                await self._db.save({"connected": False, "last_error": "Instagram access was revoked. Please reconnect.", "poll_error": str(exc)[:400]})
-                return False
-            await self._db.save({"poll_error": str(exc)[:400]})
-            return True
-
-        await self._db.save(
-            {"last_poll_at": datetime.now(timezone.utc).isoformat(), "poll_error": ""}
-        )
-
-        for surova in konverzacie:
-            try:
-                await self._konverzacia(surova, nastavenia, token, rezim)
-            except Exception:  # noqa: BLE001 - jeden pokazený chat nezastaví ostatné
-                log.exception("Instagram: konverzácia %s zlyhala", surova.get("id"))
-
-        # Komentáre v každom n-tom kole (aj v prvom, nech sa dá hneď overiť).
-        if self._kolo_c % KOMENTARE_KAZDE == 0:
-            try:
-                await self._komentare(token, nastavenia, rezim)
-            except Exception:  # noqa: BLE001 - komentáre nesmú zhodiť DM
-                log.exception("Instagram: komentáre zlyhali")
-        self._kolo_c += 1
-        return True
-
-    async def _konverzacia(
-        self,
-        surova: Dict[str, Any],
-        nastavenia: Dict[str, Any],
-        token: str,
-        rezim: str,
-    ) -> None:
-        chat = api.rozober(surova, self._moje_id)
-        igsid = chat["igsid"]
-        if not igsid or not chat["spravy"]:
-            return
-
-        user = await self._db.ensure_user(igsid, chat["username"])
-        if user.get("human_takeover") or not user.get("ai_enabled", True):
-            return
-
-        # Nové správy = tie, ktoré ešte nie sú v našej histórii.
-        znama = await self._db.known_mids(igsid)
-        nove = [s for s in chat["spravy"] if s["mid"] and s["mid"] not in znama]
-        for sprava in nove:
-            await self._db.add_message(igsid, sprava["role"], sprava["content"], sprava["mid"])
-
-        posledna = chat["spravy"][-1]
-        if posledna["role"] != "user":
-            return  # posledné slovo je jej, niet na čo odpovedať
-        if not nove:
-            return  # nič nové, len sme to už videli
-
-        # Kedy naposledy písal — podľa toho sa radí zoznam chatov v control bote.
-        await self._db.update_user(
-            igsid, {"last_incoming_at": datetime.now(timezone.utc).isoformat()}
-        )
-
-        # Okno na odpoveď. Po ňom Instagram odpoveď odmietne a jediná cesta von
-        # je tag pre ľudského operátora — ten pre automat neplatí.
-        if not api.v_okne(posledna.get("created_time")):
-            log.info("Instagram %s: 24-hodinové okno vypršalo, neodpisujem", igsid)
-            return
-
-        if rezim == "semi":
-            await self._na_schvalenie(user, chat, nastavenia)
-            return
-
-        text = await self._napis(user, igsid, nastavenia)
-        if not text:
-            return
-        await self._posli(token, igsid, user, text, nastavenia)
+        return await self._delivery.poll()
 
     # ---------- prompt a odpoveď ----------
 
@@ -253,7 +119,11 @@ class InstagramAgent:
         # klientovo, mení sa len to, s čím pracuje tento agent.
         behavior = replace(behavior, heat=str(nastavenia.get("heat") or "mild"))
 
-        smie_pozvat = pravidla.smie_pozvat(user, int(user.get("msg_count") or 0))
+        offer = await self._delivery.offer_state(nastavenia, {**user, 'igsid': igsid})
+        from zoneinfo import ZoneInfo
+        import den
+        local = datetime.now(timezone.utc).astimezone(ZoneInfo(behavior.active_tz))
+        block, mood = await self._db.hub.day(local, den.Rozvrh.from_row(await self._db.schedule()))
         system = build_system_prompt(
             persona,
             {
@@ -274,11 +144,16 @@ class InstagramAgent:
             # Na Instagrame neodchádza žiadne médium (viď `instagram_pravidla`),
             # takže sľúbená fotka je sľub, ktorý sa nedá splniť ani omylom.
             no_photos=True,
+            now_local=local,
+            situation=den.describe(block),
+            her_recent=[m['content'] for m in historia if m['role'] == 'assistant'][-8:],
         )
-        system += "\n\n" + pravidla.blok(
-            nastavenia,
-            pozvala_uz=0 if smie_pozvat else pravidla.MAX_POZVANI,
-        )
+        system += "\n\n" + pravidla.blok(nastavenia, offer=offer)
+        system += await self._db.hub.context('instagram', igsid, nastavenia['ig_user_id'])
+        system += self._db.hub.mood_prompt(mood)
+        if user.get('last_typo'):
+            import json
+            system += '\nIf asked about your last typo, correct it briefly in your voice: ' + json.dumps(user['last_typo'])
         return system, historia, behavior, posledny_text
 
     def _ocisti(
@@ -292,20 +167,40 @@ class InstagramAgent:
         from userbot import UserBot
 
         jej_nedavne = [m["content"] for m in historia if m["role"] == "assistant"][-6:]
+        from instagram_interactions import TAGS, URL
+        markers = TAGS.findall(surova or '')
+        # Reject generated URLs rather than silently turning an unsafe invitation into another one.
+        if URL.search(surova or ''):
+            return ''
+        prose = TAGS.sub('', surova or '')
         text = UserBot._uprav_odpoved(
-            surova or "",
+            prose,
             behavior,
             0.0,
             False,  # allow_link=False → prípadná adresa sa aj tak odstráni
             jej_nedavne,
             he_greeted=humanize.is_bare_greeting(posledny_text),
         )
+        if len(markers) > 1:
+            return ''
+        if markers:
+            marker = markers[0]
+            return ('[[PHOTO]]' if marker == 'PHOTO' else
+                    (api.orez(text, 850) + ' [[LINK]]' if marker == 'LINK' else '[[' + marker + ']] ' + api.orez(text, 950)))
         return api.orez(text)
 
     async def _napis(self, user: Dict[str, Any], igsid: str, nastavenia: Dict[str, Any]) -> str:
         system, historia, behavior, posledny = await self._prompt(user, igsid, nastavenia)
         surova = await self._llm.reply(system, historia)
-        return self._ocisti(surova, behavior, historia, posledny)
+        text = self._ocisti(surova, behavior, historia, posledny)
+        from conversation_policy import normalise
+        previous = {normalise(m['content']) for m in historia if m['role'] == 'assistant'}
+        if text and normalise(text) in previous:
+            surova = await self._llm.reply(system + '\nDo not repeat a previous response; answer the latest specific message.', historia)
+            text = self._ocisti(surova, behavior, historia, posledny)
+            if normalise(text) in previous:
+                return ''
+        return text
 
     async def _navrhy(
         self,
@@ -330,93 +225,18 @@ class InstagramAgent:
                 navrhy.append(text)
         return navrhy, historia
 
-    async def _posli(
-        self,
-        token: str,
-        igsid: str,
-        user: Dict[str, Any],
-        text: str,
-        nastavenia: Dict[str, Any],
-    ) -> bool:
-        try:
-            odpoved = await asyncio.to_thread(api.posli_text, token, igsid, text, account_id=str(nastavenia.get("ig_user_id") or ""))
-        except api.InstagramError as exc:
-            log.warning("Instagram %s: správa neodišla (%s)", igsid, exc)
-            await self._db.save({"poll_error": str(exc)[:400]})
-            return False
-
-        mid = str(odpoved.get("message_id") or "")
-        await self._db.add_message(igsid, "assistant", text, mid)
-
-        patch: Dict[str, Any] = {
-            "msg_count": int(user.get("msg_count") or 0) + 1,
-            "last_reply_at": datetime.now(timezone.utc).isoformat(),
-        }
-        # Povedala mu, kde ju nájde? Poznáme to podľa toho, či sa v odpovedi
-        # objavilo telegramové meno alebo zmienka o biu — na Instagrame nie je
-        # čo iné merať, odkaz sa tu neposiela.
-        if _pozvala(text, nastavenia):
-            patch["pointed_at"] = datetime.now(timezone.utc).isoformat()
-            patch["pointed_count"] = int(user.get("pointed_count") or 0) + 1
-            log.info("Instagram %s: povedala, kde ju nájde (%s×)", igsid, patch["pointed_count"])
-
-        await self._db.update_user(igsid, patch)
-        log.info("Instagram %s: odpoveď odoslaná", igsid)
-        return True
-
-    # ---------- semi-auto ----------
-
-    async def _na_schvalenie(
-        self, user: Dict[str, Any], chat: Dict[str, Any], nastavenia: Dict[str, Any]
-    ) -> bool:
-        """Semi režim — tri návrhy idú majiteľovi ako schvaľovacia karta."""
-        igsid = chat["igsid"]
-        if not self._control:
-            log.info("Instagram %s: semi režim, ale control bot nebeží", igsid)
-            return False
-        try:
-            navrhy, historia = await self._navrhy(user, igsid, nastavenia)
-        except Exception as exc:  # noqa: BLE001 - karta bez návrhov je lepšia než pád
-            log.warning("Instagram %s: návrhy zlyhali (%s)", igsid, exc)
-            return False
-        if not navrhy:
-            return False
-        ok = await self._control.post_approval(
-            channel="instagram",
-            conv_key=igsid,
-            display_name=chat.get("username") or str(user.get("username") or "") or igsid,
-            incoming_preview=(
-                prehlad.blok_rozhovoru(historia) or chat["spravy"][-1]["content"]
-            ),
-            suggestions=navrhy,
-        )
-        log.info("Instagram semi: karta pre %s %s", igsid, "poslaná" if ok else "NEposlaná")
-        return bool(ok)
-
     # ---------- rozhranie pre control bota (kanál `instagram`) ----------
 
     async def deliver_text(self, conv_key: str, text: str) -> bool:
-        """Schválený text z karty → Instagram. Okno sa overí znova: majiteľ
-        mohol kartu nechať visieť dlhšie než 24 hodín."""
-        nastavenia = await self._db.settings()
-        token = str(nastavenia.get("access_token") or "")
-        if not token or not nastavenia.get("connected"):
-            return False
-        historia = await self._db.history(conv_key, KONTEXT)
-        posledny = next(
-            (m["content"] for m in reversed(historia) if m["role"] == "user"), ""
-        )
-        behavior = Behavior.from_row(await self._db.behavior())
-        cisty = self._ocisti(text, behavior, historia, posledny)
-        if not cisty:
-            return False
-        user = await self._db.user(conv_key) or {}
-        return await self._posli(token, conv_key, user, cisty, nastavenia)
+        """Approve this exact durable action. Sending happens after current gates."""
+        return await self._delivery.approve(conv_key, text)
 
     async def regenerate(
         self, conv_key: str, seed: str = "", brief: str = ""
     ) -> Dict[str, Any]:
         """Nové návrhy pre ten istý chat („Regenerate" / „Say this")."""
+        from instagram_delivery import contact_key
+        conv_key = contact_key(conv_key)
         user = await self._db.user(conv_key)
         if not user:
             return {}
@@ -426,6 +246,8 @@ class InstagramAgent:
 
     async def context_card(self, conv_key: str) -> str:
         """Kto to je a o čom si píšu. Nič sa negeneruje — len to, čo je v DB."""
+        from instagram_delivery import contact_key
+        conv_key = contact_key(conv_key)
         user = await self._db.user(conv_key)
         if not user:
             return ""
@@ -460,7 +282,10 @@ class InstagramAgent:
 
     async def take_over(self, conv_key: str) -> None:
         """„Take over" na karte — AI do tohto chatu už nepíše."""
+        from instagram_delivery import contact_key
+        conv_key = contact_key(conv_key)
         await self._db.update_user(conv_key, {"human_takeover": True})
+        await self._db.cancel_actions(conv_key, "takeover")
 
     # Médiá Instagram agent neposiela (viď hlavičku). Tlačidlá na ne sa pri
     # kanáli `instagram` ani nezobrazia; toto je poistka pre staré karty.
@@ -484,53 +309,6 @@ class InstagramAgent:
 
     # ---------- komentáre ----------
 
-    async def _komentare(self, token: str, nastavenia: Dict[str, Any], rezim: str) -> int:
-        """Odpovie pod nové komentáre. Vracia počet odoslaných odpovedí."""
-        if not nastavenia.get("reply_comments") or rezim != "auto":
-            return 0
-
-        try:
-            prispevky = await asyncio.to_thread(api.prispevky_s_komentarmi, token, account_id=str(nastavenia.get("ig_user_id") or ""))
-        except api.InstagramError as exc:
-            log.warning("Instagram: komentáre sa nepodarilo načítať (%s)", exc)
-            return 0
-
-        komentare = api.rozober_komentare(
-            prispevky, self._moje_id, str(nastavenia.get("username") or "")
-        )
-        hranica = datetime.now(timezone.utc) - timedelta(hours=KOMENTAR_MAX_H)
-        komentare = [
-            k for k in komentare
-            if (cas := api._cas(k.get("created_time"))) is not None and cas >= hranica
-        ]
-        if not komentare:
-            return 0
-
-        vybavene = await self._db.handled_comments([k["comment_id"] for k in komentare])
-        odoslane = 0
-        for komentar in komentare:
-            if odoslane >= KOMENTARE_NA_KOLO:
-                break
-            if komentar["comment_id"] in vybavene:
-                continue
-            text = await self._napis_komentar(komentar)
-            if not text:
-                await self._db.save_comment({**komentar, "status": "skipped"})
-                continue
-            try:
-                await asyncio.to_thread(
-                    api.odpovedz_na_komentar, token, komentar["comment_id"], text
-                )
-            except api.InstagramError as exc:
-                log.warning("Instagram komentár %s: odpoveď neodišla (%s)",
-                            komentar["comment_id"], exc)
-                await self._db.save_comment({**komentar, "reply_text": text, "status": "failed"})
-                continue
-            await self._db.save_comment({**komentar, "reply_text": text, "status": "replied"})
-            odoslane += 1
-            log.info("Instagram: odpovedala pod komentár %s", komentar["comment_id"])
-        return odoslane
-
     async def _napis_komentar(self, komentar: Dict[str, Any]) -> str:
         """Krátka verejná odpoveď. Prázdna = nechať tak (spam, urážka, nič)."""
         persona = await self._db.persona()
@@ -548,7 +326,7 @@ class InstagramAgent:
         surova = await self._llm.reply(
             system, [{"role": "user", "content": pravidla.komentar_zadanie(komentar)}]
         )
-        return _ocisti_komentar(surova)
+        return _ocisti_komentar(self._ocisti(surova, behavior, [], str(komentar.get("text") or "")))
 
 
 def _ocisti_komentar(surova: Optional[str]) -> str:

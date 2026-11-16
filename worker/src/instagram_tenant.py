@@ -103,7 +103,7 @@ class TenantInstagramDb:
         if existujuci:
             # Meno sa mohlo medzitým objaviť (v prvej správe ho Instagram
             # nemusí dať) — doplní sa, ale nikdy sa neprepíše na prázdne.
-            if username and not (existujuci.get("username") or ""):
+            if username and username != existujuci.get("username"):
                 await self.update_user(igsid, {"username": username})
                 existujuci["username"] = username
             return existujuci
@@ -146,7 +146,10 @@ class TenantInstagramDb:
         )
         return {str(r.get("mid") or "") for r in rows if r.get("mid")}
 
-    async def add_message(self, igsid: str, role: str, content: str, mid: str = "") -> None:
+    async def add_message(self, igsid: str, role: str, content: str, mid: str = "",
+                          occurred_at=None, source='worker', metadata=None) -> None:
+        from datetime import datetime, timezone
+        # The provider timestamp is authoritative. Ingestion time never opens a window.
         await self._post(
             IG_MESSAGES,
             {
@@ -155,6 +158,9 @@ class TenantInstagramDb:
                 "mid": mid,
                 "role": role,
                 "content": content[:4000],
+                "occurred_at": occurred_at or (datetime.now(timezone.utc).isoformat() if source == 'worker' else None),
+                "source": source,
+                "metadata": metadata or {},
             },
         )
 
@@ -214,7 +220,7 @@ class TenantInstagramDb:
                 "model_id": self._mine,
                 "igsid": f"eq.{igsid}",
                 "select": "role,content,created_at",
-                "order": "created_at.desc",
+                "order": "occurred_at.desc.nullslast,id.desc",
                 "limit": str(limit),
             },
         )
@@ -222,3 +228,34 @@ class TenantInstagramDb:
             {"role": str(r.get("role") or "user"), "content": str(r.get("content") or "")}
             for r in reversed(rows)
         ]
+
+    async def rpc(self, name, **args):
+        return await self._t._rpc('instagram_' + name, {'p_model': self.model_id, **{'p_' + k: v for k, v in args.items()}})
+
+    async def action(self, action_id):
+        rows = await self._get('/instagram_actions', {'model_id': self._mine, 'id': f'eq.{action_id}', 'select': '*'})
+        return rows[0] if rows else None
+
+    async def change_action(self, action, patch, state='leased'):
+        params = {'model_id': self._mine, 'id': f"eq.{action['id']}", 'state': f'eq.{state}'}
+        if state == 'leased':
+            params['lease_token'] = f"eq.{action['lease_token']}"
+        return await self._t._patch_returning('/instagram_actions', params, patch)
+
+    async def cancel_actions(self, igsid='', reason='channel_off'):
+        params = {'model_id': self._mine, 'state': 'in.(pending,ready,approval,leased)'}
+        if igsid:
+            params['igsid'] = f'eq.{igsid}'
+        await self._patch('/instagram_actions', params, {'state': 'cancelled', 'reason': reason})
+
+    async def actions(self, **params):
+        return await self._get('/instagram_actions', {'model_id': self._mine, 'select': '*', **params})
+
+    async def schedule(self):
+        rows = await self._get('/model_schedule', {'model_id': self._mine, 'select': '*'})
+        return rows[0] if rows else {}
+
+    async def sfw_photo(self):
+        rows = await self._get('/photos', {'model_id': self._mine, 'active': 'eq.true', 'spicy': 'eq.false',
+            'instagram_approved': 'eq.true', 'select': 'id,url,caption', 'order': 'sent_count.asc', 'limit': '1'})
+        return rows[0] if rows else None

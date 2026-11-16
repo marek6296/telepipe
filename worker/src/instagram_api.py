@@ -234,7 +234,36 @@ def v_okne(posledna_jeho: Any, teraz: Optional[datetime] = None, hodin: int = OK
     kedy = _cas(posledna_jeho)
     if kedy is None:
         return False
-    return (teraz or datetime.now(timezone.utc)) - kedy < timedelta(hours=hodin)
+    return timedelta(0) <= (teraz or datetime.now(timezone.utc)) - kedy < timedelta(hours=hodin)
+
+
+FIELDS = f"id,updated_time,participants,messages.limit({HISTORIA}){{id,created_time,from,to,message,attachments}}"
+
+
+def conversation_page(token: str, account_id: str, after: str = '') -> Dict[str, Any]:
+    params = dict(platform='instagram', fields=FIELDS, limit=25)
+    if after:
+        params['after'] = after
+    result = _volaj(_url(f'{account_id}/conversations', token, **params))
+    paging = result.get('paging') or {}
+    return {'data': result.get('data') or [],
+            'after': str((paging.get('cursors') or {}).get('after') or '') if paging.get('next') else ''}
+
+
+def conversation(token: str, thread_id: str) -> Dict[str, Any]:
+    return _volaj(_url(thread_id, token, fields=FIELDS))
+
+
+def react(token: str, account_id: str, igsid: str, mid: str) -> Dict[str, Any]:
+    return _volaj(_url(f'{account_id}/messages', token), {
+        'recipient': {'id': igsid}, 'sender_action': 'react',
+        'payload': {'message_id': mid, 'reaction': 'love'}})
+
+
+def send_photo(token: str, account_id: str, igsid: str, url: str) -> Dict[str, Any]:
+    return _volaj(_url(f'{account_id}/messages', token), {
+        'recipient': {'id': igsid}, 'message': {'attachment': {
+            'type': 'image', 'payload': {'url': url}}}})
 
 
 def rozober(konverzacia: Dict[str, Any], moje_id: str) -> Dict[str, Any]:
@@ -256,18 +285,21 @@ def rozober(konverzacia: Dict[str, Any], moje_id: str) -> Dict[str, Any]:
             igsid = igsid or kto
             username = username or str(odosielatel.get("username") or "")
         text = str(sprava.get("message") or "").strip()
+        from conversation_policy import input_kind
+        kind = input_kind(text, story=bool(sprava.get('reply_to')))
+        attachments = (sprava.get('attachments') or {}).get('data') or []
         if not text:
             # Fotka, sticker alebo reakcia — text nemáme, ale je to jeho ťah
             # a musí byť v histórii, inak modelka odpovie do prázdna.
-            text = "[poslal médium bez textu]" if not je_moja else ""
-            if not text:
-                continue
+            text = "[poslal médium bez textu]" if not je_moja else "[sent media]"
         spravy.append(
             {
                 "mid": str(sprava.get("id") or ""),
                 "role": "assistant" if je_moja else "user",
                 "content": text,
                 "created_time": sprava.get("created_time"),
+                "kind": kind,
+                "has_image": any(a.get('image_data') or a.get('mime_type', '').startswith('image/') for a in attachments),
             }
         )
 

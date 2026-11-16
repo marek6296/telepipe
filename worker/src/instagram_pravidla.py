@@ -1,109 +1,52 @@
-"""Čo je na Instagrame iné — vrstva nad personou a nad `ludskost`.
-
-TÁ ISTÁ OSOBA, INÉ MIESTO
--------------------------
-Persona, jazyky, denný život aj ľudská vrstva sú spoločné so všetkými agentmi:
-je to tá istá žena, len na tretej platforme. Tento modul pridáva JEDINE to, čo
-sa na Instagrame naozaj líši — a je toho málo, zato je to dôležité.
-
-PREČO JE TO PRÍSNEJŠIE NEŽ TELEGRAM
------------------------------------
-Telegram je súkromná správa medzi dvomi ľuďmi. Instagram je verejná platforma,
-ktorá účty za explicitný obsah a za odkazy na platené stránky pre dospelých ruší
-— a účet je jediné, čo modelka naozaj má. Preto tu neplatí „mierne opatrnejšie",
-ale tvrdé zákazy: žiadny odkaz na Fanvue ani OnlyFans, žiadny explicitný obsah,
-žiadne fotky a hlasovky.
-
-KAM ĽUDÍ TIAHNE
----------------
-Na Telegram alebo na odkaz v biu. Adresu telegramu NEPÍŠE ako odkaz (`t.me/...`)
-— odkazy v správach Instagram váži a účet, ktorý ich rozposiela cudzím ľuďom,
-si všimne. Povie meno alebo pošle človeka do bia, to je bežné a nepodozrivé.
-"""
+"""Channel context layered over the authored persona, never canned dialogue."""
 from __future__ import annotations
 
 from typing import Any, Dict
 
-# Ako často smie za konverzáciu spomenúť, kde ju nájsť. Instagram nie je
-# Telegram: tam odkaz odíde raz do chatu a je to vec funnelu, tu je to vec
-# prežitia účtu.
 MAX_POZVANI = 2
-# A koľko správ musí medzitým ubehnúť.
 ODSTUP_SPRAV = 8
 
 
-def _pozvanie(nastavenia: Dict[str, Any]) -> str:
-    """Ako presne má povedať, kde ju nájsť."""
-    ciel = str(nastavenia.get("funnel_target") or "telegram")
-    handle = str(nastavenia.get("telegram_handle") or "").strip().lstrip("@")
-
-    if ciel == "telegram" and handle:
-        return (
-            "KAM HO POZÝVAŠ\n"
-            f"Na svoj Telegram. Meno povedz slovami: „{handle}“ a nikdy ako odkaz.\n"
-            "Žiadne „t.me/…“, žiadna adresa. Odkaz v správe cudziemu človeku je "
-            "presne to, čo Instagram trestá; meno napísané v reči je bežná vec.\n"
-            "Povedz to raz, vlastnými slovami a len keď na to príde reč — napríklad "
-            "keď chce pokračovať, keď sa pýta, kde ťa nájde, alebo keď tu naráža na "
-            "hranicu toho, čo sa dá písať."
-        )
-    if ciel == "bio_link":
-        return (
-            "KAM HO POZÝVAŠ\n"
-            "Na odkaz vo svojom biu. NIKDY nepíš samotnú adresu — povedz mu, že to "
-            "má v profile, a nechaj ho kliknúť tam.\n"
-            "Povedz to raz, vlastnými slovami a len keď na to príde reč."
-        )
-    # Klient cieľ nedoplnil. Radšej ticho než vymyslená adresa.
-    return (
-        "KAM HO POZÝVAŠ\n"
-        "Nikam. Nemáš kam ho poslať, takže o žiadnej inej platforme, odkaze ani "
-        "profile nehovor vôbec a len sa normálne bav."
-    )
-
-
-ZAKAZY = """\
-INSTAGRAM — ČO TU NEROBÍŠ NIKDY
-Toto nie je súkromná správa, ale platforma, ktorá účty ruší. Nič z toho sa
-neobchádza, ani keď o to priamo pýta, ani keď na tom trvá.
-- NIKDY nespomeň Fanvue, OnlyFans ani žiadnu stránku pre dospelých. Ani meno,
-  ani adresu, ani náznak typu „vieš kde“. Keď sa pýta priamo, odbi to a povedz
-  mu, kam ho pozývaš namiesto toho.
-- Žiadny explicitný obsah. Ani opis tela, ani sexu, ani čo by si s ním robila.
-  Flirt áno, náznak áno — nič, čo by sa nedalo prečítať nahlas.
-- Nesľubuj a neponúkaj fotky, videá ani hlasovky. Tu ich neposielaš.
-- Nehovor o platení, predplatnom ani o obsahu za peniaze.
-- Neposielaj žiadne odkazy. Žiadnu adresu, ani skrátenú, ani s medzerami.
-"""
-
-KRATKOST = """\
-AKO SA TU PÍŠE
-Instagram DM je kratší a rýchlejší než Telegram. Jedna, nanajvýš dve vety.
-Nikdy odsek. Odpisuje sa medzi rolovaním feedu, nie pri káve.
-Správa musí byť kratšia než tisíc bajtov — teda naozaj krátka."""
-
-
-def blok(nastavenia: Dict[str, Any], pozvala_uz: int = 0) -> str:
-    """Celá inštagramová vrstva ako jedna sekcia promptu."""
-    casti = [
-        "PLATFORMA: INSTAGRAM\n"
-        "Píšeš v Instagram DM. Si tá istá osoba ako inde, len na inom mieste — "
-        "povaha, jazyk aj denný život ostávajú rovnaké.",
-        ZAKAZY,
-        KRATKOST,
+def blok(nastavenia: Dict[str, Any], pozvala_uz: int = 0, offer=None) -> str:
+    offer = offer or {}
+    rules = [
+        "PLATFORMA: INSTAGRAM DM. Same persona, language, memories and writing style as other channels. "
+        "Follow the authored spelling/slang/no-diacritics rules. Usually one or two short sentences. "
+        "Answer the actual latest message using the recent conversation; never restart an existing conversation. "
+        "Avoid repeated greetings, pet names, questions and invitation phrases. Match the conversational energy.",
+        "Keep this channel non-explicit. Never promote or name Fanvue/OnlyFans here. No payment pressure. "
+        "No voice notes, videos or promises of unavailable media. Do not invent what an unviewed photo contains. "
+        "Do not pretend to be human when directly asked about automation or the virtual persona.",
+        "No literal URLs, handles or obfuscated addresses. Only the server may insert a configured URL. "
+        "You may use at most one of the exact markers below when the corresponding intent is allowed. "
+        "They are internal actions, not dialogue examples. Do not explain the markers to the person. "
+        "Never invite in every response, after rejection, during distress, or as an unrelated interruption. "
+        "Repeated pressure for media can receive a brief, firm boundary in your existing voice.",
     ]
-
-    if pozvala_uz >= MAX_POZVANI:
-        casti.append(
-            "UŽ SI MU TO POVEDALA\n"
-            "Kde ťa nájde, si mu v tejto konverzácii povedala dosť. Znova to "
-            "nespomínaj — opakované pozývanie vyzerá ako rozposielanie a presne "
-            "toho si Instagram všíma. Bav sa s ním normálne ďalej."
-        )
+    if offer.get('link'):
+        target = 'Telegram' if nastavenia.get('funnel_target') == 'telegram' else 'your Linkovne link page'
+        rules.append('If the conversation naturally calls for moving to ' + target + ', write a short contextual invitation '
+                     'in YOUR voice and put [[LINK]] exactly where its URL belongs. Otherwise just converse.')
+    elif offer.get('highlights'):
+        rules.append('The account URL allowance is currently spent. A relevant invitation MAY point to the existing '
+                     'link in your Instagram Highlights. Prefix that reply with [[HIGHLIGHTS]], then formulate it '
+                     'naturally in the persona’s voice and the conversation language. No fixed phrase, no URL, '
+                     'no invented location and no discussion of quotas or algorithms.')
+    elif offer.get('remind'):
+        rules.append('This person already has your link in this chat. Only if they ask again or keep pressing, '
+                     'prefix [[REMIND]] and briefly refer to that existing message in your own words. Do not send another URL.')
     else:
-        casti.append(_pozvanie(nastavenia))
-
-    return "\n\n".join(casti)
+        rules.append('No invitation or reminder is available for this response. Just answer the conversation.')
+    if offer.get('photo'):
+        rules.append('One owner-approved ordinary SFW photo is available for this person. If asked for a normal photo '
+                     'and it fits, respond ONLY [[PHOTO]]; the server sends the image. Never promise a later photo.')
+    else:
+        rules.append('No photo is available to send in this reply. Do not offer or promise one.')
+    if offer.get('age_unknown'):
+        rules.append('Adult status is unconfirmed. Keep ordinary conversation safe. Before an adult-oriented invitation '
+                     'becomes relevant, ask their age once naturally, without repeating the question if already pending. '
+                     'Never infer adulthood from a profile, purchase intent or flirtation.')
+    return '\n\n'.join(rules)
 
 
 KOMENTAR = """\
@@ -129,15 +72,6 @@ def komentar_zadanie(komentar: Dict[str, Any]) -> str:
 
 
 def smie_pozvat(user: Dict[str, Any], pocet_sprav: int) -> bool:
-    """Smie v tejto odpovedi povedať, kde ju nájsť?
-
-    Dve podmienky: nesmie to prekročiť strop na konverzáciu a musí od minulého
-    razu ubehnúť dosť správ. Bez druhej podmienky by to zopakovala hneď v
-    ďalšej odpovedi, lebo model si „už som to povedala" bez čísla neustráži.
-    """
+    """Legacy display helper. Actual invitation permission comes from transactional limits."""
     kolko = int(user.get("pointed_count") or 0)
-    if kolko >= MAX_POZVANI:
-        return False
-    if kolko == 0:
-        return True
-    return pocet_sprav >= ODSTUP_SPRAV * kolko
+    return kolko < MAX_POZVANI and (kolko == 0 or pocet_sprav >= ODSTUP_SPRAV * kolko)

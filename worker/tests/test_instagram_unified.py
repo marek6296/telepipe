@@ -32,7 +32,7 @@ def test_revoked_access_disconnects_instead_of_polling_forever(monkeypatch):
             self.changes.append(patch)
     def revoked(*args, **kwargs):
         raise api.InstagramError("expired", kod=190)
-    monkeypatch.setattr(api, "konverzacie", revoked)
+    monkeypatch.setattr(api, "conversation_page", revoked)
     db = Db()
     assert asyncio.run(InstagramAgent(db, None)._kolo()) is False
     assert db.changes[-1]["connected"] is False

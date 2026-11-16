@@ -41,6 +41,13 @@ class ConversationHub:
             current = await self.pair(current['id'], other, 'rejected', {'reason': 'contact_denial'})
             # Do not immediately reattach the person whose correction we just accepted.
             return current
+        from instagram_interactions import age_evidence
+        age = age_evidence(text)
+        if age:
+            restrictions = await self.restrictions(platform, external_id, scope)
+            if restrictions.get('age_state') != 'minor_or_conflicting':
+                await self.t._patch('/conversation_people',
+                    {'model_id': f'eq.{self.model_id}', 'id': f"eq.{current['person_id']}"}, {'age_state': age})
         stop = opt_out(text)
         if stop:
             await self.t._patch('/conversation_people',

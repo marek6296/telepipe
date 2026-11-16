@@ -101,12 +101,12 @@ class TestRozobranieKonverzacie:
         )
         assert chat["spravy"][0]["content"] == "[poslal médium bez textu]"
 
-    def test_moja_prazdna_sprava_sa_zahodi(self):
+    def test_moje_medium_zostane_ako_posledny_tah(self):
         chat = api.rozober(
             self._konv([{"id": "m1", "from": {"id": self.MOJE}, "message": ""}]),
             self.MOJE,
         )
-        assert chat["spravy"] == []
+        assert chat["spravy"][0]["role"] == "assistant"
 
     def test_igsid_z_ucastnikov_ked_v_spravach_nie_je(self):
         konv = self._konv([{"id": "m1", "from": {"id": self.MOJE}, "message": "ahoj"}])
@@ -116,39 +116,21 @@ class TestRozobranieKonverzacie:
 
 
 class TestPravidlaChraniaUcet:
-    """Toto sú tie zákazy, kvôli ktorým celá vrstva existuje."""
+    def test_channel_never_allows_explicit_or_direct_paid_invites(self):
+        rules = pravidla.blok({})
+        assert 'non-explicit' in rules
+        assert 'Never promote or name Fanvue/OnlyFans' in rules
+        assert 'No literal URLs' in rules
+        assert 'No voice notes' in rules
 
-    NASTAVENIA = {"funnel_target": "telegram", "telegram_handle": "simona_here"}
+    def test_no_destination_is_invented(self):
+        assert 'No invitation or reminder' in pravidla.blok({})
 
-    def test_zakazuje_platene_platformy(self):
-        blok = pravidla.blok(self.NASTAVENIA)
-        assert "Fanvue" in blok and "OnlyFans" in blok
-        assert "NIKDY nespomeň" in blok
-
-    def test_zakazuje_explicitny_obsah(self):
-        assert "Žiadny explicitný obsah" in pravidla.blok(self.NASTAVENIA)
-
-    def test_zakazuje_media(self):
-        blok = pravidla.blok(self.NASTAVENIA)
-        assert "fotky" in blok and "hlasovky" in blok
-
-    def test_zakazuje_odkazy(self):
-        assert "Neposielaj žiadne odkazy" in pravidla.blok(self.NASTAVENIA)
-
-    def test_telegram_meno_ide_slovami_nie_ako_odkaz(self):
-        blok = pravidla.blok(self.NASTAVENIA)
-        assert "simona_here" in blok
-        assert "t.me" in blok and "nikdy ako odkaz" in blok
-
-    def test_odkaz_v_biu_neposiela_adresu(self):
-        blok = pravidla.blok({"funnel_target": "bio_link", "bio_link": "https://linkovne.com/x"})
-        assert "NIKDY nepíš samotnú adresu" in blok
-        assert "linkovne.com" not in blok, "adresa sa do promptu nedostane"
-
-    def test_bez_ciela_nepozyva_nikam(self):
-        """Klient cieľ nedoplnil — radšej ticho než vymyslená adresa."""
-        blok = pravidla.blok({"funnel_target": "telegram", "telegram_handle": ""})
-        assert "Nikam" in blok
+    def test_highlights_keeps_the_authored_voice_without_a_template(self):
+        rules = pravidla.blok({}, offer={'highlights': True})
+        assert '[[HIGHLIGHTS]]' in rules
+        assert 'No fixed phrase' in rules
+        assert 'check my highlights' not in rules
 
 
 class TestKolkoRazPozyva:

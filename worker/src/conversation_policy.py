@@ -64,8 +64,9 @@ def identity_denied(text: str) -> bool:
     return bool(re.search(r'\b(not me|that is not me|thats not me|wrong person|different person|not the (guy|person)|nie som (ja|on)|to nie som|iny clovek|no soy yo|persona equivocada)\b', text))
 
 
-def identity_candidate(current: dict, candidates: list[dict], now: datetime) -> dict | None:
+def identity_candidate(current: dict, candidates: list[dict], now: datetime | None = None) -> dict | None:
     """Recent invitation + name can recognize, but never verifies account ownership."""
+    now = now or datetime.now(timezone.utc)
     handle = normalise(current.get('username'))
     name = normalise(current.get('display_name'))
     text = normalise(current.get('text'))
@@ -84,12 +85,12 @@ def identity_candidate(current: dict, candidates: list[dict], now: datetime) -> 
         elif handle and rh and len(handle) >= 5 and SequenceMatcher(None, handle, rh).ratio() >= .82:
             score += 3
             reasons.append('similar handle')
-        first = rn.split()[0] if rn else ''
+        first = rn.split()[0] if rn else (rh.split()[0] if rh else '')
         if name and first and name.split()[0] == first:
             score += 3
             reasons.append('matching given name')
         introduced = bool(first and len(first) >= 3 and re.search(
-            r'\b(?:im|i am|i m|its me|it s me|to som ja|som|soy|me llamo|sono)\s+' + re.escape(first) + r'\b', text))
+            r'\b(?:im|i am|i m|its me|it s me|my name is|to som ja|som|soy|me llamo|sono)\s+' + re.escape(first) + r'\b', text))
         if introduced:
             score += 7
             reasons.append('introduced own matching name')
@@ -114,7 +115,7 @@ def identity_candidate(current: dict, candidates: list[dict], now: datetime) -> 
 def input_kind(text: str, story: bool = False) -> str:
     if not text.strip():
         return 'unknown'
-    if story and not any(c.isalnum() for c in text):
+    if not any(c.isalnum() for c in text) and any(ord(c) > 0x2600 for c in text):
         return 'reaction'
     return 'dm'
 

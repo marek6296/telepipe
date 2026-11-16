@@ -1639,7 +1639,8 @@ class ControlBot:
         if ok:
             if pid:
                 await self._db.mark_pending(pid, "sent", chosen_text=text, kind="text")
-            await self._hotovo(event, mid, f"✅ _Sent:_ {_short(text, 200)}")
+            label = "Approved and queued" if channel == "instagram" else "Sent"
+            await self._hotovo(event, mid, f"✅ _{label}:_ {_short(text, 200)}")
         else:
             if pid:
                 await self._db.mark_pending(pid, "awaiting")
@@ -2056,8 +2057,9 @@ class ControlBot:
             if ok:
                 if pid:
                     await self._db.mark_pending(pid, "sent", chosen_text=value, kind="text")
-                await self._po_odoslani(mid, f"✅ _Sent:_ {_short(value, 150)}")
-                await event.reply("✅ Sent.")
+                label = "Approved and queued" if channel == "instagram" else "Sent"
+                await self._po_odoslani(mid, f"✅ _{label}:_ {_short(value, 150)}")
+                await event.reply(f"✅ {label}.")
             else:
                 if pid:
                     await self._db.mark_pending(pid, "awaiting")
