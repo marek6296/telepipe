@@ -49,7 +49,7 @@ export function InstagramSettingsForm({ row }: { row: InstagramRow }) {
       <Card>
         <CardHeader
           title="Where she sends people"
-          description="Only Telegram or your Linkovne page. At most two URL sends per LA day and rolling 24 hours, with at least four hours between them."
+          description="Telegram: at most 4 invitations, at least 2 hours apart. Linkovne: at most 2, at least 4 hours apart. Both LA-day and rolling 24-hour limits apply; all links stay at least 1 hour apart."
         />
         <div className="space-y-5 p-5">
           <SelectField
@@ -59,8 +59,9 @@ export function InstagramSettingsForm({ row }: { row: InstagramRow }) {
             options={[
               { value: "telegram", label: "Her Telegram" },
               { value: "bio_link", label: "Her Linkovne page" },
+              { value: "both", label: "Telegram or Linkovne, by context" },
             ]}
-            help="One URL per person. Invitations require relevant context and confirmed adult status. She keeps talking normally when an invitation is unavailable."
+            help="One URL per person across both destinations. Invitations require relevant context and confirmed adult status. She keeps talking normally when an invitation is unavailable."
           />
           <TextField
             name="telegram_handle"

@@ -99,7 +99,8 @@ def identity_candidate(current: dict, candidates: list[dict], now: datetime | No
             continue
         invited = parse_time(row.get('last_invite_at'))
         recent = bool(invited and timedelta(0) <= now - invited <= timedelta(hours=6)
-                      and row.get('invite_target') == current.get('platform'))
+                      and (row.get('invite_target') == current.get('platform') or
+                           (row.get('invite_target') == 'linkpage' and current.get('platform') in ('telegram', 'fanvue'))))
         if recent:
             score += 4
             reasons.append('recent invitation to this channel')

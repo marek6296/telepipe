@@ -23,19 +23,23 @@ def blok(nastavenia: Dict[str, Any], pozvala_uz: int = 0, offer=None) -> str:
         "Never invite in every response, after rejection, during distress, or as an unrelated interruption. "
         "Repeated pressure for media can receive a brief, firm boundary in your existing voice.",
     ]
-    if offer.get('link'):
-        target = 'Telegram' if nastavenia.get('funnel_target') == 'telegram' else 'your Linkovne link page'
-        rules.append('If the conversation naturally calls for moving to ' + target + ', write a short contextual invitation '
-                     'in YOUR voice and put [[LINK]] exactly where its URL belongs. Otherwise just converse.')
-    elif offer.get('highlights'):
-        rules.append('The account URL allowance is currently spent. A relevant invitation MAY point to the existing '
-                     'link in your Instagram Highlights. Prefix that reply with [[HIGHLIGHTS]], then formulate it '
-                     'naturally in the persona’s voice and the conversation language. No fixed phrase, no URL, '
-                     'no invented location and no discussion of quotas or algorithms.')
+    telegram = offer.get('telegram_link', offer.get('link') and nastavenia.get('funnel_target') == 'telegram')
+    linkpage = offer.get('bio_link', offer.get('link') and nastavenia.get('funnel_target') == 'bio_link')
+    if telegram:
+        rules.append('If moving the conversation to Telegram is relevant, write your contextual invitation '
+                     'and place [[TELEGRAM]] where the URL belongs. Prefer Telegram for continuing a conversation.')
+    if linkpage:
+        rules.append('If they want your profile links and your Linkovne page fits the conversation, '
+                     'write your contextual invitation and place [[LINKPAGE]] where that URL belongs. '
+                     'Choose one destination only; never a second invitation just because a budget remains.')
+    if offer.get('highlights'):
+        rules.append('A relevant link-page invitation MAY instead point to the existing link in Instagram Highlights. '
+                     'Prefix [[HIGHLIGHTS]] and formulate it naturally in your own voice and conversation language. '
+                     'No fixed phrase, URL, invented location or discussion of quotas/algorithms.')
     elif offer.get('remind'):
         rules.append('This person already has your link in this chat. Only if they ask again or keep pressing, '
-                     'prefix [[REMIND]] and briefly refer to that existing message in your own words. Do not send another URL.')
-    else:
+                     'prefix [[REMIND]] and briefly refer to that existing message. No second URL, even to another destination.')
+    elif not telegram and not linkpage:
         rules.append('No invitation or reminder is available for this response. Just answer the conversation.')
     if offer.get('photo'):
         rules.append('One owner-approved ordinary SFW photo is available for this person. If asked for a normal photo '

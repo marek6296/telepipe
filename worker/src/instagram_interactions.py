@@ -1,34 +1,74 @@
 """Constrained response intents; the model writes prose, the server owns links."""
 import re
+from datetime import datetime, timedelta, timezone
 
-from conversation_policy import allowed_destination, normalise, rng_for
+from conversation_policy import allowed_destination, normalise, rng_for, parse_time, day_key
 
 URL = re.compile(r'https?://\S+|www\.\S+|\b[a-z0-9-]+\.(?:com|net|org|me|io|link|co)\b\S*', re.I)
 PROMO = re.compile(r'\b(?:highlights?|link|bio|profile|telegram|t\.me|fanvue|onlyfans)\b', re.I)
-TAGS = re.compile(r'\[\[(LINK|HIGHLIGHTS|REMIND|PHOTO)\]\]')
+TAGS = re.compile(r'\[\[(LINK|TELEGRAM|LINKPAGE|HIGHLIGHTS|REMIND|PHOTO)\]\]')
+
+
+def link_targets(settings):
+    mode = settings.get('funnel_target', '')
+    return {target: allowed_destination(target, settings) for target in ('telegram', 'bio_link')
+            if mode in (target, 'both') and allowed_destination(target, settings)}
+
+
+def classify_link(text, settings):
+    urls = URL.findall(text or '')
+    if len(urls) != 1:
+        return 'unknown'
+    url = urls[0].rstrip(".,!?);\"'}]")
+    return next((target for target in ('telegram', 'bio_link')
+                 if allowed_destination(target, settings) == url), 'unknown')
+
+
+def link_budgets(actions, settings, now=None):
+    now = now or datetime.now(timezone.utc)
+    recent = [(a, parse_time(a.get('reserved_at'))) for a in actions]
+    recent = [(a, stamp) for a, stamp in recent if stamp and (stamp >= now-timedelta(hours=24) or day_key(stamp) == day_key(now))]
+    today = lambda rows: sum(day_key(stamp) == day_key(now) for _, stamp in rows)
+    rolling = lambda rows: sum(stamp > now-timedelta(hours=24) for _, stamp in rows)
+    gap = lambda rows, hours: any(stamp > now-timedelta(hours=hours) for _, stamp in rows)
+    common = today(recent) < 6 and rolling(recent) < 6 and not gap(recent, 1)
+    result = {}
+    for target, cap, hours in (('telegram', 4, 2), ('bio_link', 2, 4)):
+        rows = [(a, stamp) for a, stamp in recent
+                if (a.get('payload', {}).get('link_target') or classify_link(a.get('text', ''), settings)) in (target, 'unknown')]
+        result[target] = common and today(rows) < cap and rolling(rows) < cap and not gap(rows, hours)
+    return result
 
 
 def prepare_response(raw, settings, offer):
-    result = dict(kind='dm', text='', link=False, reminder=False)
+    result = dict(kind='dm', text='', link=False, reminder=False, link_target='')
     text = raw.strip()
     markers = TAGS.findall(text)
     if len(markers) > 1:
         return result
     marker = markers[0] if markers else ''
-    destination = allowed_destination(settings.get('funnel_target', ''), settings)
-    # A human-approved exact configured URL uses the same transactional quota.
+    targets = link_targets(settings)
+    default_target = 'telegram' if settings.get('funnel_target') == 'both' else settings.get('funnel_target', '')
+    target = {'TELEGRAM': 'telegram', 'LINKPAGE': 'bio_link'}.get(marker, default_target)
     urls = URL.findall(text)
     if urls:
-        if len(urls) != 1 or urls[0] != destination or marker:
+        # Approved text keeps its exact destination; budget changes never swap URLs.
+        if len(urls) != 1 or marker:
             return result
-        text = text.replace(destination, '[[LINK]]')
+        target = next((key for key, url in targets.items() if url == urls[0]), '')
+        if not target:
+            return result
+        text = text.replace(urls[0], '[[LINK]]')
         marker = 'LINK'
     if re.search(r'fanvue|onlyfans', text, re.I):
         return result
-    if marker == 'LINK':
-        if not offer.get('link') or not destination:
+    if marker in ('LINK', 'TELEGRAM', 'LINKPAGE'):
+        permission = offer.get('telegram_link' if target == 'telegram' else 'bio_link',
+                               offer.get('link') if target == default_target else False)
+        destination = targets.get(target)
+        if not permission or not destination:
             return result
-        result.update(text=text.replace('[[LINK]]', destination), link=True)
+        result.update(text=TAGS.sub(lambda _: destination, text), link=True, link_target=target)
     elif marker == 'HIGHLIGHTS':
         if offer.get('highlights'):
             result.update(text=TAGS.sub('', text).strip(), reminder=True)

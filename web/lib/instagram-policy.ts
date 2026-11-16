@@ -1,5 +1,5 @@
 const ENUMS: Record<string, readonly string[]> = {
-  funnel_target: ["telegram", "bio_link"], reply_mode: ["off", "auto", "semi"], heat: ["mild", "medium"],
+  funnel_target: ["telegram", "bio_link", "both"], reply_mode: ["off", "auto", "semi"], heat: ["mild", "medium"],
 };
 const BOOLEANS = new Set(["reply_comments", "sync_enabled", "reactions_enabled", "photos_enabled", "highlights_link", "typo_enabled"]);
 

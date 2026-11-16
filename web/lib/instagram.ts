@@ -54,7 +54,7 @@ export function randomToken(): string {
  return Array.from(bytes,b=>b.toString(16).padStart(2,"0")).join("");
 }
 
-export type InstagramFunnelTarget = "telegram" | "bio_link";
+export type InstagramFunnelTarget = "telegram" | "bio_link" | "both";
 
 export type InstagramRow = {
   model_id: string;

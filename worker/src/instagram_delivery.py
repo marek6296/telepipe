@@ -204,6 +204,7 @@ class InstagramDelivery:
         if not testing and (not block or not in_active_window(local, behavior.active_start_min, behavior.active_end_min)):
             await self.defer(action, 'sleeping')
             return
+        link_target = ''
         try:
             if action['kind'] == 'comment':
                 # Refresh visible comments; deleted or manually answered comments are cancelled.
@@ -265,6 +266,7 @@ class InstagramDelivery:
                         if not await self.db.change_action(action, {'kind': 'photo', 'payload': action['payload']}):
                             return
                     text, link, reminder = prepared['text'], prepared['link'], prepared['reminder']
+                    link_target = prepared['link_target']
             if not text and action['kind'] not in ('reaction', 'photo'):
                 await self.db.change_action(action, {'state': 'skipped', 'reason': 'empty_or_disallowed_response'})
                 return
@@ -307,13 +309,13 @@ class InstagramDelivery:
                     await self.db.update_user(action['igsid'], {'last_typo': correction})
                 if link or reminder:
                     await self.db.hub.record_invite('instagram', action['igsid'],
-                        'telegram' if cfg.get('funnel_target') == 'telegram' else 'fanvue', scope=cfg['ig_user_id'])
+                        'telegram' if link_target == 'telegram' else 'linkpage', scope=cfg['ig_user_id'])
         except api.InstagramError as exc:
             await self.defer(action, f'refresh_meta_{exc.kod}')
             await self.provider_error(exc)
 
     async def offer_state(self, cfg, user):
-        from conversation_policy import allowed_destination, day_key
+        from instagram_interactions import link_budgets, link_targets
         restrictions = await self.db.hub.restrictions('instagram', user.get('igsid', ''), cfg['ig_user_id'])
         allowed = not (user.get('no_links') or user.get('no_initiate') or restrictions.get('no_links')
                        or restrictions.get('no_initiate') or restrictions.get('age_state') == 'minor_or_conflicting')
@@ -321,13 +323,18 @@ class InstagramDelivery:
             allowed = False
         adult = user.get('age_state') in ('adult_self_declared', 'adult_platform_verified')
         links = await self.db.actions(contains_link='eq.true', reserved_at='not.is.null', order='reserved_at.desc', limit='100')
-        recent = [a for a in links if parse_time(a['reserved_at']) and utcnow()-parse_time(a['reserved_at']) < timedelta(hours=24)]
-        today = [a for a in links if parse_time(a['reserved_at']) and day_key(parse_time(a['reserved_at'])) == day_key(utcnow())]
-        budget = len(recent) < 2 and len(today) < 2 and not any(utcnow()-parse_time(a['reserved_at']) < timedelta(hours=4) for a in recent)
+        budgets = link_budgets(links, cfg, utcnow())
+        targets = link_targets(cfg)
         has_link = bool(user.get('link_sent_at'))
+        eligible = allowed and adult and not has_link
+        telegram_link = bool(eligible and 'telegram' in targets and budgets['telegram'])
+        bio_link = bool(eligible and 'bio_link' in targets and budgets['bio_link'])
         reminder_ok = not parse_time(user.get('last_reminder_at')) or utcnow()-parse_time(user['last_reminder_at']) >= timedelta(days=1)
-        return {'link': bool(allowed and adult and budget and not has_link and allowed_destination(cfg.get('funnel_target', ''), cfg)),
-                'highlights': bool(allowed and adult and not has_link and not budget and cfg.get('highlights_link') and reminder_ok),
+        primary = 'telegram' if cfg.get('funnel_target') == 'both' else cfg.get('funnel_target')
+        spent = not budgets.get('bio_link' if 'bio_link' in targets else 'telegram', False)
+        return {'link': telegram_link if primary == 'telegram' else bio_link,
+                'telegram_link': telegram_link, 'bio_link': bio_link,
+                'highlights': bool(eligible and spent and cfg.get('highlights_link') and reminder_ok),
                 'remind': bool(allowed and adult and has_link and reminder_ok),
                 'photo': bool(cfg.get('photos_enabled') and not user.get('photo_sent_at') and allowed and adult),
                 'age_unknown': user.get('age_state', 'unknown') == 'unknown'}

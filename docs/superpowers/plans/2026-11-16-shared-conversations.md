@@ -93,3 +93,12 @@
 ## Release evidence
 
 Implementation merged/pushed to main; Railway runtime fa7040f SUCCESS, Vercel READY; additive migrations applied. Full worker suite 2413 passed / 2 deselected; SQL tests cover all three migrations, including post-review cross-channel proposal invalidation. Read-only real Meta import is running while IG Off; profile and media/comments reads succeed. Owner IG/TG verified context tested both ways. Live outbound test remains explicitly outside this automated rollout (no fan messages sent). See the spec implementation status for exact limits and review rulings.
+
+## Follow-up: separate invitations and enable Semi
+
+Marek requested Telegram somewhat more often than Linkovne, no repeated recipients, and explicitly enabled Semi. Chosen defaults: TG 4 / LA day and rolling 24 h, gap 2 h; Linkovne 2, gap 4 h; combined 6, gap 1 h. One URL per verified person across destinations remains. Both destinations are contextually selectable with server-owned markers; Semi proposals expose the exact URL, revalidated at send time. Unknown historical/manual URLs consume both budgets. Linkpage invitations are a hint for arrival on TG or FV, never verification. Existing provider pause followed a read failure; measured nested 25-chat read 14.3 s vs 5-chat 7.5 s against 20 s timeout, so cap pages at 5. No outbound send retries introduced.
+
+- [x] RED → GREEN Python interaction/budget/Semi-preview tests and web validator test.
+- [x] RED → GREEN actual SQL destination/rolling/gap/recipient/unknown/manual/allowlist contracts.
+- [x] Full worker suite 2421 passed, 2 deselected; web typecheck/ESLint/Instagram scripts/build pass.
+- [ ] Fresh review; apply migration, push/deploy exact SHA; enable both + Semi and verify current state/API health.

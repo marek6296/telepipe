@@ -186,7 +186,7 @@ class InstagramAgent:
         if markers:
             marker = markers[0]
             return ('[[PHOTO]]' if marker == 'PHOTO' else
-                    (api.orez(text, 850) + ' [[LINK]]' if marker == 'LINK' else '[[' + marker + ']] ' + api.orez(text, 950)))
+                    (api.orez(text, 550) + ' [[' + marker + ']]' if marker in ('LINK', 'TELEGRAM', 'LINKPAGE') else '[[' + marker + ']] ' + api.orez(text, 950)))
         return api.orez(text)
 
     async def _napis(self, user: Dict[str, Any], igsid: str, nastavenia: Dict[str, Any]) -> str:
@@ -219,8 +219,12 @@ class InstagramAgent:
             system, historia, angles=UHLY_ZADANIE if brief else UHLY, seed=seed,
         )
         navrhy: List[str] = []
+        offer = await self._delivery.offer_state(nastavenia, user)
         for surova in surove or []:
             text = self._ocisti(surova, behavior, historia, posledny)
+            if any(marker in text for marker in ('[[LINK]]', '[[TELEGRAM]]', '[[LINKPAGE]]')):
+                from instagram_interactions import prepare_response
+                text = prepare_response(text, nastavenia, offer)['text']
             if text and text not in navrhy:
                 navrhy.append(text)
         return navrhy, historia

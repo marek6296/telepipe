@@ -241,7 +241,8 @@ FIELDS = f"id,updated_time,participants,messages.limit({HISTORIA}){{id,created_t
 
 
 def conversation_page(token: str, account_id: str, after: str = '') -> Dict[str, Any]:
-    params = dict(platform='instagram', fields=FIELDS, limit=25)
+    # Nested message/attachment expansion is expensive (25 chats approached the 20 s timeout).
+    params = dict(platform='instagram', fields=FIELDS, limit=5)
     if after:
         params['after'] = after
     result = _volaj(_url(f'{account_id}/conversations', token, **params))
