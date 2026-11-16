@@ -149,12 +149,25 @@ def allowed_destination(target: str, settings: dict) -> str:
 
 
 def opt_out(text: str) -> str:
-    low = normalise(text)
+    low = normalise(text).replace('don t', 'dont')
     if re.search(r'\b(stop sending links|no more links|dont send links|neposielaj odkazy|neposielaj linky)\b', low):
         return 'links'
     if re.search(r'\b(dont message me|do not message me|stop messaging|leave me alone|nepis mi|nepis uz|stop contacting)\b', low):
         return 'contact'
     return ''
+
+
+def reactive_opt_in(text: str) -> bool:
+    low = normalise(text)
+    return bool(re.search(r'\b(you can (?:reply|message|text)(?: to)? me again|you can reply again|feel free to reply|uz mi mozes normalne odpisovat|mozes mi zas odpisovat)\b', low))
+
+
+def direct_request(text: str) -> bool:
+    """A new question permits only its reactive text answer, never marketing."""
+    if opt_out(text):
+        return False
+    low = normalise(text)
+    return '?' in text or bool(re.search(r'^(how are you|where are you|can you tell me|please tell me|ako sa mas|kde si|prosim povedz)', low))
 
 
 def mood_for(model_id: str, local_day: str) -> str:

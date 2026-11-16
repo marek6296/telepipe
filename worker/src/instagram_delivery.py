@@ -14,7 +14,7 @@ from zoneinfo import ZoneInfo
 import den
 import instagram_api as api
 from behavior import Behavior, in_active_window
-from conversation_policy import choose_due, in_window, parse_time, select_comment, opt_out
+from conversation_policy import choose_due, in_window, parse_time, select_comment, opt_out, direct_request, reactive_opt_in
 
 log = logging.getLogger(__name__)
 
@@ -93,14 +93,18 @@ class InstagramDelivery:
             return
         user = await self.db.ensure_user(igsid, chat['username'])
         known = await self.db.known_mids(igsid)
+        processed = await self.db.processed_mids(igsid)
         sent_actions = await self.db.actions(igsid=f'eq.{igsid}', state='in.(sent,sending,uncertain)', order='created_at.desc', limit='100')
         own_mids = {a.get('provider_id') for a in sent_actions if a.get('provider_id')}
         for message in messages:
-            if not message['mid'] or message['mid'] in known:
+            if not message['mid']:
                 continue
-            await self.db.add_message(igsid, message['role'], message['content'], message['mid'],
-                occurred_at=(parse_time(message.get('created_time')).isoformat() if parse_time(message.get('created_time')) else None), source='import' if bootstrap else 'meta',
-                metadata={'kind': message.get('kind'), 'has_image': message.get('has_image', False)})
+            if message['mid'] not in known:
+                await self.db.add_message(igsid, message['role'], message['content'], message['mid'],
+                    occurred_at=(parse_time(message.get('created_time')).isoformat() if parse_time(message.get('created_time')) else None), source='import' if bootstrap else 'meta',
+                    metadata={'kind': message.get('kind'), 'has_image': message.get('has_image', False)})
+            if message['mid'] in processed:
+                continue
             if message['role'] == 'assistant' and message['mid'] not in own_mids:
                 # Reconcile only an unambiguous exact text in the bounded send interval.
                 stamp = parse_time(message.get('created_time'))
@@ -121,6 +125,7 @@ class InstagramDelivery:
                         await self.db.cancel_actions(igsid, 'manual_reply')
                         await self.db.update_user(igsid, {'human_takeover': True})
                         user['human_takeover'] = True
+            await self.db.mark_message_effects(message['mid'])
         last = messages[-1]
         incoming = next((m for m in reversed(messages) if m['role'] == 'user'), None)
         if incoming:
@@ -136,8 +141,15 @@ class InstagramDelivery:
                     patch['no_initiate'] = True
             await self.db.update_user(igsid, patch)
             user.update(patch)
-            await self.db.hub.observe('instagram', igsid, chat['username'], user.get('name', ''),
-                                      incoming['content'], scope=cfg['ig_user_id'])
+            if incoming['mid'] != user.get('last_hub_mid'):
+                await self.db.hub.observe('instagram', igsid, chat['username'], user.get('name', ''),
+                    incoming['content'], scope=cfg['ig_user_id'], source_at=incoming.get('created_time'))
+                await self.db.update_user(igsid, {'last_hub_mid': incoming['mid']})
+            shared = await self.db.hub.restrictions('instagram', igsid, cfg['ig_user_id'])
+            if reactive_opt_in(incoming['content']) or shared.get('stopped_at'):
+                if not shared.get('no_initiate'):
+                    user['no_initiate'] = False
+                    await self.db.update_user(igsid, {'no_initiate': False})
         if last['role'] != 'user':
             await self.db.cancel_actions(igsid, 'outbound_is_latest')
             return
@@ -145,7 +157,8 @@ class InstagramDelivery:
         watermark = parse_time(cfg.get('replies_started_at'))
         if (bootstrap or not cfg.get('enabled') or cfg.get('reply_mode') == 'off' or not watermark
                 or not source or source < watermark or not in_window(source)
-                or user.get('human_takeover') or not user.get('ai_enabled', True) or user.get('no_initiate')):
+                or user.get('human_takeover') or not user.get('ai_enabled', True)
+                or (user.get('no_initiate') and not direct_request(last['content']))):
             return
         kind = last.get('kind', 'dm')
         if kind == 'unknown' or (kind == 'reaction' and not cfg.get('reactions_enabled')):
@@ -155,7 +168,7 @@ class InstagramDelivery:
         # Queue uses provider time and deterministic delay; retries never reroll it.
         await self.db.rpc('enqueue', key=f'{cfg["ig_user_id"]}:{kind}:{last["mid"]}', kind=kind,
             igsid=igsid, target=chat['id'], source_mid=last['mid'], source_at=source.isoformat(),
-            due=due.isoformat(), expires=(source+timedelta(hours=24)).isoformat(), payload={'account_id': cfg['ig_user_id']})
+            due=due.isoformat(), expires=(source+timedelta(hours=24)).isoformat(), payload={'account_id': cfg['ig_user_id'], 'requested_reply': direct_request(last['content'])})
 
     async def comments(self, cfg):
         posts = await asyncio.to_thread(api.prispevky_s_komentarmi, cfg['access_token'], account_id=cfg['ig_user_id'])
@@ -233,7 +246,12 @@ class InstagramDelivery:
                 if action['kind'] == 'reaction':
                     text, link, reminder = '', False, False
                 else:
-                    raw_text = action.get('text') if action['payload'].get('approved_source_mid') else await self.agent._napis(user, action['igsid'], cfg)
+                    if action['kind'] == 'photo':
+                        current_offer = await self.offer_state(cfg, user)
+                        if not current_offer['photo']:
+                            await self.db.change_action(action, {'state': 'blocked', 'reason': 'photo_no_longer_allowed'})
+                            return
+                    raw_text = '[[PHOTO]]' if action['kind'] == 'photo' else action.get('text') if action['payload'].get('approved_source_mid') else await self.agent._napis(user, action['igsid'], cfg)
                     from instagram_interactions import prepare_response
                     offer = await self.offer_state(cfg, user)
                     prepared = prepare_response(raw_text or '', cfg, offer)
@@ -258,7 +276,7 @@ class InstagramDelivery:
                     await self.db.change_action(action, {'state': 'cancelled', 'reason': 'remote_context_changed'})
                     return
             correction = {}
-            if action['kind'] == 'dm' and cfg.get('typo_enabled') and not link and not reminder:
+            if action['kind'] == 'dm' and cfg.get('typo_enabled') and not action['payload'].get('approved_source_mid') and not link and not reminder:
                 from instagram_interactions import small_typo
                 text, correction = small_typo(text, action['id'])
             reserved = await self.db.rpc('reserve', action=action['id'], lease=action['lease_token'], text=text, link=link, reminder=reminder)

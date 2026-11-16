@@ -10,7 +10,7 @@ from dataclasses import asdict
 from datetime import timedelta, datetime, timezone
 
 import den
-from conversation_policy import identity_candidate, identity_denied, mood_for, opt_out
+from conversation_policy import identity_candidate, identity_denied, mood_for, opt_out, direct_request, reactive_opt_in, parse_time
 
 
 class ConversationHub:
@@ -27,7 +27,7 @@ class ConversationHub:
         rows = await self.rows('conversation_identities', **params)
         return rows[0] if len(rows) == 1 else None
 
-    async def observe(self, platform, external_id, username='', name='', text='', scope='primary'):
+    async def observe(self, platform, external_id, username='', name='', text='', scope='primary', source_at=None):
         current = await self.t._rpc('conversation_ensure_identity', dict(
             p_model=self.model_id, p_platform=platform, p_external=str(external_id),
             p_scope=scope, p_username=username or '', p_name=name or ''))
@@ -49,10 +49,29 @@ class ConversationHub:
                 await self.t._patch('/conversation_people',
                     {'model_id': f'eq.{self.model_id}', 'id': f"eq.{current['person_id']}"}, {'age_state': age})
         stop = opt_out(text)
-        if stop:
+        stamp = parse_time(source_at) or datetime.now(timezone.utc)
+        existing = await self.restrictions(platform, external_id, scope) if stop else {}
+        old_stop = parse_time(existing.get("stopped_at"))
+        if stop and (not old_stop or stamp > old_stop):
             await self.t._patch('/conversation_people',
                 {'model_id': f'eq.{self.model_id}', 'id': f"eq.{current['person_id']}"},
-                {'no_links': True, **({'no_initiate': True} if stop == 'contact' else {})})
+                {'no_links': True, **({'no_initiate': True, 'stopped_at': stamp.isoformat()} if stop == 'contact' else {})})
+            group = await self.rows('conversation_identities', person_id=f"eq.{current['person_id']}", select='*')
+            for member in group:
+                params = {'model_id': f'eq.{self.model_id}', 'channel': f"eq.{member['platform']}",
+                          'conv_key': f"eq.{member['external_id']}", 'status': 'eq.awaiting'}
+                if member['platform'] == 'instagram':
+                    params['conv_key'] = f"like.{member['external_id']}:%"
+                    await self.t._patch('/instagram_actions', {'model_id': f'eq.{self.model_id}',
+                        'igsid': f"eq.{member['external_id']}", 'state': 'in.(pending,ready,approval,leased)'},
+                        {'state': 'cancelled', 'reason': 'contact_opt_out'})
+                await self.t._patch('/pending_replies', params, {'status': 'superseded'})
+        elif reactive_opt_in(text):
+            preferences = await self.restrictions(platform, external_id, scope)
+            stopped = parse_time(preferences.get('stopped_at'))
+            if not stopped or stamp > stopped:
+                await self.t._patch('/conversation_people',
+                    {'model_id': f'eq.{self.model_id}', 'id': f"eq.{current['person_id']}"}, {'no_initiate': False})
         if current['status'] == 'verified':
             return current
         candidates = await self.rows('conversation_identities', select='*', order='last_invite_at.desc.nullslast', limit='500')
@@ -85,6 +104,23 @@ class ConversationHub:
             return {}
         people = await self.rows('conversation_people', id=f"eq.{row['person_id']}", select='*')
         return people[0] if people else {}
+
+    async def can_reply(self, platform, external_id, scope=None, proactive=False):
+        preferences = await self.restrictions(platform, external_id, scope)
+        if not preferences.get('no_initiate'):
+            return True
+        if proactive:
+            return False
+        table, key, stamp = {'telegram': ('dm_messages', 'tg_id', 'created_at'),
+            'instagram': ('ig_messages', 'igsid', 'occurred_at'),
+            'fanvue': ('fv_messages', 'fan_uuid', 'created_at')}[platform]
+        rows = await self.rows(table, **{key: f'eq.{external_id}'}, select=f'role,content,{stamp}',
+                               order=f'{stamp}.desc.nullslast,id.desc', limit='1')
+        if not rows or rows[0].get('role') != 'user':
+            return False
+        incoming = parse_time(rows[0].get(stamp))
+        stopped = parse_time(preferences.get('stopped_at'))
+        return bool(incoming and stopped and incoming > stopped and direct_request(rows[0].get('content', '')))
 
     async def context(self, platform, external_id, scope=None):
         row = await self.identity(platform, external_id, scope)

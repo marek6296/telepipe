@@ -184,8 +184,8 @@ class TestZiadnaInaCestaNeobchadza:
     def test_vsetky_odoslania_su_zname(self):
         """Keby pribudla šiesta cesta k `_api.send`, tento test na ňu upozorní.
 
-        `deliver_text`/`deliver_photo` volá control bot AŽ PO schválení, tie
-        bránu mať nesmú — ostatné tri áno.
+        Všetky cesty vrátane schválenia musia prejsť aktuálnou bránou;
+        priame API volanie je povolené len v _send_checked.
         """
         import inspect
         import re
@@ -199,6 +199,4 @@ class TestZiadnaInaCestaNeobchadza:
                 aktualna = m.group(1)
             if "await self._api.send(" in line:
                 funkcie.append(aktualna)
-        assert sorted(funkcie) == [
-            "_greet", "_reply", "_thank", "deliver_photo", "deliver_text",
-        ], f"pribudla nová cesta k odoslaniu: {funkcie}"
+        assert sorted(funkcie) == ["_send_checked"], f"pribudla nová cesta k odoslaniu: {funkcie}"

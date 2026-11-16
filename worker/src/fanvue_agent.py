@@ -557,6 +557,21 @@ class FanvueAgent:
         self._media = True
         self._media_at = float("-inf")
 
+    async def _send_checked(self, conv_key, text, *args, proactive=False):
+        hub = getattr(self._db, "hub", None)
+        if hub:
+            if not await hub.can_reply("fanvue", conv_key, proactive=proactive or bool(args and args[0])):
+                return None
+            preferences = await hub.restrictions("fanvue", conv_key)
+            from instagram_interactions import URL
+            if preferences.get("no_links") and URL.search(text or ""):
+                return None
+            row = await self._db.fan(conv_key) or {}
+            settings = await self._db.settings()
+            if row.get("human_takeover") or not row.get("ai_enabled", True) or settings.get("reply_mode") == "off":
+                return None
+        return await self._api.send(conv_key, text, *args)
+
     async def run(self) -> None:
         log.info("Fanvue agent beží, kontroluje frontu každých %.0f s", POLL_S)
         while True:
@@ -658,9 +673,11 @@ class FanvueAgent:
         že mu zarába konverzácia, ktorá s tým nemá nič spoločné.
         """
         if hub := getattr(self._db, "hub", None):
-            for identity in await hub.linked("fanvue", fan["uuid"], "telegram"):
-                await self._db.update_user(int(identity["external_id"]), {"paid": True})
-            return
+            linked = await hub.linked("fanvue", fan["uuid"], "telegram")
+            if not linked:
+                return ""
+            user = await self._db.get_user(int(linked[0]["external_id"]))
+            return str((user or {}).get("first_name") or (user or {}).get("username") or linked[0]["external_id"])
         tg_id = checkout.z_udalosti(event)
         if tg_id is None and fan.get("uuid"):
             try:
@@ -784,6 +801,10 @@ class FanvueAgent:
         await self._thank(fan, row, settings, suma, kupene)
 
     async def _oznac_zaplateneho(self, event: Dict[str, Any], fan: Dict[str, str]) -> None:
+        if hub := getattr(self._db, "hub", None):
+            for identity in await hub.linked("fanvue", fan["uuid"], "telegram"):
+                await self._db.update_user(int(identity["external_id"]), {"paid": True})
+            return
         tg_id = checkout.z_udalosti(event)
         if tg_id is None and fan.get("uuid"):
             row = await self._db.fan(fan["uuid"])
@@ -810,6 +831,9 @@ class FanvueAgent:
         Ide to hneď z platby, nie až keď sa ozve — vďaka o dva dni neskôr
         už nie je vďaka.
         """
+        if hub := getattr(self._db, "hub", None):
+            if not await hub.can_reply("fanvue", fan["uuid"], proactive=True):
+                return
         if not fvflow.may_thank(row, settings):
             log.info("Za nákup %s sa práve ďakovalo, druhý raz nie", fan["uuid"][:8])
             return
@@ -859,7 +883,7 @@ class FanvueAgent:
         if not text or not self._safe(text):
             return
 
-        poslana = await self._api.send(fan["uuid"], text)
+        poslana = await self._send_checked(fan["uuid"], text, proactive=True)
         if not poslana:
             return
         await self._db.add_message(
@@ -895,6 +919,9 @@ class FanvueAgent:
         fan = fan_of(event)
         if not fan["uuid"]:
             return
+        if hub := getattr(self._db, "hub", None):
+            if not await hub.can_reply("fanvue", fan["uuid"], proactive=True):
+                return
         row = await self._ensure_fan(fan)
         if row.get("greeted"):
             return
@@ -926,7 +953,7 @@ class FanvueAgent:
         text = self._clean(text)
         if not text or not self._safe(text):
             return
-        poslana = await self._api.send(fan["uuid"], text)
+        poslana = await self._send_checked(fan["uuid"], text, proactive=True)
         if not poslana:
             return
         await self._db.add_message(
@@ -1102,6 +1129,9 @@ class FanvueAgent:
         # stratiť a poradie Fanvue nezaručuje.
         if not await self._reconcile(fan, row, mark_read=not semi):
             return
+        if hub := getattr(self._db, "hub", None):
+            if not await hub.can_reply("fanvue", fan["uuid"]):
+                return
 
         sit = await self._situacia(fan, row, settings)
         persona, behavior, teraz, blok = sit.persona, sit.behavior, sit.teraz, sit.blok
@@ -1170,7 +1200,7 @@ class FanvueAgent:
             media = [foto["media_uuid"]] if foto else None
             cena = int(foto["price_cents"]) if foto else 0
 
-        poslana = await self._api.send(fan["uuid"], text, media, cena)
+        poslana = await self._send_checked(fan["uuid"], text, media, cena)
         if not poslana:
             return
 
@@ -1349,7 +1379,7 @@ class FanvueAgent:
         return prehlad.fanvue(row, history, tg)
 
     async def deliver_text(self, conv_key: str, text: str) -> bool:
-        sent = await self._api.send(conv_key, text)
+        sent = await self._send_checked(conv_key, text)
         if not sent:
             return False
         await self._db.add_message(conv_key, "assistant", text, "" if sent == "-" else sent)
@@ -1404,7 +1434,7 @@ class FanvueAgent:
         self, conv_key: str, media_ref: str, caption: str, price_cents=None
     ) -> bool:
         price = int(price_cents or 0)
-        sent = await self._api.send(conv_key, caption or "", [media_ref], price)
+        sent = await self._send_checked(conv_key, caption or "", [media_ref], price)
         if not sent:
             return False
         try:

@@ -4,6 +4,7 @@ create table public.conversation_people (
   id uuid not null default gen_random_uuid(),
   no_initiate boolean not null default false,
   no_links boolean not null default false,
+  stopped_at timestamptz,
   age_state text not null default 'unknown' check (age_state in ('unknown','adult_self_declared','adult_platform_verified','minor_or_conflicting')),
   created_at timestamptz not null default now(),
   primary key (model_id,id)
@@ -86,6 +87,7 @@ alter table public.instagram
   add column circuit_until timestamptz,
   add column circuit_reason text not null default '';
 alter table public.ig_users
+  add column last_hub_mid text not null default '',
   add column last_source_mid text not null default '',
   add column no_links boolean not null default false,
   add column no_initiate boolean not null default false,
@@ -95,6 +97,7 @@ alter table public.ig_users
   add column last_reminder_at timestamptz,
   add column last_typo jsonb;
 alter table public.ig_messages
+  add column effects_applied boolean not null default false,
   add column occurred_at timestamptz,
   add column source text not null default 'legacy',
   add column metadata jsonb not null default '{}';
@@ -127,8 +130,8 @@ begin
   if p_decision not in ('candidate','recognized','verified','rejected') then raise exception 'invalid decision'; end if;
   if p_decision='rejected' then
     old_person:=i.person_id;
-    insert into conversation_people(model_id,no_initiate,no_links,age_state)
-      select p_model,no_initiate,no_links,age_state from conversation_people where model_id=p_model and id=i.person_id returning id into fresh;
+    insert into conversation_people(model_id,no_initiate,no_links,age_state,stopped_at)
+      select p_model,no_initiate,no_links,age_state,stopped_at from conversation_people where model_id=p_model and id=i.person_id returning id into fresh;
     update conversation_identities set person_id=fresh,status='local',candidate_id=null,evidence='{}',
       rejected_ids=array_append(rejected_ids,coalesce(p_other,i.candidate_id)),updated_at=now()
       where model_id=p_model and id=i.id returning * into i;
@@ -141,7 +144,8 @@ begin
     if i.id=other.id or p_other=any(i.rejected_ids) then raise exception 'invalid association'; end if;
     if p_decision='verified' then
       -- Only owner action/challenge completion calls this decision; worker heuristics never do.
-      update conversation_people set no_initiate=no_initiate or (select no_initiate from conversation_people where model_id=p_model and id=i.person_id),
+      update conversation_people set stopped_at=greatest(stopped_at,(select stopped_at from conversation_people where model_id=p_model and id=i.person_id)),
+        no_initiate=no_initiate or (select no_initiate from conversation_people where model_id=p_model and id=i.person_id),
         no_links=no_links or (select no_links from conversation_people where model_id=p_model and id=i.person_id),
         age_state=case when age_state='minor_or_conflicting' or (select age_state from conversation_people where model_id=p_model and id=i.person_id)='minor_or_conflicting' then 'minor_or_conflicting' else age_state end
         where model_id=p_model and id=other.person_id;
@@ -223,7 +227,8 @@ begin
     select * into u from ig_users where model_id=p_model and igsid=a.igsid;
     if not found then deny:='unknown_contact';
     elsif u.human_takeover or not u.ai_enabled then deny:='takeover';
-    elsif u.no_initiate then deny:='contact_opt_out';
+    elsif u.no_initiate and not(a.kind='dm' and coalesce(a.payload->>'requested_reply','')='true') then deny:='contact_opt_out';
+    elsif a.kind='photo' and (u.no_links or u.age_state not in ('adult_self_declared','adult_platform_verified')) then deny:='photo_not_allowed';
     elsif u.last_source_mid<>a.source_mid then deny:='stale_context';
     elsif u.last_incoming_at is null or u.last_incoming_at>now() or u.last_incoming_at<=now()-interval '24 hours' then deny:='window_expired';
     elsif (p_link or p_reminder) and (u.no_links or u.no_initiate or u.age_state not in ('adult_self_declared','adult_platform_verified')) then deny:='invitation_not_allowed';
@@ -232,7 +237,9 @@ begin
   select person_id into identity_person from conversation_identities where model_id=p_model and platform='instagram' and external_id=a.igsid and account_scope=cfg.ig_user_id limit 1;
   select array_agg(external_id) into contact_ids from conversation_identities where model_id=p_model and platform='instagram' and person_id=identity_person;
   contact_ids:=coalesce(contact_ids,array[a.igsid]);
-  if exists(select 1 from conversation_people where model_id=p_model and id=identity_person and no_initiate) then deny:='contact_opt_out'; end if;
+  if exists(select 1 from conversation_people where model_id=p_model and id=identity_person and no_initiate
+    and not(a.kind='dm' and coalesce(a.payload->>'requested_reply','')='true' and a.source_at>stopped_at)) then deny:='contact_opt_out'; end if;
+  if a.kind='photo' and exists(select 1 from conversation_people where model_id=p_model and id=identity_person and (no_links or no_initiate or age_state='minor_or_conflicting')) then deny:='photo_not_allowed'; end if;
   if (p_link or p_reminder) and exists(select 1 from conversation_people where model_id=p_model and id=identity_person and (no_links or no_initiate or age_state='minor_or_conflicting')) then deny:='contact_opt_out'; end if;
   if deny<>'' then
     update instagram_actions set state=case when deny='window_expired' then 'expired' else 'blocked' end,reason=deny where model_id=p_model and id=a.id;
@@ -315,7 +322,7 @@ begin
   if p_occurred>now() then return; end if;
   has_link:=p_text ~* '(https?://|www[.]|t[.]me/)';
   insert into instagram_actions(model_id,dedupe_key,kind,igsid,target_id,source_mid,source_at,due_at,expires_at,state,text,contains_link,reserved_at,sent_at,provider_id,payload)
-  values(p_model,p_account||':manual:'||p_key,case when p_photo then 'photo' else 'dm' end,p_igsid,'',p_key,p_occurred,p_occurred,p_occurred,'sent',p_text,has_link,p_occurred,p_occurred,p_key,jsonb_build_object('account_id',p_account,'manual',true))
+  values(p_model,p_account||':manual:'||p_key,case when p_photo then 'photo' else 'dm' end,p_igsid,'',p_key,p_occurred,p_occurred,p_occurred+interval '1 second','sent',p_text,has_link,p_occurred,p_occurred,p_key,jsonb_build_object('account_id',p_account,'manual',true))
   on conflict(model_id,dedupe_key) do nothing;
   update ig_users set link_sent_at=case when has_link then coalesce(link_sent_at,p_occurred) else link_sent_at end,
     photo_sent_at=case when p_photo then coalesce(photo_sent_at,p_occurred) else photo_sent_at end

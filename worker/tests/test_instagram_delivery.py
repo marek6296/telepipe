@@ -22,6 +22,7 @@ async def test_import_preserves_timestamp_and_never_schedules_bootstrap():
     now = datetime.now(timezone.utc)
     db = AsyncMock(model_id='model')
     db.ensure_user.return_value = {}
+    db.hub.restrictions.return_value = {}
     db.known_mids.return_value = set()
     db.actions.return_value = []
     delivery = InstagramDelivery(db, AsyncMock())
@@ -35,6 +36,7 @@ async def test_ingest_known_current_input_retries_durable_enqueue_after_crash():
     now = datetime.now(timezone.utc)
     db = AsyncMock(model_id='model')
     db.ensure_user.return_value = {}
+    db.hub.restrictions.return_value = {}
     db.known_mids.return_value = {'incoming'}
     db.actions.return_value = []
     delivery = InstagramDelivery(db, AsyncMock())
@@ -51,6 +53,7 @@ async def test_new_manual_reply_cancels_pending_and_takes_over():
     now = datetime.now(timezone.utc)
     db = AsyncMock(model_id='model')
     db.ensure_user.return_value = {}
+    db.hub.restrictions.return_value = {}
     db.known_mids.return_value = set()
     db.actions.return_value = []
     delivery = InstagramDelivery(db, AsyncMock())

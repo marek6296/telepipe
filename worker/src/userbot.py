@@ -612,7 +612,7 @@ class UserBot:
         restrictions = {}
         if shared := getattr(self._db, "hub", None):
             restrictions = await shared.restrictions("telegram", str(tg_id))
-            if restrictions.get("no_initiate"):
+            if not await shared.can_reply("telegram", str(tg_id), proactive=morning):
                 await self._db.update_user(tg_id, {"pending_reply": False})
                 return
         testing = self._is_test_account(tg_id)
@@ -1515,6 +1515,8 @@ class UserBot:
                 )
 
         for chunk in chunks:
+            if not await self._shared_send_ok(tg_id, chunk, proactive=morning):
+                return
             async with self._client.action(tg_id, "typing"):
                 await asyncio.sleep(humanize.typing_delay(chunk))
             try:
@@ -1991,6 +1993,8 @@ class UserBot:
             )
 
     async def _send_photo(self, tg_id: int, photo: Dict[str, Any]) -> None:
+        if not await self._shared_send_ok(tg_id, proactive=True):
+            return
         data = await _download(photo["url"])
         if not data:
             return
@@ -2194,6 +2198,8 @@ class UserBot:
 
     async def _send_generated_voice(self, tg_id: int, data: bytes, text: str) -> None:
         """Pošle nahrávku vyrobenú na mieru a do pamäte ju uloží ako jej slová."""
+        if not await self._shared_send_ok(tg_id, text):
+            return
         try:
             async with self._client.action(tg_id, "record-voice"):
                 await asyncio.sleep(random.uniform(3, 10))
@@ -2348,9 +2354,21 @@ class UserBot:
                 tg_id, {"pending_reply": False, "last_reply_at": _utc_iso()}
             )
 
+    async def _shared_send_ok(self, tg_id, text="", proactive=False):
+        hub = getattr(self._db, "hub", None)
+        if not hub:
+            return True
+        if not await hub.can_reply("telegram", str(tg_id), proactive=proactive):
+            return False
+        preferences = await hub.restrictions("telegram", str(tg_id))
+        from instagram_interactions import URL
+        return not (preferences.get("no_links") and URL.search(text or ""))
+
     async def deliver_text(self, conv_key: str, text: str) -> bool:
         """Odošle schválený text ako ona, uloží ho do pamäte, dorovná stav."""
         tg_id = int(conv_key)
+        if not await self._shared_send_ok(tg_id, text):
+            return False
         try:
             async with self._client.action(tg_id, "typing"):
                 await asyncio.sleep(humanize.typing_delay(text))
@@ -2390,6 +2408,8 @@ class UserBot:
     ) -> bool:
         """Odošle vybranú fotku (Telegram = vždy zadarmo) s popisom."""
         tg_id = int(conv_key)
+        if not await self._shared_send_ok(tg_id, caption):
+            return False
         lib = await self._db.photo_library()
         photo = next((p for p in lib if str(p["id"]) == str(media_ref)), None)
         if not photo:
@@ -2438,6 +2458,8 @@ class UserBot:
     async def deliver_voice(self, conv_key: str, text: str, ogg: bytes) -> bool:
         """Pošle už schválenú (vypočutú) hlasovku fanúšikovi."""
         tg_id = int(conv_key)
+        if not await self._shared_send_ok(tg_id, text):
+            return False
         await self._send_generated_voice(tg_id, ogg, text)
         await self._semi_post_update(tg_id, f"(hlasovka) {text}")
         return True
@@ -2449,6 +2471,8 @@ class UserBot:
         rozlúčke je hlasovka celá správa, takže keď sa nepošle, musí odísť
         aspoň text — inak sa človeku namiesto rozlúčky ozve ticho.
         """
+        if not await self._shared_send_ok(tg_id, str(voice.get("transcript") or "")):
+            return False
         data = await _download(voice.get("url") or "")
         if not data:
             log.warning(

@@ -83,3 +83,33 @@ async def test_denial_detaches_current_identity_and_does_not_rematch():
     assert result['person_id'] == 'new-person'
     assert t.calls[-1] == ('conversation_pair', dict(p_model='m', p_identity='current',
         p_other='old', p_decision='rejected', p_evidence={'reason': 'contact_denial'}))
+
+
+@pytest.mark.asyncio
+async def test_stopped_contact_can_request_new_answer_but_not_old_or_proactive_one():
+    t = Store()
+    t.rows['/conversation_identities'] = [identity('a', 'telegram', '1')]
+    t.rows['/conversation_people'] = [dict(model_id='m', id='p', no_initiate=True, no_links=True,
+        stopped_at='2026-11-16T10:00:00+00:00')]
+    t.rows['/dm_messages'] = [dict(model_id='m', tg_id='1', role='user', content='how are you?', created_at='2026-11-16T11:00:00+00:00')]
+    hub = ConversationHub(t, 'm')
+    assert await hub.can_reply('telegram', '1')
+    assert not await hub.can_reply('telegram', '1', proactive=True)
+    t.rows['/dm_messages'][0]['created_at'] = '2026-11-16T09:00:00+00:00'
+    assert not await hub.can_reply('telegram', '1')
+    assert (await hub.restrictions('telegram', '1'))['no_links'] is True
+
+
+@pytest.mark.asyncio
+async def test_explicit_reactive_optin_preserves_marketing_optout():
+    class RpcStore(Store):
+        async def _rpc(self, name, args):
+            return identity('a', 'telegram', '1')
+    t = RpcStore()
+    t.rows['/conversation_identities'] = [identity('a', 'telegram', '1')]
+    t.rows['/conversation_people'] = [dict(model_id='m', id='p', no_initiate=True, no_links=True,
+        stopped_at='2026-11-16T10:00:00+00:00')]
+    hub = ConversationHub(t, 'm')
+    await hub.observe('telegram', '1', text='you can reply to me again', source_at='2026-11-16T11:00:00+00:00')
+    assert t.rows['/conversation_people'][0]['no_initiate'] is False
+    assert t.rows['/conversation_people'][0]['no_links'] is True

@@ -146,6 +146,14 @@ class TenantInstagramDb:
         )
         return {str(r.get("mid") or "") for r in rows if r.get("mid")}
 
+    async def processed_mids(self, igsid):
+        rows = await self._get(IG_MESSAGES, {'model_id': self._mine, 'igsid': f'eq.{igsid}',
+            'effects_applied': 'eq.true', 'select': 'mid', 'order': 'id.desc', 'limit': '100'})
+        return {r['mid'] for r in rows}
+
+    async def mark_message_effects(self, mid):
+        await self._patch(IG_MESSAGES, {'model_id': self._mine, 'mid': f'eq.{mid}'}, {'effects_applied': True})
+
     async def add_message(self, igsid: str, role: str, content: str, mid: str = "",
                           occurred_at=None, source='worker', metadata=None) -> None:
         from datetime import datetime, timezone

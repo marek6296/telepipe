@@ -30,6 +30,7 @@ class FakeDb:
         self.hub.day.return_value = (den.Blok(0, 2880, "home", "relaxing", 1), "relaxed")
         self.hub.mood_prompt = lambda mood: "stable mood"
         self.queue = {}
+        self.processed = set()
         self.nastavenia = {
             "sync_completed_at": _teraz(48),
             "sync_started_at": _teraz(48),
@@ -101,6 +102,12 @@ class FakeDb:
 
     async def save_comment(self, row):
         self.__dict__.setdefault("komentare", []).append(dict(row))
+
+    async def processed_mids(self, igsid):
+        return self.processed
+
+    async def mark_message_effects(self, mid):
+        self.processed.add(mid)
 
     async def schedule(self):
         return {}
