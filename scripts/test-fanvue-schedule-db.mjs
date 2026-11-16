@@ -11,12 +11,18 @@ try {
   await db.exec(events.slice(events.indexOf('create table fanvue_events ('),events.indexOf('-- (c) Singleton')));
   const fans=await read('012_fv_tables.sql');
   await db.exec(fans.slice(fans.indexOf('create table fv_users ('),fans.indexOf('create index fv_users_tg_idx')));
+  await db.exec(fans.slice(fans.indexOf('create table fv_messages ('),fans.indexOf('create index fv_messages_fan_idx')));
   await db.exec(await read('20261116160900_fanvue_deferred_replies.sql'));
   await db.exec(await read('20261116162501_fanvue_pending_thanks.sql'));
   await db.exec('grant select,update on fanvue_events,fv_users to service_role');
   const a='00000000-0000-4000-8000-000000000001',b='00000000-0000-4000-8000-000000000002';
   await db.query('insert into models values($1),($2)',[a,b]);
   await db.query(`insert into fv_users(model_id,fan_uuid,pending_offer_at) values($1,'fan',now()),($2,'fan',now())`,[a,b]);
+  await db.query(`insert into fv_messages(model_id,fan_uuid,role,content) values($1,'fan','user','legacy import')`,[a]);
+  await db.exec(await read('20261116182921_conversation_message_times.sql'));
+  assert.equal((await db.query('select occurred_at from fv_messages')).rows[0].occurred_at,null,'migration must not invent source times from import time');
+  await db.query(`insert into fv_messages(model_id,fan_uuid,role,content,occurred_at) values($1,'fan','user','source time','2026-11-15T21:40:00Z')`,[a]);
+  assert.equal(new Date((await db.query(`select occurred_at from fv_messages where content='source time'`)).rows[0].occurred_at).toISOString(),'2026-11-15T21:40:00.000Z');
   assert.equal((await db.query('select pending_thanks from fv_users where model_id=$1',[a])).rows[0].pending_thanks,false);
   // Reconciliation must persist the retry in the same update as the observed
   // purchase count; another tenant's identical fan UUID stays untouched.

@@ -262,7 +262,7 @@ class InstagramDelivery:
                     if changed:
                         import prehlad
                         ok = await self.agent._control.post_approval(channel='instagram', conv_key=f'{action["igsid"]}:{action["id"]}',
-                            display_name=user.get('username') or action['igsid'], incoming_preview=prehlad.blok_rozhovoru(history),
+                            display_name=user.get('username') or action['igsid'], incoming_preview=prehlad.blok_rozhovoru(history, now_local=local),
                             suggestions=proposals, hint='Approve at any time. This exact reply still respects the messaging window and delivery limits.')
                         if not ok:
                             await self.db.change_action(action, {'state': 'pending', 'due_at': (utcnow()+timedelta(minutes=15)).isoformat()}, state='approval')

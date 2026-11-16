@@ -386,6 +386,8 @@ class TenantFanvueDb:
         `known_message_uuids()` v `reconcile`, ktorý najprv zistí, čo už máme.
         """
         row: Dict[str, Any] = {"fan_uuid": fan_uuid, "role": role, "content": content}
+        if role == "assistant":
+            row["occurred_at"] = datetime.now(timezone.utc).isoformat()
         if message_uuid:
             row["message_uuid"] = message_uuid
         await self._post(FV_MESSAGES, self._own(row))
@@ -444,6 +446,34 @@ class TenantFanvueDb:
             },
         )
         return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+
+    async def history_rows(self, fan_uuid: str, limit: int = 16) -> List[Dict[str, Any]]:
+        rows = await self._get(FV_MESSAGES, {
+            "model_id": self._mine, "fan_uuid": f"eq.{fan_uuid}",
+            "select": "role,content,occurred_at", "order": "id.desc", "limit": str(max(64, limit * 4)),
+        })
+        ordered = [{**r, "occurred_at": r.get("occurred_at")} for r in reversed(rows)]
+        # Import starých správ môže mať vyššie id než čerstvý webhook. Známe
+        # časy zoradíme, neznáme ponecháme na ich miestach — nikdy ich
+        # nevytlačíme za/pred známe len preto, že majú NULL čas.
+        from conversation_timing import chronological_rows
+        return chronological_rows(ordered)[-limit:]
+
+    async def backfill_message_times(self, fan_uuid: str, times: Dict[str, str]) -> None:
+        if not times:
+            return
+        rows = await self._get(FV_MESSAGES, {
+            "model_id": self._mine, "fan_uuid": f"eq.{fan_uuid}",
+            "occurred_at": "is.null", "message_uuid": "not.is.null",
+            "select": "message_uuid", "order": "id.desc", "limit": "200",
+        })
+        for row in rows:
+            uuid = row.get("message_uuid")
+            if uuid in times:
+                await self._patch(FV_MESSAGES, {
+                    "model_id": self._mine, "fan_uuid": f"eq.{fan_uuid}",
+                    "message_uuid": f"eq.{uuid}", "occurred_at": "is.null",
+                }, {"occurred_at": times[uuid]})
 
     # ---------- obsah z vaultu ----------
 

@@ -123,3 +123,14 @@ Rollout evidence: runtime `c0406697f473da8d5c67360d8705b3b169d798de` pushed to m
 Owner-confirmed accounts are linked with the existing audited pairing RPC; the owner may keep a customer's Telegram chat disabled. Instagram already suppresses new acquisition links for verified Fanvue identities. Add a bounded, non-explicit return-to-existing-chat reminder instead: no URL/handle, no new subscription pitch, only in relevant conversational context. It uses the existing REMIND intent and transactional once/24h + twice/7d quota; age, opt-out, identity, approval and window guards remain. Unknown/unverified identities cannot access this path. This does not infer an active subscription from mere identity linkage.
 
 Validation: six RED→GREEN Python regressions, 133 Instagram tests, full worker 2499 passed / 2 deselected; actual SQL contracts confirm day/week reminder caps. Customer identifiers and owner notes live only in the scoped production records/private vault, not in this public repository.
+
+## Follow-up: current turn and message chronology
+
+Owner reported proposals answering yesterday's topic after a new greeting and check-in today. Confirmed causes: IG/FV drop source timestamps, TG merges consecutive inbound messages across days, and the multi-message instruction prioritizes every old unanswered question. Preserve raw source times and separate the latest inbound session (a gap of at least four hours, never midnight alone) from background history. A greeting anywhere in that current block remains visible to the persona and sanitizer. Earlier facts remain available when the new turn explicitly refers back. Apply the same context to Auto, Semi, Regenerate and Say this; refresh regeneration time/day context. Show local dates/times in owner previews. Unknown source times remain unknown; FV adds nullable occurred_at and reconciles sentAt by provider UUID.
+
+- [x] RED → GREEN shared chronology and IG generation/card regressions using neutral conversations.
+- [x] TG/FV adapters and source-time preservation, fresh regeneration snapshots.
+- [ ] Full worker suite, actual migration contracts, focused review; exact runtime rollout.
+- [ ] Refresh the affected unsent owner proposal without sending to a fan; verify runtime and record evidence.
+
+Validation: 2551 worker tests passed, 2 deselected; both actual SQL migration suites pass. Focused independent review reproduced and closed late-import chronology, IG returning-contact classification and stale TG question instructions. No open Critical/Important findings. Nullable Fanvue source timestamp migration applied; legacy import dates are not backfilled as message dates. No test message or read receipt sent to a fan.

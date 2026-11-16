@@ -293,7 +293,7 @@ JEJ = "\u21b3 "
 SPOLU = 10
 
 
-def blok_rozhovoru(history: List[Dict[str, Any]]) -> str:
+def blok_rozhovoru(history: List[Dict[str, Any]], now_local: Optional[datetime] = None) -> str:
     """Posledných `SPOLU` správ OBOCH strán tak, ako idú za sebou — ako v chate.
 
     PREČO. Karta doteraz ukazovala len JEHO správy pod sebou. Marek z nej videl
@@ -306,19 +306,22 @@ def blok_rozhovoru(history: List[Dict[str, Any]]) -> str:
 
     Jej riadky nesú `JEJ` značku, jeho sú bez nej.
     """
+    from conversation_timing import chronological_rows, message_time
     vsetko = [
-        r for r in (history or [])
+        r for r in chronological_rows(history, now_local=now_local)
         if bez_znaciek(str((r or {}).get("content") or "")).strip()
     ]
     if not vsetko:
         return ""
 
     vybrane = vsetko[-SPOLU:]
-    riadky = [
-        ("" if str((r or {}).get("role") or "") != "assistant" else JEJ)
-        + bez_znaciek(str(r.get("content") or "")).strip()
-        for r in vybrane
-    ]
+    zone = (now_local or datetime.now(timezone.utc)).tzinfo or timezone.utc
+    riadky = []
+    for r in vybrane:
+        stamp = message_time(r)
+        when = '[' + stamp.astimezone(zone).strftime('%m-%d %H:%M %Z') + '] ' if stamp else ''
+        speaker = JEJ if r.get('role') == 'assistant' else ''
+        riadky.append(speaker + when + bez_znaciek(str(r.get('content') or '')).strip())
     skryte = len(vsetko) - len(vybrane)
     if skryte:
         riadky.insert(0, f"(+{skryte} earlier)")
@@ -335,14 +338,16 @@ def pokyn_pre_model(history: List[Dict[str, Any]]) -> str:
     Používa sa len v poloautomate. V automate to isté rieši debounce, ktorý
     rýchlo idúce správy zlúči skôr, než sa vôbec začne odpovedať.
     """
-    kolko = len(neodpovedane(history))
+    from conversation_timing import analyze
+    kolko = len(analyze(history).incoming)
     if kolko < 2:
         return ""
     return (
-        f"\n\n[ČAKÁ VIAC SPRÁV] Napísal ti {kolko} správy za sebou a ani na "
+        f"\n\n[ČAKÁ VIAC SPRÁV] V aktuálnom bloku napísal {kolko} správy za sebou a ani na "
         "jednu si ešte neodpovedala. Odpovedz na ne AKO NA CELOK — JEDNOU "
         "správou, ktorá sedí na všetky, nie len na tú poslednú. Keď sa v nich "
-        "pýta na niečo konkrétne, na to odpovedz najskôr.\n"
+        "pýta na niečo konkrétne, reaguj na to spolu s aktuálnym pozdravom. "
+        "Staré nezodpovedané otázky mimo aktuálneho bloku sú len kontext.\n"
         "NEODPOVEDAJ NA KAŽDÚ ZVLÁŠŤ. Nie každá si odpoveď pýta — „ok“, "
         "smajlík alebo tvoje meno sú len prikývnutie a reagovať na ne "
         "osobitne vyzerá, akoby si odpisovala zoznamu. Vyber to, čo naozaj "

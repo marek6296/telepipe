@@ -96,7 +96,7 @@ class TestObaKanalyToPouzivaju:
         for subor in ("userbot.py", "fanvue_agent.py"):
             text = (src / subor).read_text("utf-8")
             assert "blok_rozhovoru" in text, subor
-            assert "pokyn_pre_model" in text, subor
+            assert "conversation_timing.prompt_with_timing" in text, subor
 
     def test_karta_vypise_kazdu_na_vlastny_riadok(self):
         import control_bot

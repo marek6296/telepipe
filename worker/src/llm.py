@@ -236,8 +236,7 @@ class Llm:
         seed: str = "",
         model: str = "",
     ) -> List[str]:
-        """Semi-auto: `n` alternatívnych odpovedí v jej hlase, prvá je najlepšia
-        (tú pošle časový fallback).
+        """Semi-auto: `n` alternatívnych odpovedí v jej hlase, prvá je najlepšia.
 
         PREČO `angles`. Pôvodne sa pýtalo na „iný uhol/nálada (hravá, vrúcna,
         dráždivá)" a výsledkom boli tri takmer identické správy — naostro
@@ -267,7 +266,9 @@ class Llm:
             "— všetky reagujú na TO ISTÉ, čo práve napísal, a na to, o čom ste sa "
             "bavili; žiadny variant nesmie byť veta, ktorá by sedela do "
             "hocijakého chatu\n"
-            "— aspoň jedna z nich sa oprie o niečo konkrétne z posledných správ\n"
+            "— všetky sedia na AKTUÁLNY blok správ a jeho čas; stará téma je "
+            "len pozadie, pokiaľ sa k nej teraz nevracia. Ak sa teraz pozdravil, "
+            "žiadny variant nesmie preskočiť otvorenie dnešného rozhovoru\n"
             "— pokyny vyššie (kde si, čo práve robíš, čo máš robiť s obsahom) "
             "platia pre všetky tri rovnako; líšia sa ťahom, nie tým, či ich "
             "poslúchnu\n"

@@ -33,6 +33,7 @@ import fanmatch
 import fvflow
 import fvmedia
 import fvsync
+import conversation_timing
 import fvtah
 import prezradenie
 import fvvoice
@@ -581,6 +582,12 @@ class FanvueAgent:
             log.warning("Fanvue rozvrh sa nedá overiť: %s", exc)
             return False
 
+    async def _history_rows(self, conv_key: str) -> List[Dict[str, Any]]:
+        # Legacy standalone adapter has no source timestamps; unknown stays
+        # unknown. The tenant adapter preserves occurred_at from Fanvue.
+        load = getattr(self._db, "history_rows", self._db.history)
+        return await load(conv_key)
+
     async def _require_auto_hours(self, settings: Dict[str, Any]) -> None:
         if settings.get("reply_mode", "auto") != "auto" or not await self._auto_hours_open(settings):
             raise ReplyDeferred("waiting_for_schedule_or_approval")
@@ -914,9 +921,11 @@ class FanvueAgent:
         self._rezim(behavior)
         teraz_local = local_now(behavior)
         prompt = build_prompt(persona, settings, fan, row, None, teraz_local)
-        history = (await self._db.history(fan["uuid"])) + [
+        history = (await self._history_rows(fan["uuid"])) + [
             {"role": "user", "content": fvflow.thanks_hint(cents, kolkykrat)}
         ]
+        turn = conversation_timing.analyze(history, now_local=teraz_local)
+        prompt = conversation_timing.prompt_with_timing(prompt, turn)
 
         if reply_mode == "semi":
             # Kartu si nechá schváliť ako každú inú odpoveď. Zapisuje sa až
@@ -937,7 +946,7 @@ class FanvueAgent:
             return
 
         try:
-            text = (await self._llm.reply(prompt, history)).strip()
+            text = (await self._llm.reply(prompt, turn.messages)).strip()
         except Exception as exc:  # noqa: BLE001 - vďaka je bonus, nie podmienka
             log.warning("Poďakovanie sa nepodarilo napísať: %s", exc)
             return
@@ -1200,6 +1209,9 @@ class FanvueAgent:
             if not await hub.can_reply("fanvue", fan["uuid"]):
                 return
 
+        history = await self._history_rows(fan["uuid"])
+        turn = conversation_timing.analyze(history, now_local=local_now(await self._db.behavior()))
+        fan["text"] = turn.latest_text or fan.get("text", "")
         sit = await self._situacia(fan, row, settings)
         persona, behavior, teraz, blok = sit.persona, sit.behavior, sit.teraz, sit.blok
         kde, moment, foto_ok, dlzi = sit.kde, sit.moment, sit.foto_ok, sit.dlzi
@@ -1211,7 +1223,7 @@ class FanvueAgent:
             log.info("Mimo času na Fanvue — %s ostáva bez odpovede", fan["uuid"][:8])
             raise ReplyDeferred("outside_fanvue_hours")
 
-        history = await self._db.history(fan["uuid"])
+        prompt = conversation_timing.prompt_with_timing(prompt, turn)
 
         # Semi: namiesto odoslania vygeneruj návrhy a pošli majiteľovi kartu.
         if semi:
@@ -1232,7 +1244,7 @@ class FanvueAgent:
                 )
             return
 
-        text = (await self._llm.reply(prompt, history)).strip()
+        text = (await self._llm.reply(prompt, turn.messages)).strip()
         text = self._clean(text)
         if not text or not self._safe(text):
             return
@@ -1342,9 +1354,11 @@ class FanvueAgent:
         if not self._control:
             log.warning("Fanvue semi: control bot nie je pripojený — %s bez karty", fan["uuid"][:8])
             return False
+        now_local = local_now(await self._db.behavior())
+        turn = conversation_timing.analyze(history, now_local=now_local)
         try:
             suggestions = await self._llm.suggest(
-                prompt + prehlad.pokyn_pre_model(history), history,
+                conversation_timing.prompt_with_timing(prompt, turn), turn.messages,
                 angles=uhly_pre(row, await self._db.settings()),
             )
         except Exception as exc:  # noqa: BLE001
@@ -1360,7 +1374,7 @@ class FanvueAgent:
             conv_key=fan["uuid"],
             display_name=name,
             incoming_preview=(
-                preview or prehlad.blok_rozhovoru(history) or (fan.get("text") or "")
+                preview or prehlad.blok_rozhovoru(history, now_local=now_local) or (fan.get("text") or "")
             ),
             suggestions=suggestions,
             hint=tip,
@@ -1387,24 +1401,23 @@ class FanvueAgent:
         if not row:
             return {}
         settings = await self._db.settings()
-        history = await self._db.history(conv_key)
-        posledna = ""
-        for message in reversed(history):
-            if message.get("role") == "user":
-                posledna = str(message.get("content") or "")
-                break
+        if not await self._reconcile({"uuid": conv_key, "text": ""}, row,
+                                     mark_read=False, sync_only=True):
+            return {}
+        history = await self._history_rows(conv_key)
+        turn = conversation_timing.analyze(history, now_local=local_now(await self._db.behavior()))
         fan = {
             "uuid": conv_key,
             "handle": str(row.get("handle") or ""),
             "display_name": str(row.get("display_name") or ""),
             "avatar_url": str(row.get("avatar_url") or ""),
-            "text": posledna,
+            "text": turn.latest_text,
         }
         sit = await self._situacia(fan, row, settings)
-        prompt = sit.prompt + zadanie.do_promptu(brief)
+        prompt = conversation_timing.prompt_with_timing(sit.prompt, turn) + zadanie.do_promptu(brief)
         suggestions = await self._llm.suggest(
             prompt,
-            history,
+            turn.messages,
             angles=UHLY_ZADANIE if brief else uhly_pre(row, settings),
             seed=seed or "2",
         )
@@ -1530,7 +1543,8 @@ class FanvueAgent:
         return False
 
     async def _reconcile(
-        self, fan: Dict[str, Any], row: Dict[str, Any], mark_read: bool = False
+        self, fan: Dict[str, Any], row: Dict[str, Any], mark_read: bool = False,
+        *, sync_only: bool = False,
     ) -> bool:
         """Doplní, čo v pamäti chýba. False = teraz sa neodpisuje.
 
@@ -1543,11 +1557,14 @@ class FanvueAgent:
         creator = str((await self._db.settings()).get("creator_uuid") or "")
         skutocne = await self._api.chat_messages(fan["uuid"], mark_read=mark_read)
         if not skutocne:
-            await self._db.add_message(fan["uuid"], "user", fan["text"])
+            if fan.get("text"):
+                await self._db.add_message(fan["uuid"], "user", fan["text"])
             return True
 
         try:
             zname = await self._db.known_message_uuids(fan["uuid"])
+            if backfill := getattr(self._db, "backfill_message_times", None):
+                await backfill(fan["uuid"], fvsync.message_times(skutocne))
             chybajuce = fvsync.missing(
                 zname, skutocne, creator,
                 bez_uuid=await self._db.texty_bez_uuid(fan["uuid"]),
@@ -1582,7 +1599,7 @@ class FanvueAgent:
                 await self._db.update_fan(fan["uuid"], patch)
                 row.update(patch)
                 log.info("Fanúšik %s má kúpené: %s", fan["uuid"][:8], kupil)
-            if row.get("pending_thanks"):
+            if row.get("pending_thanks") and not sync_only:
                 # Počet nákupov je už pravda aj keď sa práve zatvorilo okno.
                 # Samostatný trvalý príznak nesie nedokončené poďakovanie.
                 await self._thank(

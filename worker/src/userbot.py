@@ -30,6 +30,7 @@ import limity
 import ludskost
 import odkazy
 import memory
+import conversation_timing
 import photos
 import prezradenie
 import prehlad
@@ -477,7 +478,10 @@ class UserBot:
             log.info("Preskakujem %s: správu %s spracoval niekto iný", tg_id, message_id)
             return
 
-        await self._db.add_message(tg_id, "user", text)
+        stamp = getattr(event, "date", None)
+        await self._db.add_message(tg_id, "user", text, **(
+            {"created_at": stamp.isoformat()} if isinstance(stamp, datetime) else {}
+        ))
         if hub := getattr(self._db, "hub", None):
             await hub.observe("telegram", str(tg_id), user.get("username", ""), user.get("first_name", ""), text)
 
@@ -742,10 +746,8 @@ class UserBot:
             await self._db.update_user(tg_id, {"pending_reply": False})
             return
 
-        history = memory.to_chat_history(rows)
-        last_user_text = next(
-            (r["content"] for r in reversed(history) if r["role"] == "user"), ""
-        )
+        turn = conversation_timing.analyze(rows, now_local=now_local)
+        history, last_user_text = turn.messages, turn.latest_text
 
         # Občas „zabudne“ odpovedať a vráti sa k tomu až za pár hodín.
         # Čas sa ukladá do DB, takže to prežije restart workera.
@@ -841,6 +843,13 @@ class UserBot:
             if obnovene is None:
                 return
             user, rows, history, last_user_text = obnovene
+            now_local = datetime.now(ZoneInfo(behavior.active_tz))
+            turn = conversation_timing.analyze(rows, now_local=now_local)
+            history, last_user_text = turn.messages, turn.latest_text
+            if hub:
+                dnesny_blok, shared_mood = await hub.day(now_local, rozvrh)
+            else:
+                dnesny_blok = den.block_at(now_local, self._cfg.supabase_schema, rozvrh)
             gap = bhv.gap_hours(
                 _parse_ts(user.get("last_reply_at")), datetime.now(timezone.utc)
             )
@@ -1140,7 +1149,7 @@ class UserBot:
             weather_now = ""
 
         # Čím je jeho správa: holý pozdrav, alebo len prikývnutie bez obsahu.
-        pozdravil = humanize.is_bare_greeting(last_user_text)
+        pozdravil = turn.has_greeting
         prikyvol = humanize.is_filler(last_user_text)
         # Jej posledné správy. Idú pisateľovi ako zákaz opakovania, sudcovi
         # ako podklad na kontrolu a post-processingu na potlačenie otváračov.
@@ -1225,7 +1234,7 @@ class UserBot:
             page_question=funnel.asks_where_content(last_user_text),
             allow_long=allow_long,
             foreign=humanize.looks_foreign(last_user_text),
-            bare_greeting=humanize.is_bare_greeting(last_user_text),
+            bare_greeting=turn.greeting_only,
             taper=utlm,
             morning=outreach_mod.guidance(user) if morning else "",
             his_question=humanize.last_question(last_user_text),
@@ -1244,13 +1253,14 @@ class UserBot:
         if hub:
             system += await hub.context("telegram", str(tg_id))
             system += hub.mood_prompt(shared_mood)
+        system = conversation_timing.prompt_with_timing(system, turn)
 
         # Semi: namiesto odoslania vygeneruj návrhy a pošli majiteľovi na
         # schválenie. Prompt aj kontext sú tie isté ako pri Auto, takže návrhy
         # znejú presne ako ona. Odoslanie prebehne až po kliku (viď
         # `deliver_text`/`deliver_photo`/`deliver_voice`).
         if semi:
-            await self._handoff_semi(tg_id, user, system, history, last_user_text)
+            await self._handoff_semi(tg_id, user, system, rows, last_user_text)
             return
 
         try:
@@ -1634,10 +1644,8 @@ class UserBot:
             log.info("%s: počas čakania už odpoveď odišla — nepíšem druhú", tg_id)
             await self._db.update_user(tg_id, {"pending_reply": False})
             return None
-        history = memory.to_chat_history(rows)
-        last_user_text = next(
-            (r["content"] for r in reversed(history) if r["role"] == "user"), ""
-        )
+        turn = conversation_timing.analyze(rows)
+        history, last_user_text = turn.messages, turn.latest_text
         return user, rows, history, last_user_text
 
     async def _flood_ok(self) -> bool:
@@ -2293,9 +2301,13 @@ class UserBot:
             # Bez kontrolného bota niet ako schvaľovať — nechaj čakať sweeperu.
             await self._db.update_user(tg_id, {"pending_reply": True})
             return
+        behavior = await self._behavior()
+        now_local = datetime.now(ZoneInfo(behavior.active_tz))
+        turn = conversation_timing.analyze(history, now_local=now_local)
         try:
             suggestions = await self._llm.suggest(
-                system + prehlad.pokyn_pre_model(history), history, angles=UHLY_SEMI
+                conversation_timing.prompt_with_timing(system, turn),
+                turn.messages, angles=UHLY_SEMI
             )
         except Exception as exc:  # noqa: BLE001
             log.error("%s: návrhy zlyhali (%s) — nechávam na sweeper", tg_id, exc)
@@ -2311,7 +2323,7 @@ class UserBot:
             display_name=name,
             # Všetko, na čo ešte neodpovedala — kým majiteľ rozhoduje,
             # človek píše ďalej a karta sa má dopĺňať, nie prepisovať.
-            incoming_preview=prehlad.blok_rozhovoru(history) or last_user_text,
+            incoming_preview=prehlad.blok_rozhovoru(history, now_local=now_local) or last_user_text,
             suggestions=suggestions,
             # Snímka sveta pre „Regenerate" a „Say this". Na Telegrame sa
             # neskladá odznova ako na Fanvue: do tohto promptu vstupuje počasie,
@@ -2344,10 +2356,36 @@ class UserBot:
             log.warning("%s: karta nemá uložený prompt, nové návrhy nerobím", tg_id)
             return {}
         rows = await self._db.recent_messages(tg_id, self._cfg.context_messages)
-        history = memory.to_chat_history(rows)
+        behavior = await self._behavior()
+        now_local = datetime.now(ZoneInfo(behavior.active_tz))
+        turn = conversation_timing.analyze(rows, now_local=now_local)
+        # Fakty zo snímky platia ďalej, príkazy odvodené zo starého turnu nie.
+        stale_sections = (
+            "ČAS\n", "NAPÍSAL LEN POZDRAV\n", "NA TOTO SA PÝTAL\n",
+            "LEN PRIKÝVOL", "CHCE HOVOR ALEBO STRETNUTIE\n", "PÍŠETE SI UŽ ",
+            "PRÁVE BOL NA TEBA DRZÝ\n", "NEPOČUL, ČO SI POVEDALA V HLASOVKE\n",
+            "POSLAL TI FOTKU\n", "POSLAL TI EXPLICITNÚ FOTKU\n", "POSLAL SNÍMKU OBRAZOVKY\n",
+            "PRÁVE MU POSIELAŠ ", "PÝTA SI HLASOVKU", "FOTKU PÝTA",
+            "TÁTO HLASOVKA", "Fotku si nevypýtal", "Fotka nie je nahá.",
+            "MYSLÍ SI, ŽE SI AI", "POZOR: práve sa ťa spýtal, či si AI.",
+            "UŽ S TÝM OTRAVUJE", "OBVIŇUJE ŤA, ŽE SI BOT",
+            "SPÝTAJ SA HO, ČI TO CHCE VIDIEŤ\n", "POVEDAL ÁNO — POŠLI MU TO\n",
+            "DRZÝ VTIP", "PÝTA SA, KDE TVOJ OBSAH NÁJDE\n",
+            "ODKAZ MUSÍ BYŤ V TEJTO SPRÁVE\n", "ODKAZ MUSÍ ÍSŤ VON V TEJTO ODPOVEDI\n",
+        )
+        system = "\n\n".join(section for section in system.split("\n\n")
+                             if not section.startswith(stale_sections))
+        rozvrh = await self._rozvrh()
+        hub = getattr(self._db, "hub", None)
+        if hub:
+            block, _ = await hub.day(now_local, rozvrh)
+        else:
+            block = den.block_at(now_local, self._cfg.supabase_schema, rozvrh)
+        if block:
+            system += "\n\nAktuálny denný rozvrh: " + den.describe(block)
         suggestions = await self._llm.suggest(
-            system + zadanie.do_promptu(brief),
-            history,
+            conversation_timing.prompt_with_timing(system, turn) + zadanie.do_promptu(brief),
+            turn.messages,
             angles=UHLY_ZADANIE if brief else UHLY_SEMI,
             seed=seed or "2",
         )
@@ -3423,7 +3461,8 @@ class Reconciler:
         missed.reverse()  # chronologicky
         count = int(user.get("msg_count") or 0)
         for message in missed:
-            await self._db.add_message(tg_id, "user", message.message.strip())
+            await self._db.add_message(tg_id, "user", message.message.strip(),
+                                       created_at=message.date.isoformat())
             count += 1
         stats["dotiahnutych"] += len(missed)
 

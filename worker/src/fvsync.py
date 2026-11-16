@@ -23,7 +23,25 @@ naozaj kúpil — inak by sme o tom nevedeli.
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
+
+
+def message_times(fetched: Sequence[Dict[str, Any]]) -> Dict[str, str]:
+    """Iba skutočné provider sentAt; čas importu nie je časom správy."""
+    out = {}
+    for message in fetched:
+        uuid, value = str(message.get("uuid") or ""), message.get("sentAt")
+        if not uuid or not value:
+            continue
+        try:
+            stamp = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            if stamp.tzinfo is None:
+                continue
+            out[uuid] = stamp.astimezone(timezone.utc).isoformat()
+        except (ValueError, TypeError, OverflowError):
+            continue
+    return out
 
 
 def role_of(message: Dict[str, Any], creator_uuid: str) -> str:
@@ -66,6 +84,7 @@ def missing(
     a modelka mala v histórii vlastnú poslednú vetu dvakrát.
     """
     uz_mame = {str(t) for t in bez_uuid}
+    times = message_times(fetched)
     out: List[Dict[str, str]] = []
     for message in reversed(list(fetched)):
         uuid = str(message.get("uuid") or "")
@@ -84,6 +103,7 @@ def missing(
                 "message_uuid": uuid,
                 "role": role_of(message, creator_uuid),
                 "content": text[:2000],
+                **({"occurred_at": times[uuid]} if uuid in times else {}),
             }
         )
     return out

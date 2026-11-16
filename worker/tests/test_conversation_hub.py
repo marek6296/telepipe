@@ -53,6 +53,16 @@ async def test_verified_context_has_source_and_model_filters():
     assert all(params['model_id'] == 'eq.m' for _, params in t.calls)
 
 
+async def test_verified_fanvue_context_uses_source_time_and_is_background():
+    t = Store()
+    t.rows['/conversation_identities'] = [identity('a', 'telegram', '1'), identity('b', 'fanvue', '2')]
+    t.rows['/fv_messages'] = [dict(model_id='m', fan_uuid='2', role='user', content='my dog is Rex', occurred_at=None)]
+    result = await ConversationHub(t, 'm').context('telegram', '1')
+    query = next(params for path, params in t.calls if path == '/fv_messages')
+    assert 'occurred_at' in query['select'] and 'created_at' not in query['select']
+    assert 'background' in result and 'unknown' in result
+
+
 @pytest.mark.asyncio
 async def test_same_saved_day_across_channels_and_schedule_edits():
     t = Store()

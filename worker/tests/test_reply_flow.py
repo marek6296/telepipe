@@ -213,8 +213,9 @@ class FakeDb:
     async def recent_messages(self, tg_id, limit):
         return self.messages[-limit:]
 
-    async def add_message(self, tg_id, role, content):
-        self.messages.append({"role": role, "content": content})
+    async def add_message(self, tg_id, role, content, *, created_at=None):
+        self.messages.append({"role": role, "content": content,
+                              **({"created_at": created_at} if created_at else {})})
 
     async def pending_users(self):
         return [dict(u) for u in self.users.values() if u.get("pending_reply")]

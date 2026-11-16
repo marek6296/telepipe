@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import humanize
+import conversation_timing
 import instagram_api as api
 import instagram_pravidla as pravidla
 import prehlad
@@ -109,9 +110,6 @@ class InstagramAgent:
         persona = await self._db.persona()
         behavior = Behavior.from_row(await self._db.behavior())
         historia = await self._db.history(igsid, KONTEXT)
-        posledny_text = next(
-            (m["content"] for m in reversed(historia) if m["role"] == "user"), ""
-        )
 
         # Pikantnosť z karty Instagramu prebíja telegramovú — je to iná
         # platforma s inými pravidlami a `hot` tu neexistuje. `Behavior` je
@@ -123,6 +121,13 @@ class InstagramAgent:
         from zoneinfo import ZoneInfo
         import den
         local = datetime.now(timezone.utc).astimezone(ZoneInfo(behavior.active_tz))
+        turn = conversation_timing.analyze(historia, now_local=local)
+        posledny_text = turn.latest_text
+        sent = next((m for m in reversed(historia) if m['role'] == 'assistant'), None)
+        sent_at = conversation_timing.message_time(sent) if sent else None
+        gap = max(0.0, (local - sent_at).total_seconds() / 3600) if sent_at else (
+            0.0 if sent or int(user.get('msg_count') or 0) > 0 else None
+        )
         block, mood = await self._db.hub.day(local, den.Rozvrh.from_row(await self._db.schedule()))
         system = build_system_prompt(
             persona,
@@ -136,10 +141,11 @@ class InstagramAgent:
             # Odkaz na platenú platformu sa na Instagrame neposiela NIKDY —
             # ani keď oň priamo pýta. Toto je ten vypínač.
             allow_link=False,
+            gap=gap,
             asked_if_ai=humanize.looks_like_ai_question(posledny_text),
             behavior=behavior,
             foreign=humanize.looks_foreign(posledny_text),
-            bare_greeting=humanize.is_bare_greeting(posledny_text),
+            bare_greeting=turn.greeting_only,
             his_question=humanize.last_question(posledny_text),
             # Na Instagrame neodchádza žiadne médium (viď `instagram_pravidla`),
             # takže sľúbená fotka je sľub, ktorý sa nedá splniť ani omylom.
@@ -154,7 +160,7 @@ class InstagramAgent:
         if user.get('last_typo'):
             import json
             system += '\nIf asked about your last typo, correct it briefly in your voice: ' + json.dumps(user['last_typo'])
-        return system, historia, behavior, posledny_text
+        return conversation_timing.prompt_with_timing(system, turn), historia, behavior, posledny_text
 
     def _ocisti(
         self,
@@ -179,7 +185,7 @@ class InstagramAgent:
             0.0,
             False,  # allow_link=False → prípadná adresa sa aj tak odstráni
             jej_nedavne,
-            he_greeted=humanize.is_bare_greeting(posledny_text),
+            he_greeted=conversation_timing.analyze(historia).has_greeting,
         )
         if len(markers) > 1:
             return ''
@@ -191,12 +197,14 @@ class InstagramAgent:
 
     async def _napis(self, user: Dict[str, Any], igsid: str, nastavenia: Dict[str, Any]) -> str:
         system, historia, behavior, posledny = await self._prompt(user, igsid, nastavenia)
-        surova = await self._llm.reply(system, historia)
+        from zoneinfo import ZoneInfo
+        messages = conversation_timing.analyze(historia, now_local=datetime.now(timezone.utc).astimezone(ZoneInfo(behavior.active_tz))).messages
+        surova = await self._llm.reply(system, messages)
         text = self._ocisti(surova, behavior, historia, posledny)
         from conversation_policy import normalise
         previous = {normalise(m['content']) for m in historia if m['role'] == 'assistant'}
         if text and normalise(text) in previous:
-            surova = await self._llm.reply(system + '\nDo not repeat a previous response; answer the latest specific message.', historia)
+            surova = await self._llm.reply(system + '\nDo not repeat a previous response; answer the current turn.', messages)
             text = self._ocisti(surova, behavior, historia, posledny)
             if normalise(text) in previous:
                 return ''
@@ -213,10 +221,12 @@ class InstagramAgent:
         """Tri očistené návrhy pre semi kartu (alebo Regenerate / Say this)."""
         system, historia, behavior, posledny = await self._prompt(user, igsid, nastavenia)
         system += prehlad.pokyn_pre_model(historia)
+        from zoneinfo import ZoneInfo
+        messages = conversation_timing.analyze(historia, now_local=datetime.now(timezone.utc).astimezone(ZoneInfo(behavior.active_tz))).messages
         if brief:
             system += zadanie.do_promptu(brief)
         surove = await self._llm.suggest(
-            system, historia, angles=UHLY_ZADANIE if brief else UHLY, seed=seed,
+            system, messages, angles=UHLY_ZADANIE if brief else UHLY, seed=seed,
         )
         navrhy: List[str] = []
         offer = await self._delivery.offer_state(nastavenia, user)

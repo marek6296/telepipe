@@ -227,13 +227,13 @@ class TenantInstagramDb:
             {
                 "model_id": self._mine,
                 "igsid": f"eq.{igsid}",
-                "select": "role,content,created_at",
+                "select": "role,content,occurred_at",
                 "order": "occurred_at.desc.nullslast,id.desc",
                 "limit": str(limit),
             },
         )
         return [
-            {"role": str(r.get("role") or "user"), "content": str(r.get("content") or "")}
+            {"role": str(r.get("role") or "user"), "content": str(r.get("content") or ""), "occurred_at": r.get("occurred_at")}
             for r in reversed(rows)
         ]
 

@@ -270,6 +270,7 @@ class TestSpravy:
     async def test_add_message_zapise_riadok_s_modelkou(self):
         calls = []
         await _db({}, calls).add_message("f1", "assistant", "ahoj")
+        assert datetime.fromisoformat(calls[-1]["body"].pop("occurred_at")).tzinfo is not None
         assert calls[-1]["body"] == {
             "model_id": MODEL, "fan_uuid": "f1", "role": "assistant", "content": "ahoj",
         }
@@ -1092,3 +1093,40 @@ class TestDurableReplyQueue:
         assert await db.record_payment_once(77, 'fan-1', 3099) == row
         assert calls[-1]['body'] == {'p_model_id': 'model-A', 'p_event_id': 77,
                                     'p_fan_uuid': 'fan-1', 'p_cents': 3099}
+
+
+class TestSourceMessageTimes:
+    async def test_rich_history_reorders_known_times_but_keeps_unknown_slots(self):
+        calls = []
+        # Newest DB row is an imported older message; unknown-time rows
+        # retain their insertion position instead of being guessed old/new.
+        rows = [
+            {'role':'user','content':'old imported','occurred_at':'2025-11-15T20:00:00Z'},
+            {'role':'user','content':'unknown','occurred_at':None},
+            {'role':'user','content':'hello today','occurred_at':'2025-11-16T20:00:00Z'},
+        ]
+        history = await _db({'/fv_messages':rows}, calls).history_rows('fan-1')
+        assert [r['content'] for r in history] == ['old imported','unknown','hello today']
+        assert history[1]['occurred_at'] is None
+        assert 'model_id=eq.model-A' in calls[-1]['url']
+
+    async def test_latest_unknown_is_not_dropped_behind_sixteen_known_old_rows(self):
+        calls = []
+        rows = [{'role':'user','content':'newest unknown','occurred_at':None}] + [
+            {'role':'user','content':f'old {i}','occurred_at':f'2026-11-15T20:{i:02d}:00Z'}
+            for i in range(16,0,-1)]
+        history = await _db({'/fv_messages':rows}, calls).history_rows('fan-1')
+        assert len(history) == 16
+        assert history[-1]['content'] == 'newest unknown'
+        assert history[-1]['occurred_at'] is None
+        assert 'order=id.desc' in calls[-1]['url']
+
+    async def test_backfill_only_updates_matching_null_source_time_for_same_tenant_and_fan(self):
+        calls = []
+        db = _db({'/fv_messages':[{'message_uuid':'existing'},{'message_uuid':'unmatched'}]}, calls)
+        await db.backfill_message_times('fan-1', {'existing':'2026-11-15T20:00:00+00:00'})
+        updates = [c for c in calls if c['method'] == 'PATCH']
+        assert len(updates) == 1
+        assert updates[0]['body'] == {'occurred_at':'2026-11-15T20:00:00+00:00'}
+        assert all(part in updates[0]['url'] for part in
+            ('model_id=eq.model-A','fan_uuid=eq.fan-1','message_uuid=eq.existing','occurred_at=is.null'))

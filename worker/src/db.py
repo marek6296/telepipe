@@ -1212,10 +1212,13 @@ class TenantDb:
 
     # ---------- správy ----------
 
-    async def add_message(self, tg_id: int, role: str, content: str) -> None:
+    async def add_message(
+        self, tg_id: int, role: str, content: str, *, created_at: Optional[str] = None
+    ) -> None:
         await self._post(
             MESSAGES,
-            {"model_id": self.model_id, "tg_id": tg_id, "role": role, "content": content},
+            {"model_id": self.model_id, "tg_id": tg_id, "role": role, "content": content,
+             **({"created_at": created_at} if created_at else {})},
         )
 
     async def recent_messages(self, tg_id: int, limit: int) -> List[Dict[str, Any]]:
