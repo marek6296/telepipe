@@ -130,7 +130,9 @@ Owner reported proposals answering yesterday's topic after a new greeting and ch
 
 - [x] RED → GREEN shared chronology and IG generation/card regressions using neutral conversations.
 - [x] TG/FV adapters and source-time preservation, fresh regeneration snapshots.
-- [ ] Full worker suite, actual migration contracts, focused review; exact runtime rollout.
-- [ ] Refresh the affected unsent owner proposal without sending to a fan; verify runtime and record evidence.
+- [x] Full worker suite, actual migration contracts, focused review; exact runtime rollout.
+- [x] Refresh the affected unsent owner proposal without sending to a fan; verify runtime and record evidence.
 
 Validation: 2551 worker tests passed, 2 deselected; both actual SQL migration suites pass. Focused independent review reproduced and closed late-import chronology, IG returning-contact classification and stale TG question instructions. No open Critical/Important findings. Nullable Fanvue source timestamp migration applied; legacy import dates are not backfilled as message dates. No test message or read receipt sent to a fan.
+
+Temporal rollout evidence: runtime `0c84a22467d3217cbf1f543f3035378893869a25`, Railway `e06f6bb5-d1d6-4aca-8dff-df6380e593a4` SUCCESS and Vercel `dpl_GxstKdhiZijud2neNwfpnze8GNja` READY. All three runners verified. A pre-existing Meta error 0 pause was cleared only after a successful read-only conversations request; production poll resumed without error. The affected unsent card was superseded and rebuilt by the new worker: all three live proposals acknowledge the current greeting/check-in, local source timestamps appear in the owner preview, and approval is still required. No fan send reservation or test read receipt.

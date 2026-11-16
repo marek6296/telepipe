@@ -4,8 +4,8 @@ Stav: **spoločná vrstva a Instagram fronta implementované a nasadené 2026-11
 
 ## Nasadený výsledok a overenie
 
-- Worker `c0406697f473da8d5c67360d8705b3b169d798de`, Railway deployment `6a775f7c-2ce5-4e0e-9929-eaa9e5c0faa6` SUCCESS. Vercel web `dpl_EKv71q9Y5qxwggWaJLoUKB8Q1Z9d` READY na rovnakom SHA.
-- Supabase aplikované migrácie `shared_conversations`, `conversation_rollout_controls`, `identity_change_pending_replies`, `instagram_destination_budgets`, `instagram_unanswered_recovery`, `fanvue_deferred_replies`, `fanvue_pending_thanks`. Nové tabuľky majú owner-read RLS, mutačné RPC iba service_role; overené aj na produkčných grantoch.
+- Worker `0c84a22467d3217cbf1f543f3035378893869a25`, Railway deployment `e06f6bb5-d1d6-4aca-8dff-df6380e593a4` SUCCESS. Vercel web `dpl_GxstKdhiZijud2neNwfpnze8GNja` READY na rovnakom runtime SHA.
+- Supabase aplikované migrácie `shared_conversations`, `conversation_rollout_controls`, `identity_change_pending_replies`, `instagram_destination_budgets`, `instagram_unanswered_recovery`, `fanvue_deferred_replies`, `fanvue_pending_thanks`, `conversation_message_times`. Nové tabuľky majú owner-read RLS, mutačné RPC iba service_role; overené aj na produkčných grantoch.
 - TG/IG/FV používajú uložený spoločný deň, stabilný mierny tón, auditované identity a kontext overenej osoby. Automatické rozpoznanie zostáva vratnou indíciou. Potvrdenie súkromnej pamäte dnes robí majiteľ v Telepipe; automatický bezpečnostný challenge medzi účtami nie je súčasťou dodávky.
 - Pamäť používa existujúce kanálové archívy a posledných 12 správ z každého ďalšieho overeného účtu (max 16 000 znakov spolu). Pôvodná vlastná pamäť každého kanála zostáva. Rozsiahly nový graf faktov/epizód z návrhu nebol zavedený a nejde o garanciu úplnej znalosti všetkých historických detailov.
 - IG: durable ingest/fronta, pôvodné časy, LA dostupnosť, reprodukovateľné odstupy, databázové rezervácie a limity, versioned Semi, kontrola aktuálneho remote kontextu, ručný takeover, uncertain bez slepého retry. Komentáre iba v Auto; DM a reakcie rešpektujú zvolený režim. API verejné lajky a týždenné organické follow-upy sa nezapínajú.
@@ -37,6 +37,12 @@ Následný review samostatných rozpočtov našiel 1 Important (zmiešané ručn
 Review obnovy a časovania: štyri IG nálezy (Skip, režim pred rezerváciou/po seen, obnovený photo kind) a dva TG/FV nálezy (čiastočné odoslanie, odložená vďaka) opravené s regresiami. Posledné dva nezávisle znovu overené.
 
 Rozhodnutia pri realizácii: delegované schválenie pokrýva merge/push/deploy bez ďalšieho menu; žiadny paralelný lokálny Telethon worker; automatické rozpoznanie neznamená prístup k cudzej súkromnej histórii; nepodporované Meta schopnosti sa nesimulujú. Podrobný [realizačný plán](../plans/2026-11-16-shared-conversations.md).
+
+### Aktuálny blok rozhovoru a zdrojové časy
+
+IG/TG/FV zachovávajú zdrojový čas správy. Spoločný helper rozlíši aktuálny inbound blok od starších nezodpovedaných tém pri pauze aspoň štyri hodiny; samotná polnoc nie je reset. Pozdrav pred následným check-inom/otázkou zostane súčasťou aktuálneho bloku aj pre sanitizer. História ostáva dostupná pri výslovnom návrate k staršej téme. Neskorý import starej odpovede nesmie prehodiť poradie; neznámy čas sa neodvodzuje z importu. Fanvue `occurred_at` je nullable, pri zosúladení sa dopĺňa zo skutočného `sentAt` podľa UUID.
+
+Auto, Semi, Regenerate aj Say this používajú rovnaký časový kontext. Regenerate obnoví čas/deň a odstráni staré situačné príkazy zo snapshotu. Owner karty ukazujú dátum a lokálny čas. Overené 2551 worker testami / 2 deselected, oboma skutočnými SQL kontraktmi a nezávislým review bez otvoreného Critical/Important nálezu. Žiadna skúšobná správa fanúšikovi neodišla.
 
 ## 1. Výsledok, ktorý chceme
 
