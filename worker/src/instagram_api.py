@@ -42,6 +42,14 @@ OKNO_H = 24
 # starších než dvadsať aj tak nevráti.
 HISTORIA = 20
 
+# Koľko komentárov na príspevok sa pýta. Staršie než posledných pár desiatok
+# aj tak nemá zmysel dobiehať — odpoveď týždeň po komentári pôsobí ako bot.
+KOMENTARE_NA_PRISPEVOK = 25
+
+# Odpoveď pod komentárom je verejná a má byť krátka. Instagram znesie viac,
+# ale jedna veta pod príspevkom je to, čo píše človek.
+MAX_BAJTOV_KOMENTAR = 300
+
 
 class InstagramError(RuntimeError):
     """Čokoľvek, čo Instagram odmietol. Nesie aj kód, nech sa dá rozhodnúť."""
@@ -117,6 +125,79 @@ def posli_text(token: str, igsid: str, text: str) -> Dict[str, Any]:
         _url("me/messages", token),
         {"recipient": {"id": str(igsid)}, "message": {"text": orezany}},
     )
+
+
+def prispevky_s_komentarmi(token: str, limit: int = 8) -> List[Dict[str, Any]]:
+    """Posledné príspevky aj s komentármi — JEDNÝM volaním.
+
+    Komentáre sa ťahajú vnorene (`comments.limit(...)`) a s nimi aj odpovede
+    pod nimi: z nich sa pozná, či už pod komentárom niečo napísala (ručne
+    v appke alebo minule agent). Volanie na každý príspevok zvlášť by pri
+    pollovaní zjedlo limit API skôr než konverzácie.
+    """
+    out = _volaj(
+        _url(
+            "me/media",
+            token,
+            fields=(
+                "id,caption,timestamp,"
+                f"comments.limit({KOMENTARE_NA_PRISPEVOK})"
+                "{id,text,timestamp,username,from,replies{id,username,from}}"
+            ),
+            limit=limit,
+        )
+    )
+    return list(out.get("data") or [])
+
+
+def odpovedz_na_komentar(token: str, comment_id: str, text: str) -> Dict[str, Any]:
+    """Verejná odpoveď pod komentárom. Vracia odpoveď Instagramu (`id`)."""
+    orezany = orez(text, MAX_BAJTOV_KOMENTAR)
+    if not orezany:
+        raise InstagramError("prázdna odpoveď")
+    return _volaj(_url(f"{comment_id}/replies", token), {"message": orezany})
+
+
+def rozober_komentare(prispevky: List[Dict[str, Any]], moje_id: str, moje_meno: str = "") -> List[Dict[str, Any]]:
+    """Príspevky z API → komentáre cudzích ľudí, pod ktorými ešte nie je jej odpoveď.
+
+    Jej vlastné komentáre sa vynechávajú (inak by si odpovedala sama sebe) a
+    rovnako komentáre, pod ktorými už jej odpoveď je — tie vybavila ručne
+    v appke a druhá odpoveď by vyzerala ako bot.
+    """
+    ja_id = str(moje_id or "")
+    ja_meno = str(moje_meno or "").lower()
+
+    def je_moj(polozka: Dict[str, Any]) -> bool:
+        kto = polozka.get("from") or {}
+        if ja_id and str(kto.get("id") or "") == ja_id:
+            return True
+        meno = str(polozka.get("username") or kto.get("username") or "").lower()
+        return bool(ja_meno) and meno == ja_meno
+
+    out: List[Dict[str, Any]] = []
+    for prispevok in prispevky or []:
+        for komentar in ((prispevok.get("comments") or {}).get("data")) or []:
+            if not komentar.get("id") or je_moj(komentar):
+                continue
+            odpovede = ((komentar.get("replies") or {}).get("data")) or []
+            if any(je_moj(o) for o in odpovede):
+                continue
+            text = str(komentar.get("text") or "").strip()
+            if not text:
+                continue
+            kto = komentar.get("from") or {}
+            out.append(
+                {
+                    "comment_id": str(komentar["id"]),
+                    "media_id": str(prispevok.get("id") or ""),
+                    "caption": str(prispevok.get("caption") or "")[:300],
+                    "username": str(komentar.get("username") or kto.get("username") or ""),
+                    "text": text,
+                    "created_time": komentar.get("timestamp"),
+                }
+            )
+    return out
 
 
 def orez(text: str, strop: int = MAX_BAJTOV) -> str:

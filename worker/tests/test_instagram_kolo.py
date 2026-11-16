@@ -79,15 +79,47 @@ class FakeDb:
             for s in self.spravy if s["igsid"] == igsid
         ][-limit:]
 
+    async def recent_chats(self, limit=10):
+        return [dict(u) for u in self.users.values()][:limit]
+
+    async def handled_comments(self, ids):
+        return {k["comment_id"] for k in getattr(self, "komentare", []) if k["comment_id"] in ids}
+
+    async def save_comment(self, row):
+        self.__dict__.setdefault("komentare", []).append(dict(row))
+
 
 class FakeLlm:
-    def __init__(self, odpoved="hey you 😄"):
+    def __init__(self, odpoved="hey you 😄", navrhy=None):
         self.odpoved = odpoved
+        self.navrhy = navrhy if navrhy is not None else ["návrh jeden", "návrh dva", "návrh tri"]
         self.prompty = []
+        self.suggest_volania = []
 
     async def reply(self, system, history):
         self.prompty.append(system)
         return self.odpoved
+
+    async def suggest(self, system, history, n=3, angles=None, seed="", model=""):
+        self.prompty.append(system)
+        self.suggest_volania.append({"angles": angles, "seed": seed})
+        return list(self.navrhy)
+
+
+class FakeControl:
+    """Control bot: zbiera schvaľovacie karty a registrovaných odosielateľov."""
+
+    def __init__(self, ok=True):
+        self.karty = []
+        self.senders = {}
+        self.ok = ok
+
+    async def post_approval(self, **karta):
+        self.karty.append(karta)
+        return self.ok
+
+    def register_sender(self, channel, sender):
+        self.senders[channel] = sender
 
 
 def _konverzacia(text="hi", pred_h=0, mid="m1"):
@@ -178,13 +210,6 @@ class TestVypinace:
         assert _spusti(db, llm, [_konverzacia()], monkeypatch) == []
 
     def test_semi_rezim_neposiela_ale_navrhuje(self, monkeypatch):
-        class FakeControl:
-            def __init__(self):
-                self.spravy = []
-
-            async def notify(self, text):
-                self.spravy.append(text)
-
         db, llm = FakeDb(reply_mode="semi"), FakeLlm()
         control = FakeControl()
         odoslane = []
@@ -202,7 +227,7 @@ class TestVypinace:
         asyncio.run(agent._kolo())
 
         assert odoslane == [], "v semi režime sa neodosiela"
-        assert control.spravy, "návrh musí prísť majiteľovi"
+        assert control.karty, "návrh musí prísť majiteľovi ako karta"
 
 
 class TestNicZakazaneNeodide:

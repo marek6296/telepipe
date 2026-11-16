@@ -269,6 +269,17 @@ def _parse_hhmm(text: str) -> Optional[int]:
     return h * 60 + m
 
 
+def _plat(channel: str) -> str:
+    """Čitateľný názov kanála na karte."""
+    return {"fanvue": "Fanvue", "instagram": "Instagram"}.get(channel or "", "Telegram")
+
+
+# Kanály, kam sa nedá poslať fotka ani hlasovka. Na Instagrame agent médiá
+# neposiela (viď `instagram_agent`), takže tlačidlá by len sľubovali niečo,
+# čo potom zlyhá.
+BEZ_MEDII = frozenset({"instagram"})
+
+
 def _short(value: Any, limit: int = 28) -> str:
     text = "—" if value in (None, "") else str(value).replace("\n", " ")
     return text if len(text) <= limit else text[: limit - 1] + "…"
@@ -329,7 +340,7 @@ def _card_lines(
     ponuka (`fvflow.tip`). Bez neho sa majiteľ rozhoduje z troch textov a na
     fotku si musí spomenúť sám.
     """
-    plat = "Fanvue" if channel == "fanvue" else "Telegram"
+    plat = _plat(channel)
     lines = [f"💬 *{plat} · {display_name}*"]
     # ROZHOVOR S MENAMI. Karta najprv ukazovala len jeho správy, potom obe
     # strany — jeho v úvodzovkách, jej odsadené kurzívou. Marek: „vidim aj
@@ -644,7 +655,7 @@ class ControlBot:
     async def _zoznam_chatov(self, event, channel: str) -> None:
         """Posledné chaty daného kanála ako tlačidlá."""
         sender = self._senders.get(channel)
-        plat = "Fanvue" if channel == "fanvue" else "Telegram"
+        plat = _plat(channel)
         if not sender or not hasattr(sender, "recent_chats"):
             await event.answer(f"{plat} is not connected", alert=True)
             return
@@ -1215,7 +1226,15 @@ class ControlBot:
         fv = await self._db.fanvue_reply_mode()
         now = datetime.now(timezone.utc)
         for row in rows:
-            fb = tg["fallback_minutes"] if row.get("channel") == "telegram" else fv["fallback_minutes"]
+            channel = row.get("channel")
+            if channel == "telegram":
+                fb = tg["fallback_minutes"]
+            elif channel == "fanvue":
+                fb = fv["fallback_minutes"]
+            else:
+                # Instagram časový fallback nemá: je verejný a v semi chce
+                # majiteľ vidieť každú odpoveď skôr, než odíde.
+                continue
             if not fb:
                 continue
             created = _parse_iso(row.get("created_at"))
@@ -1283,7 +1302,7 @@ class ControlBot:
         try:
             msg = await self._client.send_message(
                 self._cfg.owner_chat_id, "\n".join(lines),
-                buttons=self._approval_buttons(len(suggestions)), link_preview=False,
+                buttons=self._approval_buttons(len(suggestions), channel), link_preview=False,
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("Schvaľovaciu kartu sa nepodarilo poslať: %s", exc)
@@ -1373,9 +1392,9 @@ class ControlBot:
             return True
         return bool(nastavenia.get("pin_approvals", True))
 
-    def _approval_buttons(self, n: int) -> List[List[Button]]:
+    def _approval_buttons(self, n: int, channel: str = "") -> List[List[Button]]:
         nums = [Button.inline(f"{i + 1}️⃣", f"ap:{i}".encode()) for i in range(n)]
-        return [
+        riadky = [
             nums or [Button.inline("✍️ Write", b"ac")],
             # „Regenerate" dá tie isté tri ťahy inak; „Say this" ich napíše na
             # tému, ktorú zadáš vlastnými slovami. Sú vedľa seba zámerne: keď
@@ -1390,6 +1409,9 @@ class ControlBot:
             [Button.inline("📷 Photo", b"af"), Button.inline("🎤 Voice note", b"av")],
             [Button.inline("⏭️ Skip", b"as"), Button.inline("✋ Take over", b"ax")],
         ]
+        if channel in BEZ_MEDII:
+            riadky = [r for r in riadky if not any(b.data in (b"af", b"av") for b in r)]
+        return riadky
 
     async def _forget_card(self, mid: int) -> None:
         """Karta je vybavená: zabudni ju a odopni.
@@ -1509,6 +1531,11 @@ class ControlBot:
                     await self._db.update_user(int(conv), {"human_takeover": True})
                 except Exception:  # noqa: BLE001
                     pass
+            elif hasattr(sender, "take_over"):
+                try:
+                    await sender.take_over(conv)
+                except Exception:  # noqa: BLE001
+                    pass
             await self._forget_card(mid)
             await event.edit("✋ _You're taking over this chat. The AI won't write here._", buttons=None)
         elif head == "af":
@@ -1546,7 +1573,7 @@ class ControlBot:
             except Exception:  # noqa: BLE001 - tlačidlá mohli zmiznúť už predtým
                 pass
         elif head == "ai":
-            await self._show_context(event, sender, conv, suggestions, bool(row))
+            await self._show_context(event, sender, conv, suggestions, bool(row), channel)
         elif head == "ar":
             # Pregenerovanie aj zadanie témy prepisujú KARTU. Bez nej niet čo
             # prepisovať a na samostatnú vetu je v menu generátor.
@@ -1674,13 +1701,15 @@ class ControlBot:
         if not sender:
             await event.answer("Channel not connected", alert=True)
             return
-        plat = "Fanvue" if ctx.get("channel") == "fanvue" else "Telegram"
+        plat = _plat(ctx.get("channel") or "")
         buttons = [
             [Button.inline("✍️ Write a message", b"ac")],
             [Button.inline("📷 Photo", b"af"), Button.inline("🎤 Voice note", b"av")],
             [Button.inline("🧠 Context", b"ai")],
             [Button.inline("✓ Done", b"ad")],
         ]
+        if ctx.get("channel") in BEZ_MEDII:
+            buttons.pop(1)
         await event.edit(
             f"💬 *{plat} · {ctx.get('name') or ctx.get('conv_key')}*\n"
             "_What do you want to send?_",
@@ -1784,10 +1813,14 @@ class ControlBot:
             str(row.get("hint") or ""),
             her_name=self._cfg.name,
         )
-        await event.edit("\n".join(lines), buttons=self._approval_buttons(len(suggestions)))
+        await event.edit(
+            "\n".join(lines),
+            buttons=self._approval_buttons(len(suggestions), row.get("channel") or ""),
+        )
 
     async def _show_context(
-        self, event, sender, conv: str, suggestions, je_karta: bool = True
+        self, event, sender, conv: str, suggestions, je_karta: bool = True,
+        channel: str = "",
     ) -> None:
         """Zhrnutie chatu NAMIESTO karty, aj s návrhmi a tlačidlami.
 
@@ -1814,14 +1847,14 @@ class ControlBot:
             lines.append(f"*{i + 1}️⃣* {sug}")
         # Bez karty (písanie z menu) nemá zmysel ponúkať čísla návrhov —
         # žiadne nie sú. Ostáva písanie, fotka a hlasovka.
-        buttons = (
-            self._approval_buttons(len(suggestions))
-            if je_karta
-            else [
-                [Button.inline("✍️ Write a message", b"ac")],
-                [Button.inline("📷 Photo", b"af"), Button.inline("🎤 Voice note", b"av")],
-            ]
-        )
+        if je_karta:
+            buttons = self._approval_buttons(len(suggestions), channel)
+        else:
+            buttons = [[Button.inline("✍️ Write a message", b"ac")]]
+            if channel not in BEZ_MEDII:
+                buttons.append(
+                    [Button.inline("📷 Photo", b"af"), Button.inline("🎤 Voice note", b"av")]
+                )
         buttons.append([Button.inline(SPAT, b"aback")])
         try:
             await event.edit("\n".join(lines), buttons=buttons, link_preview=False)
@@ -1875,7 +1908,7 @@ class ControlBot:
             brief=brief,
             her_name=self._cfg.name,
         )
-        buttons = self._approval_buttons(len(suggestions))
+        buttons = self._approval_buttons(len(suggestions), row.get("channel") or "")
         text = "\n".join(lines)
 
         # KEĎ ZADANIE PRIŠLO NAPÍSANÉ, výsledok musí prísť TAM, kde majiteľ

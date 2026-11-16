@@ -18,6 +18,7 @@ log = logging.getLogger(__name__)
 INSTAGRAM = "/instagram"
 IG_USERS = "/ig_users"
 IG_MESSAGES = "/ig_messages"
+IG_COMMENTS = "/ig_comments"
 PERSONA = "/persona"
 BEHAVIOR = "/behavior"
 
@@ -153,6 +154,54 @@ class TenantInstagramDb:
                 "role": role,
                 "content": content[:4000],
             },
+        )
+
+    async def recent_chats(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Posledné konverzácie pre menu control bota."""
+        return await self._get(
+            IG_USERS,
+            {
+                "model_id": self._mine,
+                "select": "igsid,username,msg_count,human_takeover,last_incoming_at",
+                "order": "last_incoming_at.desc.nullslast",
+                "limit": str(limit),
+            },
+        )
+
+    # ---------- komentáre ----------
+
+    async def handled_comments(self, comment_ids: List[str]) -> set:
+        """Ktoré z týchto komentárov už sú vybavené (odpovedané alebo preskočené).
+
+        Bez toho by agent pri každom kole odpovedal pod ten istý komentár znova
+        — Instagram odpoveď pod komentár nepovažuje za „prečítané".
+        """
+        ids = [str(i) for i in comment_ids if i]
+        if not ids:
+            return set()
+        rows = await self._get(
+            IG_COMMENTS,
+            {
+                "model_id": self._mine,
+                "comment_id": f"in.({','.join(ids)})",
+                "select": "comment_id",
+            },
+        )
+        return {str(r.get("comment_id") or "") for r in rows}
+
+    async def save_comment(self, row: Dict[str, Any]) -> None:
+        await self._post(
+            IG_COMMENTS,
+            {
+                "model_id": self.model_id,
+                "comment_id": str(row.get("comment_id") or ""),
+                "media_id": str(row.get("media_id") or ""),
+                "username": str(row.get("username") or ""),
+                "text": str(row.get("text") or "")[:2000],
+                "reply_text": str(row.get("reply_text") or "")[:2000],
+                "status": str(row.get("status") or "replied"),
+            },
+            upsert=True,
         )
 
     async def history(self, igsid: str, limit: int = 16) -> List[Dict[str, str]]:

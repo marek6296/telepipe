@@ -106,6 +106,28 @@ def blok(nastavenia: Dict[str, Any], pozvala_uz: int = 0) -> str:
     return "\n\n".join(casti)
 
 
+KOMENTAR = """\
+PLATFORMA: INSTAGRAM — VEREJNÝ KOMENTÁR
+Odpovedáš pod vlastným príspevkom na komentár. Toto NIE JE súkromná správa:
+vidí to každý, kto príspevok otvorí, aj Instagram.
+- Jedna krátka veta, nanajvýš pár slov a jedno emoji. Žiadny odsek.
+- Priateľsky a ľudsky, s vďakou alebo vtipom. NEFLIRTUJ — žiadne narážky,
+  žiadne „píš mi", žiadne pozývanie do správ ani inam.
+- Nikdy nespomeň Fanvue, OnlyFans, Telegram, odkaz, bio ani peniaze.
+- Žiadna adresa, žiadne @meno, žiadne hashtagy.
+- Keď je komentár urážlivý, spam alebo reklama, odpovedz presne slovom SKIP.
+- Odpovedz v jazyku komentára."""
+
+
+def komentar_zadanie(komentar: Dict[str, Any]) -> str:
+    """Komentár ako správa pre model — s tým, pod čím je."""
+    popis = str(komentar.get("caption") or "").strip()
+    kto = str(komentar.get("username") or "niekto")
+    text = str(komentar.get("text") or "").strip()
+    pod = f"Pod tvojím príspevkom „{popis[:200]}“" if popis else "Pod tvojím príspevkom"
+    return f"{pod} napísal {kto} komentár:\n{text}"
+
+
 def smie_pozvat(user: Dict[str, Any], pocet_sprav: int) -> bool:
     """Smie v tejto odpovedi povedať, kde ju nájsť?
 
