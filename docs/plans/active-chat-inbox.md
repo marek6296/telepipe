@@ -30,5 +30,11 @@ a two-minute grace period only when the durable action proves it was not approve
 
 Validation: 2,613 worker tests passed, 2 deselected. Independent review findings
 were addressed with regressions for source versions, concurrent opens, delayed
-input prompts, lost database responses, and legacy approval buttons. Live rollout
-verification is recorded after deployment.
+input prompts, lost database responses, and legacy approval buttons.
+
+Production verification: runtime `3b15ea0` is pinned on Railway (SUCCESS); all three
+tenant runners started on the new replica. Vercel reached READY for the same
+commit. Startup retired the orphaned Instagram card. The owner bot returned the
+new persistent keyboard and the Active chats page with three waiting conversations
+at 21:54 UTC on 2026-11-16. The current Instagram draft remained awaiting, with no
+send reservation. No test message or read receipt was sent to a contact.
