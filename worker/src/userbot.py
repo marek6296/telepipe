@@ -478,6 +478,8 @@ class UserBot:
             return
 
         await self._db.add_message(tg_id, "user", text)
+        if hub := getattr(self._db, "hub", None):
+            await hub.observe("telegram", str(tg_id), user.get("username", ""), user.get("first_name", ""), text)
 
         # Občasná reakcia na jeho text. Až TU, za zámkom správy — reagovať na
         # správu, ktorú si zabrala iná replika, by znamenalo dve reakcie.
@@ -607,6 +609,12 @@ class UserBot:
         user = await self._db.get_user(tg_id)
         if not user:
             return
+        restrictions = {}
+        if shared := getattr(self._db, "hub", None):
+            restrictions = await shared.restrictions("telegram", str(tg_id))
+            if restrictions.get("no_initiate"):
+                await self._db.update_user(tg_id, {"pending_reply": False})
+                return
         testing = self._is_test_account(tg_id)
         await self._refresh_blocked()
         if tg_id in self._blocked:
@@ -761,7 +769,12 @@ class UserBot:
         # Kde je podľa dnešného rozvrhu. Z toho vyplýva, ako rýchlo odpisuje,
         # odkiaľ znie hlasovka aj čo o sebe smie povedať.
         rozvrh = await self._rozvrh()
-        dnesny_blok = den.block_at(now_local, self._cfg.supabase_schema, rozvrh)
+        hub = getattr(self._db, "hub", None)
+        shared_mood = ""
+        if hub:
+            dnesny_blok, shared_mood = await hub.day(now_local, rozvrh)
+        else:
+            dnesny_blok = den.block_at(now_local, self._cfg.supabase_schema, rozvrh)
         if testing:
             factor, wave = (0.0, "TEST — odpovedá hneď")
         elif behavior.activity_waves:
@@ -891,6 +904,7 @@ class UserBot:
         # Krátky odkaz sa pripravuje LEN keď odkaz naozaj smie ísť — je to zápis
         # do databázy a nemá zmysel ho robiť pri každej správe. Prázdny výsledok
         # znamená „pošli pôvodný Fanvue odkaz": meranie je bonus, nie podmienka.
+        allow_link = allow_link and not restrictions.get("no_links", False)
         kratky = ""
         if allow_link:
             kratky = await odkazy.pre_konverzaciu(self._db, tg_id, self._cfg.web_api_url)
@@ -1173,9 +1187,9 @@ class UserBot:
             # kľúč aj hlas nastavené a konverzácia beží po anglicky.
             situation=den.describe(dnesny_blok),
             # Práve sa presunula — človek to povie sám, nečaká na otázku.
-            arrival=den.arrival(
-                den.just_moved(now_local, self._cfg.supabase_schema, rozvrh=rozvrh)
-            ),
+            arrival=den.arrival(dnesny_blok if hub and dnesny_blok and
+                any(0 <= now_local.hour * 60 + now_local.minute + off - dnesny_blok.od <= 25 for off in (0, 1440))
+                else (None if hub else den.just_moved(now_local, self._cfg.supabase_schema, rozvrh=rozvrh))),
             # Nepočul hlasovku — zopakuje to textom, nie ďalšou nahrávkou.
             misheard=nerozumel,
             # Urazil ju — namiesto chápavej asistentky odpovie hrdé dievča.
@@ -1235,6 +1249,10 @@ class UserBot:
             # potom prepisoval polovicu odpovedí. Pisateľ ho potrebuje viac.
             her_recent=jej_nedavne,
         )
+
+        if hub:
+            system += await hub.context("telegram", str(tg_id))
+            system += hub.mood_prompt(shared_mood)
 
         # Semi: namiesto odoslania vygeneruj návrhy a pošli majiteľovi na
         # schválenie. Prompt aj kontext sú tie isté ako pri Auto, takže návrhy
@@ -2612,6 +2630,8 @@ class UserBot:
         # Pozvánka hlasom je ten istý krok ako poslať odkaz — inak by
         # obchádzala cooldown aj strop pushov a chodila donekonečna.
         if cta_voice or (link and humanize.contains_link(sent_text, link)):
+            if hub := getattr(self._db, "hub", None):
+                await hub.record_invite("telegram", str(tg_id), "fanvue")
             patch["link_sent_at"] = _utc_iso()
             patch["link_push_count"] = int(user.get("link_push_count") or 0) + 1
             patch["funnel_stage"] = funnel.stage_after_link(user)

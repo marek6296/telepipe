@@ -83,6 +83,8 @@ class TenantFanvueDb:
     ) -> None:
         self._t = transport
         self.model_id = model_id
+        from conversation_hub import ConversationHub
+        self.hub = ConversationHub(transport, model_id)
         self._key = encryption_key
         # Vlastná cache (nie zdieľaná s `TenantDb`): jeden dotaz za päť minút
         # navyše je lacnejší než previazať dve vrstvy, ktoré sa dnes nepoznajú.

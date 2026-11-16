@@ -29,6 +29,8 @@ class TenantInstagramDb:
     def __init__(self, transport, model_id: str, encryption_key: str) -> None:
         self._t = transport
         self.model_id = model_id
+        from conversation_hub import ConversationHub
+        self.hub = ConversationHub(transport, model_id)
         self._key = encryption_key
 
     @property

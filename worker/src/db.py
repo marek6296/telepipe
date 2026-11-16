@@ -324,6 +324,8 @@ class TenantDb:
     ) -> None:
         self._t = transport
         self.model_id = model_id
+        from conversation_hub import ConversationHub
+        self.hub = ConversationHub(transport, model_id)
         # OVERRIDE platformového kľúča (env `PLATFORM_ELEVEN_KEY`). Prázdne =
         # kľúč sa vezme z účtu superadmina, teda z toho, ktorý je pripojený
         # v dashboarde. Viď `PlatformKeyCache`.

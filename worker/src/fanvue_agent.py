@@ -657,6 +657,10 @@ class FanvueAgent:
         odhad). Hádať sa tu nesmie — zle spojená platba by klientovi ukázala,
         že mu zarába konverzácia, ktorá s tým nemá nič spoločné.
         """
+        if hub := getattr(self._db, "hub", None):
+            for identity in await hub.linked("fanvue", fan["uuid"], "telegram"):
+                await self._db.update_user(int(identity["external_id"]), {"paid": True})
+            return
         tg_id = checkout.z_udalosti(event)
         if tg_id is None and fan.get("uuid"):
             try:
@@ -980,8 +984,7 @@ class FanvueAgent:
         self._rezim(behavior)
         teraz = local_now(behavior)
 
-        # Rozvrh je ten istý ako na Telegrame (jeden človek, jeden deň); seed
-        # ostáva meno, takže Fanvue si losuje vlastnú variantu toho dňa.
+        # One persisted day across Telegram, Instagram and Fanvue.
         rozvrh = None
         try:
             rozvrh = den.Rozvrh.from_row(await self._db.schedule())
@@ -993,8 +996,15 @@ class FanvueAgent:
             else None
         )
 
+        hub = getattr(self._db, "hub", None)
+        shared_mood = ""
+        if hub and teraz:
+            blok, shared_mood = await hub.day(teraz, rozvrh)
+
         tg = None
-        if row.get("tg_id"):
+        # Legacy tg_id is attribution, not ownership proof.
+        verified_tg = await hub.linked("fanvue", fan["uuid"], "telegram") if hub else []
+        if row.get("tg_id") and (not hub or any(str(r["external_id"]) == str(row["tg_id"]) for r in verified_tg)):
             try:
                 tg = await self._db.telegram_context(int(row["tg_id"]))
             except Exception as exc:  # noqa: BLE001 - kontext je bonus
@@ -1033,6 +1043,9 @@ class FanvueAgent:
             ),
             behavior=behavior,
         )
+        if hub:
+            prompt += await hub.context("fanvue", fan["uuid"])
+            prompt += hub.mood_prompt(shared_mood)
         return Situacia(
             persona=persona,
             behavior=behavior,
@@ -1055,6 +1068,8 @@ class FanvueAgent:
             return
 
         row = await self._ensure_fan(fan)
+        if hub := getattr(self._db, "hub", None):
+            await hub.observe("fanvue", fan["uuid"], fan.get("handle", ""), fan.get("display_name", ""), fan.get("text", ""))
         if not row.get("ai_enabled", True) or row.get("human_takeover"):
             log.info("Fanúšik %s má odpisovanie vypnuté", fan["uuid"][:8])
             return
@@ -1674,6 +1689,9 @@ class FanvueAgent:
 
         `klik_plati` zapína dôkaz z kliku — viď `fanmatch.best`.
         """
+        if hub := getattr(self._db, "hub", None):
+            await hub.observe("fanvue", fan["uuid"], fan.get("handle", ""), fan.get("display_name", ""), fan.get("text", ""))
+            return
         try:
             chats = await self._db.link_candidates()
             taken = await self._db.linked_tg_ids()
