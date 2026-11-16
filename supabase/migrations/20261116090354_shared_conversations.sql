@@ -215,6 +215,7 @@ begin
   elsif a.kind='comment' and (not cfg.reply_comments or cfg.reply_mode<>'auto') then deny:='comments_off';
   elsif a.kind='reaction' and not cfg.reactions_enabled then deny:='reactions_off';
   elsif a.kind='photo' and not cfg.photos_enabled then deny:='photos_off';
+  elsif a.kind='photo' and not exists(select 1 from photos where model_id=p_model and id::text=a.payload->>'photo_id' and url=a.payload->>'photo_url' and active and not spicy and instagram_approved) then deny:='photo_unavailable';
   elsif a.source_at is null or a.source_at>now() then deny:='invalid_source_time';
   elsif a.kind in ('dm','comment') and (btrim(p_text)='' or octet_length(p_text)>case when a.kind='comment' then 300 else 1000 end) then deny:='invalid_text';
   end if;

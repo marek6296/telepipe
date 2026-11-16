@@ -11,6 +11,9 @@ try {
     create schema auth; create function auth.uid() returns uuid language sql as 'select null::uuid';
     create table models(id uuid primary key,account_id uuid,status text default 'active');
     create table settings(model_id uuid primary key,ai_paused boolean default false,paused_until timestamptz);
+    create table photos(model_id uuid,id bigserial,url text,active boolean default true,spicy boolean default false);
+    create table dm_users(model_id uuid,tg_id bigint,username text,first_name text,link_sent_at timestamptz);
+    create table fv_users(model_id uuid,fan_uuid text,handle text,display_name text);
     grant select on models to authenticated; grant usage on schema auth to authenticated;`);
   const initial = await read('20260824010000_instagram.sql');
   await db.exec(initial.slice(initial.indexOf('create table'), initial.indexOf('comment on table')));
@@ -22,6 +25,11 @@ try {
   await db.query(`insert into models(id) values ($1),($2)`,[m,m2]);
   await db.query(`insert into instagram(model_id,connected,enabled,reply_mode,ig_user_id) values($1,true,true,'auto','account')`,[m]);
   await db.query(`insert into ig_users(model_id,igsid,last_source_mid,last_incoming_at,age_state) values($1,'fan','in-1',now(),'adult_self_declared')`,[m]);
+  await db.query(`insert into dm_users values($1,999,'legacy','Roberto',now()-interval '1 hour')`,[m]);
+  await db.exec(await read('20261116093007_conversation_rollout_controls.sql'));
+  const seeded=(await db.query(`select status,last_invite_at from conversation_identities where model_id=$1 and external_id='999'`,[m])).rows[0];
+  assert.equal(seeded.status,'local','backfill must not verify a heuristic identity');
+  assert.ok(seeded.last_invite_at);
   const rpc = async (fn,args) => (await db.query(`select ${fn}(${args.map((_,i)=>'$'+(i+1)).join(',')}) as result`,args)).rows[0].result;
   const first = await rpc('conversation_ensure_identity',[m,'instagram','fan','account','roberto','Roberto']);
   const again = await rpc('conversation_ensure_identity',[m,'instagram','fan','account','roberto2','Roberto']);
@@ -66,7 +74,8 @@ try {
   await db.query(`update instagram_actions set due_at=now()-interval '1 second' where id=$1`,[claim2.id]);
   const claim3=await rpc('instagram_claim',[m]);
   await db.query(`update instagram set reply_mode='off' where model_id=$1`,[m]);
-  assert.equal((await rpc('instagram_reserve',[m,claim3.id,claim3.lease_token,'hello',false,false])).reason,'channel_off');
+  assert.equal((await rpc('instagram_reserve',[m,claim3.id,claim3.lease_token,'hello',false,false])).reason,'stale_lease');
+  assert.equal((await db.query(`select state from instagram_actions where id=$1`,[claim3.id])).rows[0].state,'cancelled');
 
   await db.query(`update instagram set reply_mode='auto' where model_id=$1`,[m]);
   await db.query(`update ig_users set last_source_mid='in-3' where model_id=$1`,[m]);

@@ -6,18 +6,6 @@ import { SelectField, SwitchField, TextField } from "@/components/app/forms/fiel
 import { Callout, Card, CardHeader } from "@/components/app/ui";
 import type { InstagramRow } from "@/lib/instagram";
 
-/**
- * Nastavenia Instagram agenta.
- *
- * ČO TU ZÁMERNE NIE JE: časovanie, hlasovky, fotky, ranné oslovenie ani nič
- * z Telegramu. Instagram je iná platforma s inými pravidlami a klient nemá
- * dostať štyridsať čísel, ktoré tu aj tak neplatia. Persona, jazyky a denný
- * život sú spoločné a nastavujú sa na karte Persona.
- *
- * Pikantnosť má LEN dva stupne. Explicitný obsah je na Instagrame dôvod na
- * zrušenie účtu, takže `hot` nie je voľba, ktorú by sme chceli klientovi
- * ponúknuť a potom mu vysvetľovať, prečo prišiel o profil.
- */
 export function InstagramSettingsForm({ row }: { row: InstagramRow }) {
   return (
     <AutoSaveForm save={(patch) => saveInstagramSettingsAction(row.model_id, patch)}>
@@ -43,7 +31,7 @@ export function InstagramSettingsForm({ row }: { row: InstagramRow }) {
               { value: "auto", label: "Auto — she answers on her own" },
               { value: "semi", label: "Semi — you approve each reply" },
             ]}
-            help="Start on Semi. Instagram is public and a single odd reply is visible to anyone who screenshots it."
+            help="Semi queues a reply after your approval. Both modes still follow her shared daily schedule, the messaging window and delivery limits."
           />
           <SelectField
             name="heat"
@@ -53,7 +41,7 @@ export function InstagramSettingsForm({ row }: { row: InstagramRow }) {
               { value: "mild", label: "Mild — friendly, light flirting" },
               { value: "medium", label: "Medium — flirty, suggestive" },
             ]}
-            help="There is no hot option here on purpose. Explicit talk in Instagram DMs is how creator accounts get deleted, and the account is worth more than one hot message."
+            help="Instagram conversations stay non-explicit. Her established persona and writing style remain shared."
           />
         </div>
       </Card>
@@ -61,7 +49,7 @@ export function InstagramSettingsForm({ row }: { row: InstagramRow }) {
       <Card>
         <CardHeader
           title="Where she sends people"
-          description="Never straight to your paid page. A Fanvue or OnlyFans link in an Instagram DM is the fastest way to lose the account."
+          description="Only Telegram or your Linkovne page. At most two URL sends per LA day and rolling 24 hours, with at least four hours between them."
         />
         <div className="space-y-5 p-5">
           <SelectField
@@ -70,24 +58,35 @@ export function InstagramSettingsForm({ row }: { row: InstagramRow }) {
             defaultValue={row.funnel_target}
             options={[
               { value: "telegram", label: "Her Telegram" },
-              { value: "bio_link", label: "The link in her bio" },
+              { value: "bio_link", label: "Her Linkovne page" },
             ]}
-            help="Telegram is the stronger move: the conversation continues there with her full agent, and Instagram never sees where it leads."
+            help="One URL per person. Invitations require relevant context and confirmed adult status. She keeps talking normally when an invitation is unavailable."
           />
           <TextField
             name="telegram_handle"
             label="Her Telegram username"
             defaultValue={row.telegram_handle}
             placeholder="simona_here"
-            help="Without the @. She names it in her own words — she never pastes a t.me link, because links in DMs get flagged."
+            help="Without the @. The server inserts this exact Telegram link when the invitation is allowed."
           />
           <TextField
             name="bio_link"
             label="Her link page"
             defaultValue={row.bio_link}
             placeholder="https://linkovne.com/yourname"
-            help="A link page (linkovne.com, Linktree, Beacons) that holds the real links. She only ever says it is in her bio — Instagram does not mind that."
+            help="Your HTTPS linkovne.com profile. Direct Fanvue links are not sent on Instagram."
           />
+        </div>
+      </Card>
+
+      <Card>
+        <CardHeader title="History and interactions" description="Shared day and timezone come from Persona. Delays and quotas are conservative product limits, not a guarantee against platform restrictions." />
+        <div className="space-y-5 p-5">
+          <SwitchField name="sync_enabled" label="Import conversation history, including while replies are Off" defaultValue={row.sync_enabled} help="Imports available recent Meta messages with their original times. Importing old conversations does not send replies. Meta may expose only the latest 20 message details per chat." />
+          <SwitchField name="highlights_link" label="Her Highlights contain the link" defaultValue={row.highlights_link} help="When the account URL allowance is spent, she may naturally point to Highlights in her own voice. This also has a per-person reminder limit." />
+          <SwitchField name="reactions_enabled" label="React to emoji replies in DMs" defaultValue={row.reactions_enabled} help="Delayed heart reactions to incoming messages, including story replies delivered as DMs. Bare story likes and public comment likes are not available with this connection." />
+          <SwitchField name="photos_enabled" label="Allow one approved SFW photo per person" defaultValue={row.photos_enabled} help="Choose the photo below first. No voices or videos on Instagram; no repeated photo sends." />
+          <SwitchField name="typo_enabled" label="Occasional small spelling variation" defaultValue={row.typo_enabled} help="About one eligible reply in twenty. Never changes links, names, numbers or negations. The intended word is remembered for a correction." />
         </div>
       </Card>
 
@@ -101,7 +100,7 @@ export function InstagramSettingsForm({ row }: { row: InstagramRow }) {
             name="reply_comments"
             label="Reply to comments on her posts"
             defaultValue={row.reply_comments}
-            help="Short, friendly, never flirty and never mentioning any link — comments are visible to everyone, including Instagram's own review. Off by default."
+            help="Selects a minority of suitable comments, with questions more likely to get a reply. At least 10 minutes apart, at most 3 per hour and 12 per day. No private conversation history or links in public replies."
           />
         </div>
       </Card>

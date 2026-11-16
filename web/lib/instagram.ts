@@ -69,6 +69,17 @@ export type InstagramRow = {
   reply_mode: "off" | "auto" | "semi";
   heat: "mild" | "medium";
   reply_comments: boolean;
+  sync_enabled: boolean;
+  sync_status: string;
+  sync_completed_at: string | null;
+  reactions_enabled: boolean;
+  photos_enabled: boolean;
+  highlights_link: boolean;
+  typo_enabled: boolean;
+  test_igsid: string;
+  test_until: string | null;
+  circuit_until: string | null;
+  circuit_reason: string;
   token_expires_at: string | null;
   last_error: string;
   connected_at: string | null;
@@ -77,7 +88,8 @@ export type InstagramRow = {
 export const INSTAGRAM_COLUMNS =
   "model_id, connected, enabled, ig_user_id, username, account_type, " +
   "funnel_target, telegram_handle, bio_link, reply_mode, heat, reply_comments, " +
-  "token_expires_at, last_error, connected_at";
+  "token_expires_at, last_error, connected_at, sync_enabled, sync_status, sync_completed_at, " +
+  "reactions_enabled, photos_enabled, highlights_link, typo_enabled, test_igsid, test_until, circuit_until, circuit_reason";
 
 export const INSTAGRAM_DEFAULTS: InstagramRow = {
   model_id: "",
@@ -92,6 +104,17 @@ export const INSTAGRAM_DEFAULTS: InstagramRow = {
   reply_mode: "off",
   heat: "mild",
   reply_comments: false,
+  sync_enabled: false,
+  sync_status: "not_started",
+  sync_completed_at: null,
+  reactions_enabled: false,
+  photos_enabled: false,
+  highlights_link: false,
+  typo_enabled: false,
+  test_igsid: "",
+  test_until: null,
+  circuit_until: null,
+  circuit_reason: "",
   token_expires_at: null,
   last_error: "",
   connected_at: null,
