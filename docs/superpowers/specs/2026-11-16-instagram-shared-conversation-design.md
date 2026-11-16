@@ -4,7 +4,7 @@ Stav: **spoločná vrstva a Instagram fronta implementované a nasadené 2026-11
 
 ## Nasadený výsledok a overenie
 
-- Worker `0c84a22467d3217cbf1f543f3035378893869a25`, Railway deployment `e06f6bb5-d1d6-4aca-8dff-df6380e593a4` SUCCESS. Vercel web `dpl_GxstKdhiZijud2neNwfpnze8GNja` READY na rovnakom runtime SHA.
+- Worker `83a10829f70d3b1d8a3cb76e4361d37a5920da55`, Railway deployment `e124ac16-8983-4c3f-a66c-45ee094b2c1a` SUCCESS. Vercel web `dpl_GDXDLu5teFYGj2PnkXx3LKphhPYj` READY na rovnakom runtime SHA.
 - Supabase aplikované migrácie `shared_conversations`, `conversation_rollout_controls`, `identity_change_pending_replies`, `instagram_destination_budgets`, `instagram_unanswered_recovery`, `fanvue_deferred_replies`, `fanvue_pending_thanks`, `conversation_message_times`. Nové tabuľky majú owner-read RLS, mutačné RPC iba service_role; overené aj na produkčných grantoch.
 - TG/IG/FV používajú uložený spoločný deň, stabilný mierny tón, auditované identity a kontext overenej osoby. Automatické rozpoznanie zostáva vratnou indíciou. Potvrdenie súkromnej pamäte dnes robí majiteľ v Telepipe; automatický bezpečnostný challenge medzi účtami nie je súčasťou dodávky.
 - Pamäť používa existujúce kanálové archívy a posledných 12 správ z každého ďalšieho overeného účtu (max 16 000 znakov spolu). Pôvodná vlastná pamäť každého kanála zostáva. Rozsiahly nový graf faktov/epizód z návrhu nebol zavedený a nejde o garanciu úplnej znalosti všetkých historických detailov.
@@ -39,6 +39,8 @@ Review obnovy a časovania: štyri IG nálezy (Skip, režim pred rezerváciou/po
 Rozhodnutia pri realizácii: delegované schválenie pokrýva merge/push/deploy bez ďalšieho menu; žiadny paralelný lokálny Telethon worker; automatické rozpoznanie neznamená prístup k cudzej súkromnej histórii; nepodporované Meta schopnosti sa nesimulujú. Podrobný [realizačný plán](../plans/2026-11-16-shared-conversations.md).
 
 ### Aktuálny blok rozhovoru a zdrojové časy
+
+Neskoršia nečitateľná príloha neblokuje nezodpovedaný text. Zachová sa pôvodné časové okno, Skip/terminal ochrany a konkrétny zdroj sa znovu overí aj po generovaní. Oprava overená na doručenej Semi karte; posledná worker sada 2574 passed / 2 deselected.
 
 IG/TG/FV zachovávajú zdrojový čas správy. Spoločný helper rozlíši aktuálny inbound blok od starších nezodpovedaných tém pri pauze aspoň štyri hodiny; samotná polnoc nie je reset. Pozdrav pred následným check-inom/otázkou zostane súčasťou aktuálneho bloku aj pre sanitizer. História ostáva dostupná pri výslovnom návrate k staršej téme. Neskorý import starej odpovede nesmie prehodiť poradie; neznámy čas sa neodvodzuje z importu. Fanvue `occurred_at` je nullable, pri zosúladení sa dopĺňa zo skutočného `sentAt` podľa UUID.
 
