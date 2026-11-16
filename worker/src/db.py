@@ -34,6 +34,7 @@ tenanta — rovnaký sľub, aký má dozor nad Fanvue vypínačom.
 from __future__ import annotations
 
 import logging
+import json
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
@@ -812,12 +813,33 @@ class TenantDb:
                 "model_id": self._mine,
                 "id": f"eq.{pending_id}",
                 "status": "eq.awaiting",
+                "decision_command_id": "is.null",
             },
             json={"status": "sent", "decided_at": _now_iso(), "updated_at": _now_iso()},
             headers={"Prefer": "return=representation"},
         )
         r.raise_for_status()
         return bool(r.json())
+
+    async def claim_pending_version(self, pending_id: str, suggestions: list) -> bool:
+        """Bot/web proposal race: compare the exact reviewed array in the claim."""
+        rows = await self._t._patch_returning(PENDING, {
+            'model_id': self._mine, 'id': f'eq.{pending_id}', 'status': 'eq.awaiting',
+            'decision_command_id': 'is.null',
+            'suggestions': 'eq.' + json.dumps(suggestions, ensure_ascii=False, separators=(',', ':')),
+        }, {'status': 'sent', 'decided_at': _now_iso(), 'updated_at': _now_iso()})
+        return bool(rows)
+
+    async def compare_and_replace_suggestions(self, pending_id, expected, suggestions, hint=''):
+        return bool(await self._t._rpc('social_replace_suggestions', {
+            'p_model': self.model_id, 'p_pending': pending_id, 'p_expected': expected,
+            'p_suggestions': suggestions, 'p_hint': hint,
+        }))
+
+    async def skip_pending_version(self, pending_id, expected):
+        return bool(await self._t._rpc('social_skip_pending', {
+            'p_model': self.model_id, 'p_pending': pending_id, 'p_expected': expected,
+        }))
 
     async def mark_pending(self, pending_id: str, status: str, **fields: Any) -> None:
         """Zapíše konečný stav (skipped/superseded) + prípadné detaily odoslania."""
@@ -867,6 +889,7 @@ class TenantDb:
         r = await self._client.patch(
             PENDING,
             params={"model_id": self._mine, "id": f"eq.{pending_id}", "status": "eq.awaiting",
+                    "decision_command_id": "is.null",
                     "control_msg_id": f"eq.{old_mid}" if old_mid is not None else "is.null"},
             json={"control_msg_id": new_mid, "updated_at": _now_iso()},
             headers={"Prefer": "return=representation"},
@@ -879,6 +902,7 @@ class TenantDb:
         cutoff = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
         return await self._get(PENDING, {
             "model_id": self._mine, "channel": "eq.instagram", "status": "eq.sent",
+            "decision_command_id": "is.null",
             "chosen_text": "is.null", "updated_at": f"lt.{cutoff}",
             "select": "*", "order": "updated_at.desc", "limit": "100",
         })
@@ -888,6 +912,7 @@ class TenantDb:
         r = await self._client.patch(
             PENDING,
             params={"model_id": self._mine, "id": f"eq.{pending_id}", "channel": "eq.instagram",
+                    "decision_command_id": "is.null",
                     "status": "eq.sent", "chosen_text": "is.null", "updated_at": f"eq.{updated_at}"},
             json={"status": "awaiting", "decided_at": None, "updated_at": _now_iso()},
             headers={"Prefer": "return=representation"},

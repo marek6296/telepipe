@@ -101,6 +101,9 @@ CALLS = {
     "fresh_clicks": ((), {}),
     "save_today_plan": (("2026-08-24", []), {}),
     "get_pending_for": (("123",), {}),
+    "claim_pending_version": (("pid", ["reviewed"]), {}),
+    "compare_and_replace_suggestions": (("pid", ["old"], ["new"], "hint"), {}),
+    "skip_pending_version": (("pid", ["reviewed"]), {}),
     "resolve_pending": (("pid", "superseded"), {}),
     "move_pending_card": (("pid", 10, 20), {}),
     "incomplete_instagram_claims": ((), {}),
@@ -211,7 +214,7 @@ def _assert_scoped(call, method_name):
         # RPC nemá URL filter — model_id musí byť v argumentoch. `pair_control_bot`
         # to má obzvlášť kriticky: bez `p_model` by párovací kód jednej modelky
         # prestavil majiteľa inej.
-        assert any(fn in url for fn in ("search_messages", "pair_control_bot")), where
+        assert any(fn in url for fn in ("search_messages", "pair_control_bot", "social_replace_suggestions", "social_skip_pending")), where
         assert body and body.get("p_model") == MODEL, where
         return
 

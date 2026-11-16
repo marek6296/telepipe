@@ -246,15 +246,51 @@ class TenantInstagramDb:
 
     async def change_action(self, action, patch, state='leased'):
         params = {'model_id': self._mine, 'id': f"eq.{action['id']}", 'state': f'eq.{state}'}
+        payload = action.get('payload') or {}
+        if payload.get('origin') == 'operator':
+            params['payload->>command_id'] = 'eq.' + str(payload.get('command_id') or '')
         if state == 'leased':
             params['lease_token'] = f"eq.{action['lease_token']}"
         return await self._t._patch_returning('/instagram_actions', params, patch)
 
     async def cancel_actions(self, igsid='', reason='channel_off'):
         params = {'model_id': self._mine, 'state': 'in.(pending,ready,approval,leased)'}
+        if reason in ('channel_off', 'takeover', 'manual_reply', 'outbound_is_latest'):
+            params['or'] = '(payload->>origin.is.null,payload->>origin.neq.operator)'
         if igsid:
             params['igsid'] = f'eq.{igsid}'
         await self._patch('/instagram_actions', params, {'state': 'cancelled', 'reason': reason})
+
+    async def prepare_operator_action(self, command, target, source_mid, source_at):
+        """Bind a single already-fenced command directly to a leased IG action."""
+        from uuid import uuid4
+        from datetime import datetime, timedelta, timezone
+        from conversation_policy import parse_time
+        now = datetime.now(timezone.utc)
+        payload = {'origin': 'operator', 'command_id': command['id'],
+                   'account_id': command['account_scope'], 'approved_source_mid': source_mid}
+        patch = {'state': 'leased', 'lease_token': str(uuid4()),
+                 'lease_until': (now + timedelta(minutes=2)).isoformat(), 'text': command['text']}
+        if command.get('pending_id'):
+            rows = await self._get('/pending_replies', {'model_id': self._mine,
+                'id': 'eq.' + command['pending_id'], 'decision_command_id': 'eq.' + command['id'],
+                'status': 'eq.sent', 'select': 'conv_key'})
+            if not rows or ':' not in rows[0]['conv_key']:
+                return None
+            action = await self.action(rows[0]['conv_key'].split(':', 1)[1])
+            if not action or action['igsid'] != command['external_id'] or action['source_mid'] != source_mid:
+                return None
+            changed = await self.change_action(action, {**patch, 'payload': {**action['payload'], **payload}}, state='approval')
+            return changed[0] if changed else None
+        stamp = parse_time(source_at)
+        if not stamp:
+            return None
+        rows = await self._t._post('/instagram_actions', {
+            'model_id': self.model_id, 'dedupe_key': 'social:' + command['id'],
+            'kind': 'dm', 'igsid': command['external_id'], 'target_id': target,
+            'source_mid': source_mid, 'source_at': stamp.isoformat(), 'due_at': now.isoformat(),
+            'expires_at': (stamp + timedelta(hours=24)).isoformat(), 'payload': payload, **patch})
+        return rows[0] if rows else None
 
     async def actions(self, **params):
         return await self._get('/instagram_actions', {'model_id': self._mine, 'select': '*', **params})

@@ -1,0 +1,64 @@
+import type { SocialCommand, SocialCommandInput, SocialMessage, SocialThread } from "@/lib/social-types";
+
+export function commandLabel(command: SocialCommand): string {
+  if (command.status === "done") {
+    if (command.operation === "regenerate") return "Drafts updated";
+    if (command.deliveryState === "sent" || command.deliveryState === "delivered") return "Sent";
+    if (["queued", "ready", "pending", "leased", "approval"].includes(command.deliveryState ?? "")) return "Approved · queued";
+    if (command.deliveryState === "uncertain") return "Delivery unconfirmed";
+    if (["blocked", "cancelled", "expired", "skipped"].includes(command.deliveryState ?? "")) return "Not delivered";
+    return "Completed";
+  }
+  return {
+    queued: "Queued", working: "Preparing", sending: "Sending",
+    blocked: "Blocked", stale: "Conversation changed", failed: "Failed", uncertain: "Delivery unconfirmed",
+  }[command.status];
+}
+
+export function freezeIntent(input: SocialCommandInput): SocialCommandInput {
+  return Object.freeze({ ...input, expectedSuggestions: input.expectedSuggestions ? [...input.expectedSuggestions] : undefined });
+}
+
+export function mergeMessages(previous: SocialMessage[], incoming: SocialMessage[]): SocialMessage[] {
+  const messages = new Map(previous.map(message => [message.id, message]));
+  for (const message of incoming) messages.set(message.id, message);
+  return [...messages.values()].sort(compareMessages);
+}
+
+function compareMessages(a: SocialMessage, b: SocialMessage): number {
+  if (a.occurredAt !== b.occurredAt) {
+    if (!a.occurredAt) return -1;
+    if (!b.occurredAt) return 1;
+    const byTime = Date.parse(a.occurredAt) - Date.parse(b.occurredAt);
+    if (byTime) return byTime;
+  }
+  // IDs are bigint in Postgres; Number would collapse neighbouring rows.
+  const left = BigInt(a.id);
+  const right = BigInt(b.id);
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+export function mergeThread(previous: SocialThread, next: SocialThread): SocialThread {
+  if (previous.contact.key !== next.contact.key) return next;
+  const olderLoaded = previous.messages[0] && next.messages[0] && compareMessages(previous.messages[0], next.messages[0]) < 0;
+  return { ...next, messages: mergeMessages(previous.messages, next.messages),
+    hasMore: olderLoaded ? previous.hasMore : next.hasMore,
+    nextBefore: olderLoaded ? previous.nextBefore : next.nextBefore };
+}
+
+/** Each effect owns a scope, so a late action cannot restart an old reader. */
+export function createReadScope(url: string) {
+  let active = true;
+  let sequence = 0;
+  return { url, begin: () => ++sequence, accepts: (ticket: number) => active && ticket === sequence, dispose: () => { active = false; } };
+}
+
+export const CHANNEL_NAMES = { telegram: "Telegram", instagram: "Instagram", fanvue: "Fanvue" } as const;
+
+export function sourceTime(iso: string | null): string {
+  if (!iso) return "Time unknown";
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return "Time unknown";
+  // Stable during SSR hydration; always label the timezone explicitly.
+  return `${new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(date)} UTC`;
+}

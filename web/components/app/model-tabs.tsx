@@ -9,6 +9,7 @@ import {
   Camera,
   Loader2,
   Send,
+  MessagesSquare,
   UserRound,
   type LucideIcon,
 } from "lucide-react";
@@ -37,6 +38,7 @@ const TAB_META: Record<ModelTabSlug, { label: string; icon: LucideIcon }> = {
   instagram: { label: "Instagram", icon: Camera },
   persona: { label: "Persona", icon: UserRound },
   voice: { label: "Voice", icon: AudioLines },
+  social: { label: "Social sites", icon: MessagesSquare },
 };
 
 /**

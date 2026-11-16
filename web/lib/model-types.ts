@@ -18,7 +18,7 @@
 export type ModelType = "persona" | "business" | "private";
 
 /** Karty (taby) detailu modelky. Slug = segment v URL `/app/m/[id]/<slug>`. */
-export type ModelTabSlug = "telegram" | "fanvue" | "instagram" | "persona" | "voice";
+export type ModelTabSlug = "telegram" | "fanvue" | "instagram" | "persona" | "voice" | "social";
 
 /**
  * Karty, ktoré vidí LEN superadmin.
@@ -103,7 +103,7 @@ export const DEFAULT_MODEL_TYPE: ModelType = "persona";
  * (žiadne Fanvue, žiadny hlas) je vidieť na jednom mieste.
  */
 export const MODEL_TYPE_TABS: Record<ModelType, readonly ModelTabSlug[]> = {
-  persona: ["telegram", "fanvue", "instagram", "persona", "voice"],
+  persona: ["telegram", "fanvue", "instagram", "persona", "voice", "social"],
   business: ["telegram", "persona"],
   private: ["telegram", "persona"],
 };

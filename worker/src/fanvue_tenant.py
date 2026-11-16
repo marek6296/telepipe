@@ -705,6 +705,7 @@ class FanvueSupervisor:
         self._api = None
         self.vault_task: Optional[asyncio.Task] = None
         self.agent_task: Optional[asyncio.Task] = None
+        self._agent = None
         # Aby sa do logu nepísalo to isté každých 30 sekúnd.
         self._last_state: Optional[tuple] = None
         # Odtlačok obnovovacieho tokenu, s ktorým obnova zlyhala (viď
@@ -756,6 +757,7 @@ class FanvueSupervisor:
             self._ensure_api()
             await self._refresh_token_if_stale(row)
             self._ensure_vault()
+            self._ensure_sender()
             if enabled:
                 self._ensure_agent()
             else:
@@ -850,13 +852,16 @@ class FanvueSupervisor:
             return
         # Import cez modul (nie `from … import FanvueAgent`), aby sa v testoch
         # dal podvrhnúť monkeypatchom na module.
-        import fanvue_agent
+        self._ensure_sender()
+        self.agent_task = asyncio.create_task(self._agent.run())
 
-        agent = fanvue_agent.FanvueAgent(self._db, self._api, self._llm, self._control)
-        # Semi-auto: control bot musí vedieť, kam doručiť schválenú Fanvue odpoveď.
+    def _ensure_sender(self) -> None:
+        """Connected Manual accounts still need an operator sender, without AI loop."""
+        if self._agent is None:
+            import fanvue_agent
+            self._agent = fanvue_agent.FanvueAgent(self._db, self._api, self._llm, self._control)
         if self._control is not None:
-            self._control.register_sender("fanvue", agent)
-        self.agent_task = asyncio.create_task(agent.run())
+            self._control.register_sender('fanvue', self._agent)
 
     async def _stop_agent(self) -> None:
         await self._zrus(self.agent_task)
@@ -874,6 +879,9 @@ class FanvueSupervisor:
                 await task
 
     async def _close_api(self) -> None:
+        self._agent = None
+        if self._control is not None:
+            self._control._senders.pop('fanvue', None)
         api, self._api = self._api, None
         if api is not None:
             with contextlib.suppress(Exception):

@@ -101,6 +101,8 @@ def test_tenant_config_decrypts_session(monkeypatch):
     }
     t = TenantConfig.from_row(row, cfg)
     assert t.tg_session == "SESSION"
+    import hashlib
+    assert t.tg_account_scope == 'telegram:' + hashlib.md5(row['tg_session_enc'].encode()).hexdigest()
     assert t.control_bot_token == "BOT:token"
     assert t.model_id == "m-1"
     assert t.link_min_messages == 6       # zdedené globálne defaulty predlohy

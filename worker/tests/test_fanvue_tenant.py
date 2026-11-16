@@ -504,7 +504,8 @@ class TestStart:
             # Vault sa načítava aj tak: priradiť priečinkom rolu musí ísť SKÔR,
             # než sa agent zapne.
             assert sup.vault_task is not None
-            assert fake_agent.made == [], "agent sa nesmel spustiť"
+            assert len(fake_agent.made) == 1, "Manual keeps an operator sender"
+            assert not fake_agent.started.is_set(), "Manual must not start the AI loop"
         finally:
             _zrus(cleanup)
 
@@ -701,7 +702,7 @@ class TestDozor:
             zdroj.row = _row()
             await sup.tick()
             assert sup.agent_task is not None
-            assert len(fake_agent.made) == 2
+            assert len(fake_agent.made) == 1, "AI loop restarts on the same connected sender"
         finally:
             await sup.close()
 

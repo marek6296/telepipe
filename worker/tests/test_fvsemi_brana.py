@@ -199,4 +199,4 @@ class TestZiadnaInaCestaNeobchadza:
                 aktualna = m.group(1)
             if "await self._api.send(" in line:
                 funkcie.append(aktualna)
-        assert sorted(funkcie) == ["_send_checked"], f"pribudla nová cesta k odoslaniu: {funkcie}"
+        assert sorted(funkcie) == ["_send_checked_locked"], f"pribudla nová cesta k odoslaniu: {funkcie}"

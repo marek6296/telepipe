@@ -245,6 +245,9 @@ class InstagramAgent:
         """Approve this exact durable action. Sending happens after current gates."""
         return await self._delivery.approve(conv_key, text)
 
+    async def deliver_operator(self, command, before_send):
+        return await self._delivery.deliver_operator(command, before_send)
+
     async def approval_state(self, conv_key: str) -> str:
         return await self._delivery.approval_state(conv_key)
 

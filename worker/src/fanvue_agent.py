@@ -555,6 +555,7 @@ class FanvueAgent:
         # Control bot pre semi-auto schvaľovanie (Fanvue karty chodia do toho
         # istého Telegram bota). Dopĺňa supervisor; bez neho semi len mlčí.
         self._control = control
+        self._send_locks = {}
         # Je v trezore čo poslať? Zisťuje sa raz za `_MEDIA_TTL_S`. `-inf`
         # zámerne: `time.monotonic()` beží od štartu stroja, takže nula by
         # v čerstvom kontajneri znamenala, že prvé volanie uverí prednastavenej
@@ -593,6 +594,17 @@ class FanvueAgent:
             raise ReplyDeferred("waiting_for_schedule_or_approval")
 
     async def _send_checked(self, conv_key, text, *args, proactive=False, approved=False):
+        lock = self._send_lock(conv_key)
+        async with lock:
+            return await self._send_checked_locked(conv_key, text, *args, proactive=proactive, approved=approved)
+
+    def _send_lock(self, conv_key):
+        # Legacy adapters can initialise the agent without its tenant constructor.
+        if not hasattr(self, '_send_locks'):
+            self._send_locks = {}
+        return self._send_locks.setdefault(conv_key, asyncio.Lock())
+
+    async def _send_checked_locked(self, conv_key, text, *args, proactive=False, approved=False):
         settings = await self._db.settings()
         if settings.get("reply_mode") == "off":
             return None
@@ -1469,6 +1481,62 @@ class FanvueAgent:
         )
         await self._dobehni(conv_key, row)
         return True
+
+    async def deliver_operator(self, command, before_send):
+        lock = self._send_lock(command['external_id'])
+        async with lock:
+            return await self._deliver_operator_locked(command, before_send)
+
+    async def _deliver_operator_locked(self, command, before_send):
+        from social_commands import DeliveryResult
+        from instagram_interactions import URL
+        key, text = command['external_id'], command['text']
+        initial = await self._db.settings()
+        creator = initial.get('creator_uuid')
+        async def ready():
+            settings = await self._db.settings()
+            scope = 'fanvue:' + str(settings['creator_uuid']) if settings.get('creator_uuid') else 'primary'
+            if not settings.get('connected') or command['account_scope'] != scope or settings.get('creator_uuid') != creator:
+                return 'fanvue_disconnected'
+            if not await self._db.fan(key):
+                return 'unknown_contact'
+            hub = getattr(self._db, 'hub', None)
+            if hub:
+                if not await hub.can_reply('fanvue', key):
+                    return 'contact_opt_out'
+                if (await hub.restrictions('fanvue', key)).get('no_links') and URL.search(text):
+                    return 'links_not_allowed'
+            return ''
+        if reason := await ready():
+            return DeliveryResult.blocked(reason)
+        # Sync only, never seen or purchase thanks while preparing an owner action.
+        row = await self._db.fan(key)
+        await self._reconcile({'uuid': key, 'text': ''}, row, mark_read=False, sync_only=True)
+        if not await before_send():
+            return DeliveryResult.blocked('stale_context')
+        settings = await self._db.settings()
+        if command['operation'] == 'send_text' and settings.get('reply_mode', 'auto') == 'auto':
+            await self._db.update_fan(key, {'human_takeover': True})
+            if self._control is not None:
+                await self._control._db.supersede_open('fanvue', key)
+        if reason := await ready():
+            return DeliveryResult.blocked(reason)
+        if not await before_send():
+            return DeliveryResult.blocked('stale_context')
+        await self._api.chat_messages(key, limit=1, mark_read=True)
+        if not await before_send():
+            return DeliveryResult.blocked('stale_context')
+        outcome = await self._api.send_operator(key, text, before_send=before_send)
+        if outcome.status == 'done':
+            try:
+                await self._db.add_message(key, 'assistant', text, outcome.result.get('provider_message_id') or '')
+                await self._db.update_fan(key, {'msg_count': int(row.get('msg_count') or 0) + 1})
+            except Exception:
+                log.warning('Fanvue operator send succeeded; history update failed')
+        return outcome
+
+    async def take_over(self, conv_key: str) -> None:
+        await self._db.update_fan(conv_key, {'human_takeover': True})
 
     async def _dobehni(self, conv_key: str, row: Dict[str, Any]) -> None:
         """Zosúladenie chatu AŽ TERAZ, keď už odpoveď odišla.

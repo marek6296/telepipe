@@ -2495,6 +2495,78 @@ class UserBot:
         await self._semi_post_update(tg_id, text)
         return True
 
+    async def deliver_operator(self, command, before_send):
+        """Explicit owner text: same client and hard gates, independent of AI mode."""
+        from social_commands import DeliveryResult
+        from instagram_interactions import URL
+        if command['account_scope'] != getattr(self._cfg, 'tg_account_scope', 'primary'):
+            return DeliveryResult.blocked('telegram_account_changed')
+        tg_id, text = int(command['external_id']), command['text']
+        lock = self._locks.setdefault(tg_id, asyncio.Lock())
+        async with lock:
+            async def ready():
+                user = await self._db.get_user(tg_id)
+                if not user:
+                    return 'unknown_contact'
+                await self._refresh_blocked()
+                if tg_id in self._blocked:
+                    return 'contact_blocked'
+                if await self._db.is_paused():
+                    return 'global_pause'
+                if not await self._flood_ok():
+                    return 'telegram_flood_pause'
+                behavior, share = await self._behavior(), self._rozbeh()
+                if not await self._rate_ok(limity.s_rozbehom(behavior.max_replies_per_hour, share)):
+                    return 'hourly_limit'
+                if not await self._denny_strop_ok(behavior, share):
+                    return 'daily_limit'
+                hub = getattr(self._db, 'hub', None)
+                if hub:
+                    if not await hub.can_reply('telegram', str(tg_id)):
+                        return 'contact_opt_out'
+                    if (await hub.restrictions('telegram', str(tg_id))).get('no_links') and URL.search(text):
+                        return 'links_not_allowed'
+                return ''
+
+            if reason := await ready():
+                return DeliveryResult.blocked(reason)
+            # No typing or seen just for opening the web or queueing a command.
+            if not await before_send():
+                return DeliveryResult.blocked('stale_context')
+            mode = (await self._db.tg_reply_mode()).get('mode', 'auto')
+            if command['operation'] == 'send_text' and mode == 'auto':
+                await self._db.update_user(tg_id, {'human_takeover': True})
+                await self._db.supersede_open('telegram', str(tg_id))
+            if reason := await ready():
+                return DeliveryResult.blocked(reason)
+            if not await before_send():
+                return DeliveryResult.blocked('stale_context')
+            # Read acknowledgement only; do not flush queued automatic reactions.
+            try:
+                await self._client.send_read_acknowledge(tg_id)
+            except Exception:
+                pass
+            if not await before_send():
+                return DeliveryResult.blocked('stale_context')
+            try:
+                sent = await self._client.send_message(tg_id, text, parse_mode=None)
+            except Exception as exc:
+                if await self._note_flood(exc, tg_id):
+                    return DeliveryResult.blocked('telegram_flood_pause')
+                # Telegram RPC rejections are definitive; transport failures are not.
+                from telethon.errors import RPCError
+                if isinstance(exc, RPCError) and 400 <= int(getattr(exc, 'code', 0) or 0) < 500:
+                    return DeliveryResult.blocked('telegram_rejected')
+                return DeliveryResult.uncertain()
+            provider_id = getattr(sent, 'id', '')
+            self._reply_times.append(datetime.now(timezone.utc))
+            try:
+                await self._db.add_message(tg_id, 'assistant', text)
+                await self._semi_post_update(tg_id, text)
+            except Exception:
+                log.warning('%s: operator reply sent; history update failed', tg_id)
+            return DeliveryResult.sent(provider_id)
+
     async def photo_folders(self, conv_key: str) -> List[Dict[str, str]]:
         """Telegram nemá priečinky — jedna zložka so všetkými aktívnymi fotkami."""
         return [{"id": "all", "label": "Fotky"}]

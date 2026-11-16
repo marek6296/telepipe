@@ -316,6 +316,7 @@ class TenantRunner:
                 raise AuthKeyUnregisteredError(request=None)
 
             control = ControlBot(cfg, db, bot_client)
+            control._mirror_enabled = bot_ready
             # Runner si bota drží, aby vedel ohlásiť pád. Klient sa v `finally`
             # odpojí, takže samotné odoslanie musí prebehnúť SKÔR — viď
             # `_ohlas_pad` volané ešte pred prepadnutím výnimky von.
@@ -338,9 +339,9 @@ class TenantRunner:
             userbot.register()
             # Semi-auto: prepoj control bota (schvaľovanie) s userbotom
             # (doručovanie). Bez bežiaceho bota semi-auto len necháva čakať.
+            userbot.set_control(control)
+            control.register_sender("telegram", userbot)
             if bot_ready:
-                userbot.set_control(control)
-                control.register_sender("telegram", userbot)
                 await control.recover_cards()
                 # Modré tlačidlo „Menu" pri vstupe = zoznam príkazov bota.
                 # Nastavuje sa raz po štarte; zlyhanie si rieši samo vnútri.
@@ -355,13 +356,16 @@ class TenantRunner:
             # odpisovanie na Telegrame. Vlastný `run()` agenta si pády kôl
             # rieši sám, toto chráni pred pádom pri ŠTARTE (nedostupná DB,
             # poškodený token, chýbajúca appka).
-            await self._start_fanvue(cfg, g, llm, control if bot_ready else None)
-            await self._start_instagram(cfg, g, llm, control if bot_ready else None)
+            await self._start_fanvue(cfg, g, llm, control)
+            await self._start_instagram(cfg, g, llm, control)
 
             # Po výpadku dotiahni, čo ušlo — nikomu sa nepíše, len sa doplní
             # kontext a rozhodne, na čo sa ešte oplatí odpovedať.
             reconciler = Reconciler(userbot, cfg, db, user_client)
             caught_up = await reconciler.run()
+            from social_commands import SocialCommands
+            dispatcher = SocialCommands(self._transport, cfg.model_id, g.replica_name, control)
+            self._cleanup.append(asyncio.create_task(dispatcher.run()))
 
             me = await user_client.get_me()
             handle = f"@{me.username}" if me.username else me.first_name

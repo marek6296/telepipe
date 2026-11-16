@@ -14,6 +14,7 @@ session, bot token). Tu je to rozdelené na dve triedy:
 from __future__ import annotations
 
 import os
+import hashlib
 import socket
 from dataclasses import dataclass
 
@@ -249,6 +250,9 @@ class TenantConfig:
     control_bot_token: str
     owner_chat_id: int
     tg_connected_at: str = ""
+    # Immutable fingerprint of the exact encrypted session used by this runner.
+    # SQL fences current DB state; this also fences a still-live old client.
+    tg_account_scope: str = "primary"
     owner_as_client: bool = False
 
     # Účty, ktorým sa odpovedá výhradne hlasovkou — na testovanie hlasu.
@@ -329,6 +333,7 @@ class TenantConfig:
             tg_api_id=_required_int(row, "tg_api_id"),
             tg_api_hash=row.get("tg_api_hash") or "",
             tg_session=tg_session,
+            tg_account_scope='telegram:' + hashlib.md5(session_enc.encode()).hexdigest() if session_enc else 'primary',
             control_bot_token=control_bot_token,
             # Nenastavený majiteľ je od migrácie 020 BEŽNÝ stav, nie chyba:
             # modelka sa páruje kódom až keď beží, takže do prvého spárovania

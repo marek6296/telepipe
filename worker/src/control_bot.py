@@ -394,6 +394,7 @@ class ControlBot:
         self._cfg = cfg
         self._db = db
         self._client = client
+        self._mirror_enabled = True
         # Skúšobný chat. LLM doplní runner (`set_llm`) — bez neho sa tlačidlo
         # len ospravedlní, namiesto toho aby bot spadol.
         self._llm: Any = None
@@ -453,7 +454,7 @@ class ControlBot:
         # vetvy by `send_message(0, ...)` pri každej notifikácii hodil výnimku a
         # do logu tiekla varovná hláška o zle nastavenom botovi — hoci majiteľ
         # len ešte nestihol poslať párovací kód.
-        if not self._cfg.owner_chat_id:
+        if not self._cfg.owner_chat_id or not getattr(self, '_mirror_enabled', True):
             log.debug("model %s: notifikácia zahodená — bot ešte nie je spárovaný",
                       self._cfg.model_id)
             return
@@ -703,6 +704,8 @@ class ControlBot:
         if not sender or not hasattr(sender, "approval_state") or not hasattr(self._db, "incomplete_instagram_claims"):
             return
         for row in await self._db.incomplete_instagram_claims():
+            if row.get('decision_command_id'):
+                continue  # The durable web queue alone owns its recovery.
             # Never replay an uncertain approval. Only the original, still
             # unapproved durable action can restore its owner card.
             if await sender.approval_state(row["conv_key"]) in ("awaiting", "paused"):
@@ -1341,6 +1344,28 @@ class ControlBot:
         """Runner registruje doručovateľa odpovedí pre kanál (userbot/fanvue)."""
         self._senders[channel] = sender
 
+    async def sync_social_cards(self) -> None:
+        """Reflect decisions from the web without ever delivering or marking seen."""
+        for mid, pid in list(self._cards.items()):
+            row = await self._db.get_pending(pid)
+            if not row or row.get('status') != 'awaiting':
+                await self._forget_card(mid)
+                if getattr(self, '_mirror_enabled', True):
+                    await self._clear_card(mid, '✅ _Handled in Social sites._')
+                continue
+            if not getattr(self, '_mirror_enabled', True):
+                continue
+            suggestions = row.get('suggestions') or []
+            try:
+                await self._client.edit_message(self._cfg.owner_chat_id, mid,
+                    '\n'.join(_card_lines(row['channel'], _kto(row), row.get('incoming_preview') or '',
+                                          suggestions, row.get('hint') or '', her_name=self._cfg.name)),
+                    buttons=self._approval_buttons(len(suggestions), row['channel'], suggestions), link_preview=False)
+            except Exception:
+                # Unchanged or unavailable mirror cards must not prevent later
+                # cards from reflecting their actual durable decision.
+                pass
+
     def start_fallback_poller(self) -> "asyncio.Task":
         """Legacy supervisor hook; Semi never sends on a timer."""
         return asyncio.create_task(self._fallback_loop())
@@ -1387,8 +1412,6 @@ class ControlBot:
         hint: str = "", prompt: str = "",
     ) -> bool:
         """Založí pending, pošle kartu majiteľovi. True = poslané."""
-        if not self._cfg.owner_chat_id:
-            return False
         # Fanúšik mohol napísať znova, kým visela stará karta — zavri ju.
         for old in await self._db.supersede_open(channel, conv_key):
             cmid = old.get("control_msg_id")
@@ -1402,6 +1425,8 @@ class ControlBot:
         if not row:
             return False
         pid = row["id"]
+        if not self._cfg.owner_chat_id or not getattr(self, '_mirror_enabled', True):
+            return True  # The durable web inbox is the primary approval surface.
         lines = _card_lines(
             channel, display_name, incoming_preview, suggestions, hint,
             her_name=self._cfg.name,
@@ -1413,8 +1438,15 @@ class ControlBot:
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("Schvaľovaciu kartu sa nepodarilo poslať: %s", exc)
-            return False
-        await self._db.mark_pending(pid, "awaiting", control_msg_id=int(msg.id))
+            return True  # The draft remains reviewable in Social sites.
+        if hasattr(self._db, 'move_pending_card'):
+            if not await self._db.move_pending_card(pid, None, int(msg.id)):
+                # The web can decide while Telegram is still creating its mirror.
+                # Attaching a card must never reset that durable decision.
+                await self.cancel_card(int(msg.id))
+                return True
+        else:
+            await self._db.mark_pending(pid, "awaiting", control_msg_id=int(msg.id))
         self._cards[int(msg.id)] = pid
         self._zapamataj_chat(
             int(msg.id), channel=channel, conv_key=conv_key, name=display_name
@@ -1643,16 +1675,20 @@ class ControlBot:
                 return
             idx = int(index or 0)
             text = suggestions[idx] if 0 <= idx < len(suggestions) else ""
-            await self._finish_text(event, pid, sender, conv, channel, text)
+            await self._finish_text(event, pid, sender, conv, channel, text, expected_suggestions=suggestions)
         elif head == "ac":
             await event.answer()
             await self._ask_semi(event, "semi_custom", mid, "✍️ Type the message to send. /cancel to cancel.")
         elif head == "as":
-            await self._db.mark_pending(pid, "skipped")
+            if not await self._skip_pending(pid, suggestions):
+                await event.answer('Already handled. Open Active chats.', alert=True)
+                return
             await self._forget_card(mid)
             await event.edit("⏭️ _Skipped._", buttons=None)
         elif head == "ax":
-            await self._db.mark_pending(pid, "skipped")
+            if not await self._skip_pending(pid, suggestions):
+                await event.answer('Already handled. Open Active chats.', alert=True)
+                return
             if channel == "telegram":
                 try:
                     await self._db.update_user(int(conv), {"human_takeover": True})
@@ -1762,6 +1798,15 @@ class ControlBot:
             while len(self._input_prompts) > _MAX_CHAT_CTX:
                 self._input_prompts.pop(next(iter(self._input_prompts)))
 
+    async def _skip_pending(self, pid, suggestions):
+        if not pid:
+            return True
+        if hasattr(self._db, 'skip_pending_version'):
+            return await self._db.skip_pending_version(pid, suggestions)
+        # Legacy standalone adapter, never the multi-tenant production database.
+        await self._db.mark_pending(pid, 'skipped')
+        return True
+
     async def _deliver_approved_text(self, pid, sender, conv, channel, text):
         try:
             return await sender.deliver_text(conv, text)
@@ -1779,12 +1824,18 @@ class ControlBot:
             await self._db.mark_pending(pid, "superseded")
             raise RuntimeError("This reply is no longer current. Open Active chats.") from None
 
-    async def _finish_text(self, event, pid, sender, conv, channel, text) -> None:
+    async def _finish_text(self, event, pid, sender, conv, channel, text, expected_suggestions=None) -> None:
         """Odošle text. `pid=None` = nič sa neuzatvára, len sa píše."""
         if not (text or "").strip():
             await event.answer("Empty text")
             return
-        if pid and not await self._db.claim_pending(pid):
+        claimed = True
+        if pid:
+            if expected_suggestions is not None and hasattr(self._db, 'claim_pending_version'):
+                claimed = await self._db.claim_pending_version(pid, expected_suggestions)
+            else:
+                claimed = bool(pid and await self._db.claim_pending(pid))
+        if not claimed:
             await event.answer("Already handled", alert=True)
             return
         ok = await self._deliver_approved_text(pid, sender, conv, channel, text)
@@ -2062,7 +2113,11 @@ class ControlBot:
             return "That card is no longer current."
 
         hint = str(out.get("hint") or row.get("hint") or "")
-        await self._db.replace_suggestions(pid, suggestions, hint)
+        if hasattr(self._db, 'compare_and_replace_suggestions'):
+            if not await self._db.compare_and_replace_suggestions(pid, row.get('suggestions') or [], suggestions, hint):
+                return 'The suggestions changed. Open the current card.'
+        else:
+            await self._db.replace_suggestions(pid, suggestions, hint)
         lines = _card_lines(
             row.get("channel") or "",
             _kto(row),

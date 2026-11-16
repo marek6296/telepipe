@@ -65,6 +65,7 @@ function isActive(pathname: string, href: string, exact: boolean): boolean {
 }
 
 const MODEL_TAB_LABEL: Record<string, string> = {
+  social: "Social sites",
   telegram: "Telegram",
   fanvue: "Fanvue",
   persona: "Persona",

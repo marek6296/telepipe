@@ -245,6 +245,10 @@ class InstagramDelivery:
     async def send_readiness(self, cfg, action):
         """Recheck after slow generation/provider reads; Semi only bypasses the clock."""
         current = await self.db.settings()
+        if (action.get('payload') or {}).get('origin') == 'operator':
+            if not current.get('connected') or current.get('ig_user_id') != cfg.get('ig_user_id'):
+                return 'account_changed'
+            return '' if in_window(action.get('source_at')) else 'window_expired'
         if (not current.get('enabled') or not current.get('connected')
                 or any(current.get(k) != cfg.get(k) for k in ('reply_mode','ig_user_id'))):
             return 'channel_mode_changed'
@@ -259,20 +263,28 @@ class InstagramDelivery:
                    and parse_time(current.get('test_until')) and parse_time(current['test_until']) > utcnow())
         return '' if testing or (block and in_active_window(local, behavior.active_start_min, behavior.active_end_min)) else 'sleeping'
 
-    async def process_one(self, cfg):
-        action = await self.db.rpc('claim')
+    async def process_one(self, cfg, action=None, before_send=None):
+        action = action or await self.db.rpc('claim')
         if not action:
+            return
+        operator = (action.get('payload') or {}).get('origin') == 'operator'
+        if operator and before_send is None:
+            # Operator work is owned by social_commands. An expired/recovered
+            # action must never escape into an automatic retry path.
+            await self.db.change_action(action, {'state': 'cancelled', 'reason': 'operator_dispatch_required'})
             return
         # No sending outside the shared local day. The test exception is scoped to
         # one platform ID, expires, and never skips Meta, quota or operator gates.
-        behavior = Behavior.from_row(await self.db.behavior())
-        local = utcnow().astimezone(ZoneInfo(behavior.active_tz))
-        block, _ = await self.db.hub.day(local, den.Rozvrh.from_row(await self.db.schedule()))
-        testing = (action['igsid'] and cfg.get('test_igsid') == action['igsid']
-                   and parse_time(cfg.get('test_until')) and parse_time(cfg['test_until']) > utcnow())
-        if cfg.get('reply_mode') != 'semi' and not testing and (not block or not in_active_window(local, behavior.active_start_min, behavior.active_end_min)):
-            await self.defer(action, 'sleeping')
-            return
+        local = utcnow()
+        if not operator:
+            behavior = Behavior.from_row(await self.db.behavior())
+            local = local.astimezone(ZoneInfo(behavior.active_tz))
+            block, _ = await self.db.hub.day(local, den.Rozvrh.from_row(await self.db.schedule()))
+            testing = (action['igsid'] and cfg.get('test_igsid') == action['igsid']
+                       and parse_time(cfg.get('test_until')) and parse_time(cfg['test_until']) > utcnow())
+            if cfg.get('reply_mode') != 'semi' and not testing and (not block or not in_active_window(local, behavior.active_start_min, behavior.active_end_min)):
+                await self.defer(action, 'sleeping')
+                return
         link_target = ''
         try:
             if action['kind'] == 'comment':
@@ -295,7 +307,7 @@ class InstagramDelivery:
                 if not await self.fallback_current(action, api.rozober(raw, cfg['ig_user_id'])['spravy']):
                     await self.db.change_action(action, {'state': 'cancelled', 'reason': 'reply_target_changed'})
                     return
-                if cfg['reply_mode'] == 'semi' and not action['payload'].get('approved_source_mid'):
+                if not operator and cfg['reply_mode'] == 'semi' and not action['payload'].get('approved_source_mid'):
                     if action['kind'] != 'dm':
                         await self.db.change_action(action, {'state': 'skipped', 'reason': 'semi_text_only'})
                         return
@@ -331,6 +343,9 @@ class InstagramDelivery:
                     from instagram_interactions import prepare_response
                     offer = await self.offer_state(cfg, user)
                     prepared = prepare_response(raw_text or '', cfg, offer)
+                    if operator and (prepared['kind'] != 'dm' or prepared['text'] != action['text']):
+                        await self.db.change_action(action, {'state': 'blocked', 'reason': 'text_not_allowed'})
+                        return
                     if prepared['kind'] == 'photo':
                         photo = await self.db.sfw_photo() if offer['photo'] else None
                         if not photo:
@@ -349,7 +364,7 @@ class InstagramDelivery:
             if action['kind'] != 'comment':
                 fresh = api.rozober(await asyncio.to_thread(api.conversation, cfg['access_token'], action['target_id']), cfg['ig_user_id'])
                 latest = fresh['spravy'][-1] if fresh['spravy'] else {}
-                if (latest.get('mid') != action['source_mid'] or latest.get('role') != 'user'
+                if (latest.get('mid') != action['source_mid'] or (not operator and latest.get('role') != 'user')
                         or not await self.fallback_current(action, fresh['spravy'])):
                     await self.db.change_action(action, {'state': 'cancelled', 'reason': 'remote_context_changed'})
                     return
@@ -359,6 +374,9 @@ class InstagramDelivery:
                 text, correction = small_typo(text, action['id'])
             if reason := await self.send_readiness(cfg, action):
                 await self.defer(action, reason, minutes=1)
+                return
+            if operator and not await before_send():
+                await self.db.change_action(action, {'state': 'cancelled', 'reason': 'stale_context'})
                 return
             reserved = await self.db.rpc('reserve', action=action['id'], lease=action['lease_token'], text=text, link=link, reminder=reminder)
             if not reserved.get('ok'):
@@ -373,6 +391,9 @@ class InstagramDelivery:
                     log.warning('Instagram read receipt unavailable (Meta %s)', exc.kod)
                 if reason := await self.send_readiness(cfg, action):
                     await self.db.rpc('release_unsent', action=action['id'], lease=action['lease_token'], reason=reason)
+                    return
+                if operator and not await before_send():
+                    await self.db.rpc('release_unsent', action=action['id'], lease=action['lease_token'], reason='stale_context')
                     return
             try:
                 if action['kind'] == 'comment':
@@ -404,6 +425,77 @@ class InstagramDelivery:
         except api.InstagramError as exc:
             await self.defer(action, f'refresh_meta_{exc.kod}')
             await self.provider_error(exc)
+
+    async def deliver_operator(self, command, before_send):
+        """Prepare a durable action, then run the existing reservation/send path."""
+        from social_commands import DeliveryResult
+        cfg = await self.db.settings()
+        if not cfg.get('connected') or cfg.get('ig_user_id') != command['account_scope']:
+            return DeliveryResult.blocked('instagram_disconnected')
+        if parse_time(cfg.get('circuit_until')) and parse_time(cfg['circuit_until']) > utcnow():
+            return DeliveryResult.blocked('provider_pause')
+        raw = None
+        previous = await self.db.actions(igsid='eq.' + command['external_id'], order='created_at.desc', limit='1')
+        if previous and previous[0].get('target_id'):
+            raw = await asyncio.to_thread(api.conversation, cfg['access_token'], previous[0]['target_id'])
+        else:
+            # Imported Manual contacts have no actions yet; discover their actual
+            # thread, paging instead of silently using an unrelated first chat.
+            cursor, visited = '', set()
+            deadline = asyncio.get_running_loop().time() + 60
+            while asyncio.get_running_loop().time() < deadline:
+                page = await asyncio.to_thread(api.conversation_page, cfg['access_token'], cfg['ig_user_id'], cursor)
+                raw = next((r for r in page['data'] if api.rozober(r, cfg['ig_user_id'])['igsid'] == command['external_id']), None)
+                cursor = page['after']
+                if raw or not cursor or cursor in visited:
+                    break
+                visited.add(cursor)
+        if not raw:
+            return DeliveryResult.blocked('thread_unavailable')
+        chat = api.rozober(raw, cfg['ig_user_id'])
+        if chat['igsid'] != command['external_id'] or not chat['spravy']:
+            return DeliveryResult.blocked('thread_changed')
+        await self.ingest(raw, cfg)
+        user = await self.db.user(command['external_id']) or {}
+        if not in_window(user.get('last_incoming_at')):
+            return DeliveryResult.blocked('window_expired', restore_pending=False)
+        if not await before_send():
+            return DeliveryResult.blocked('stale_context')
+        if command['operation'] == 'send_text' and cfg.get('reply_mode') == 'auto':
+            await self.db.update_user(command['external_id'], {'human_takeover': True})
+            await self.db.cancel_actions(command['external_id'], 'takeover')
+        action = await self.db.prepare_operator_action(command, chat['id'], chat['spravy'][-1]['mid'], user['last_incoming_at'])
+        if not action:
+            return DeliveryResult.blocked('draft_changed', restore_pending=False)
+        try:
+            await self.process_one(cfg, action=action, before_send=before_send)
+        except Exception:
+            # Durable action state determines whether the exception preceded send.
+            current = await self.db.action(action['id']) or {}
+            if current.get('state') in ('sending', 'uncertain'):
+                return DeliveryResult.uncertain()
+            if current.get('state') != 'sent':
+                raise
+        current = await self.db.action(action['id']) or {}
+        state = current.get('state')
+        if state == 'sent':
+            return DeliveryResult('done', result={'provider_message_id': current.get('provider_id') or '',
+                                                 'action_id': action['id'], 'delivery_state': 'sent'})
+        if state in ('sending', 'uncertain') or not state:
+            return DeliveryResult.uncertain()
+        if (command.get('pending_id') and state in ('pending', 'ready', 'leased', 'blocked')
+                and not current.get('reserved_at')
+                and (current.get('payload') or {}).get('command_id') == command['id']):
+            payload = {k: v for k, v in (current.get('payload') or {}).items()
+                       if k not in ('origin', 'command_id', 'approved_source_mid')}
+            restored = await self.db.change_action(current, {'state': 'approval', 'payload': payload,
+                'lease_token': None, 'lease_until': None}, state=state)
+            return DeliveryResult.blocked(current.get('reason') or 'delivery_blocked', restore_pending=bool(restored))
+        # No provider request happened. Retire any deferred action so no ordinary
+        # poll can send it later after this command has reported a safe failure.
+        if state in ('pending', 'ready', 'leased'):
+            await self.db.change_action(current, {'state': 'cancelled'}, state=state)
+        return DeliveryResult.blocked(current.get('reason') or 'delivery_blocked', restore_pending=False)
 
     async def offer_state(self, cfg, user):
         from instagram_interactions import link_budgets, link_targets

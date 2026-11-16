@@ -284,10 +284,10 @@ class Fanvue:
     async def close(self) -> None:
         await self._client.aclose()
 
-    async def _access_token(self) -> str:
+    async def _access_token(self, *, fresh: bool = False) -> str:
         now = datetime.now(timezone.utc)
         # Minútová rezerva, nech token nevyprší uprostred volania.
-        if self._token and self._expires and self._expires - timedelta(seconds=60) > now:
+        if not fresh and self._token and self._expires and self._expires - timedelta(seconds=60) > now:
             return self._token
 
         row = await self._db.settings()
@@ -342,9 +342,9 @@ class Fanvue:
         """
         return await self._access_token()
 
-    async def _headers(self) -> Dict[str, str]:
+    async def _headers(self, *, fresh: bool = False) -> Dict[str, str]:
         return {
-            "Authorization": f"Bearer {await self._access_token()}",
+            "Authorization": f"Bearer {await self._access_token(fresh=fresh)}",
             "X-Fanvue-API-Version": API_VERSION,
             "Content-Type": "application/json",
         }
@@ -413,6 +413,31 @@ class Fanvue:
         except Exception as exc:  # noqa: BLE001 - odpisovanie musí bežať ďalej
             log.warning("Fanvue správa zlyhala: %s", exc)
             return ""
+
+    async def send_operator(self, user_uuid: str, text: str, *, before_send=None):
+        """Preserve unknown outcomes for the durable operator queue; never retry."""
+        from social_commands import DeliveryResult
+        # Authentication failure happens before the provider send, hence is safe.
+        try:
+            headers = await self._headers(fresh=True)
+        except Exception:
+            return DeliveryResult.blocked('fanvue_disconnected')
+        if before_send is not None and not await before_send():
+            return DeliveryResult.blocked('stale_context')
+        try:
+            response = await self._client.post(f'/chats/{user_uuid}/message',
+                                                json={'text': text}, headers=headers)
+        except Exception:
+            return DeliveryResult.uncertain()
+        if 400 <= response.status_code < 500:
+            return DeliveryResult.blocked('fanvue_rejected_' + str(response.status_code))
+        if not 200 <= response.status_code < 300:
+            return DeliveryResult.uncertain()
+        try:
+            provider_id = str((response.json() or {}).get('uuid') or '')
+        except Exception:
+            provider_id = ''
+        return DeliveryResult.sent(provider_id)
 
     async def upload(
         self, creator_uuid: str, data: bytes, filename: str, media_type: str = "audio"
