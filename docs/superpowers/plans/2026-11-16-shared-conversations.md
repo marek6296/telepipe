@@ -100,5 +100,5 @@ Marek requested Telegram somewhat more often than Linkovne, no repeated recipien
 
 - [x] RED → GREEN Python interaction/budget/Semi-preview tests and web validator test.
 - [x] RED → GREEN actual SQL destination/rolling/gap/recipient/unknown/manual/allowlist contracts.
-- [x] Full worker suite 2421 passed, 2 deselected; web typecheck/ESLint/Instagram scripts/build pass.
-- [ ] Fresh review; apply migration, push/deploy exact SHA; enable both + Semi and verify current state/API health.
+- [x] Full worker suite 2423 passed, 2 deselected; web typecheck/ESLint/Instagram scripts/build pass.
+- [x] Fresh review (Important manual URL classifier + Minor reminder destination fixed with RED→GREEN regressions); migration applied, exact runtime `9984dfc` deployed on Railway SUCCESS and Vercel READY; both + Semi enabled 15:42 UTC. Live read-only Meta conversations request passed (5 chats, 9.9 s); runtime poll 15:42:48 UTC healthy, empty poll_error, no circuit pause and no automated actions. No live fan messages sent.
