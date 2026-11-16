@@ -144,8 +144,8 @@ export const ALTERNATIVES: Alternative[] = [
       {
         title: "What you keep control of",
         paragraphs: [
-          "Semi-automatic mode sends every draft to your own Telegram bot before it goes out. Three different replies to choose from, or write your own, or hand her a topic in your language and let her say it in hers.",
-          "You can also open any chat from the menu and write into it yourself, send a photo, or take the conversation over entirely.",
+          "Semi-automatic mode keeps every draft in Social sites until you approve it. Choose a reply, write your own exact text, or use Say this to turn your meaning into a preview in her voice. Your Telegram bot sends notifications with a link to the chat.",
+          "Open any conversation in Social sites to read its history, write an exact reply or take over the conversation.",
         ],
       },
     ],
@@ -164,7 +164,7 @@ export const ALTERNATIVES: Alternative[] = [
       },
       {
         q: "Can I read what she wrote?",
-        a: "Yes. Every conversation is visible in the workspace, and the control bot can show you who a person is, what they talked about and where they are in the funnel before you reply.",
+        a: "Yes. Social sites shows the conversation history, linked accounts and what she remembers about the person before you reply.",
       },
     ],
     vs: {
@@ -222,8 +222,8 @@ export const ALTERNATIVES: Alternative[] = [
       {
         title: "Approval when you want it",
         paragraphs: [
-          "Semi-automatic mode puts a card in your Telegram with three different replies — not three versions of one sentence — plus the option to regenerate, to hand her a topic in your own words, or to see who this person is before you decide.",
-          "If nobody decides within the time you set, the first suggestion goes out on its own so the fan is not left waiting.",
+          "Semi-automatic mode shows reply previews in Social sites. You can regenerate them, use Say this to express your own meaning in her voice, or review the conversation before approving the exact reply.",
+          "Drafts wait for your explicit approval. Telegram notifications link to the conversation so you can decide on the web.",
         ],
       },
     ],
@@ -380,7 +380,7 @@ export const ALTERNATIVES: Alternative[] = [
       },
       {
         q: "Can I keep a human on the send button?",
-        a: "Yes. Semi-automatic mode sends every draft to your own Telegram bot with three replies to choose from, and nothing goes out until you pick — or until the time limit you set, if you want one.",
+        a: "Yes. Semi-automatic mode keeps drafts in Social sites, and nothing goes out until you explicitly approve a reply. Telegram notifications take you straight to the conversation.",
       },
       {
         q: "How much does it cost?",
@@ -477,7 +477,7 @@ export const ALTERNATIVES: Alternative[] = [
       "Onley AI is positioned as an automated chatting and selling layer for creator inboxes. Telepipe overlaps on the writing and differs on everything around it: where the conversation happens, how it is paced, and how much of it you approve.",
     highlights: [
       { title: "Off, automatic or approved", body:
-        "Every channel has three modes. Semi-automatic sends each draft to your own Telegram bot with three different replies, so nothing goes out unless you pick it." },
+        "Every channel has three modes. Semi-automatic shows draft replies in Social sites, and nothing goes out until you approve one. Telegram can notify you when a new message arrives." },
       { title: "It starts on Telegram", body: ROZDIEL.telegram },
       { title: "Conversations that end", body: ROZDIEL.window },
     ],
@@ -486,13 +486,13 @@ export const ALTERNATIVES: Alternative[] = [
         title: "Full automation is a setting, not a religion",
         paragraphs: [
           "Handing an inbox to a model and walking away works right up until the message that needed a person. The interesting question is not whether to automate, it is how quickly you can get in front of a reply when you want to.",
-          "Telepipe answers that per channel. Off means she writes nothing. Automatic means she answers on her own. Semi-automatic means every reply waits for you — with a time limit if you want one, so a fan is never left hanging because you were asleep.",
+          "Telepipe answers that per channel. Manual leaves replies to you. Automatic means she answers on her own. Semi-automatic means every reply waits for your explicit approval in Social sites.",
         ],
         points: [
           "Three replies to choose from, each a different move in the conversation",
           "Regenerate, or hand her a topic in your own language",
           "See who the person is before you answer — history, facts, funnel stage",
-          "Send a photo or voice note into the chat yourself",
+          "Write an exact reply or take over a conversation yourself",
         ],
       },
       {
@@ -615,8 +615,8 @@ export const ALTERNATIVES: Alternative[] = [
       {
         title: "Who watches it day to day",
         paragraphs: [
-          "Each model has her own control bot in Telegram: her status, her settings, her conversations, her approval cards and her alerts. Whoever runs that model works from that chat and needs nothing else.",
-          "Alerts are per model too — a hot conversation, a payment, a link click, running low on credit, or a daily summary if you want one.",
+          "Each model has a Social sites workspace for conversations, reply modes, previews and approvals. Her Telegram bot sends notifications with links to the right chat; day-to-day management happens on the web.",
+          "Incoming-message alerts are per model too. Manual and Semi can notify you; Auto stays quiet unless you have taken over the conversation.",
         ],
       },
       {

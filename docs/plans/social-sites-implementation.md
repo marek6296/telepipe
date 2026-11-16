@@ -112,3 +112,26 @@ The authenticated production page showed its real grouped inbox, all three linke
 channels, channel switching and three marker-free suggestions. No operator command
 was submitted during verification. Existing channel modes were preserved.
 An existing Instagram provider circuit pause remained visible and was not bypassed.
+
+## Web-first notifications follow-up
+
+- [x] Durable service-only inbound queue, rollout cutoff, source dedupe, coalescing,
+  effective mode/account/owner/lease fences and explicit notification opt-out.
+- [x] SQL fault-injection regression: a broken notification insert never rolls
+  back the real incoming message; no customer/provider operation in the test.
+- [x] Runtime bot only sends inbound doorbells; old controls redirect to the web.
+- [x] Manual Fanvue imports remain read-only; Instagram sync opt-out is preserved.
+- [x] Authorized deep links and clear Say this → preview → approve flow for
+  existing Semi drafts; exact custom text remains a separately labeled action.
+- [x] Final combined verification: 2,690 worker tests passed (2 integration tests
+  deselected); all three PGlite contracts, web policy/server/UI/notification-settings
+  tests, 301 alternatives checks, scoped ESLint, typecheck and production build passed.
+- [x] Notification migration applied as live version `20261116225535`; all three
+  triggers and service-only grants verified. Deployment IDs and read-only health
+  evidence are recorded in the project vault after release.
+
+Ruling: no new draft-create contract for Manual chats. Say this improves the
+existing pending-proposal regenerate operation; a draftless Manual chat continues
+to use exact custom text. This keeps explicit approval and source CAS intact.
+Ruling: notification transport is at-most-once. A transient bot failure may lose
+an alert; the complete conversation remains visible in Social sites.

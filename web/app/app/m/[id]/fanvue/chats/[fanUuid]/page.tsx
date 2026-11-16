@@ -175,7 +175,8 @@ export default async function FanvueChatDetailPage({
       <Card>
         <CardHeader
           title="Conversation"
-          description="Read-only — replying happens on Fanvue, and only she writes here."
+          description="Message history. Manage replies and approvals in Social sites."
+          actions={<Link href={`/app/m/${model.id}/social?contact=${encodeURIComponent(`fanvue:${chat.fan_uuid}`)}`} className="app-btn app-btn-ghost min-h-8 px-3 text-[11px]">Open in Social sites</Link>}
         />
         <div className="space-y-3 p-5">
           {hasMore && (

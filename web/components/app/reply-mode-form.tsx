@@ -41,7 +41,7 @@ export function ReplyModeForm({
               { value: "auto", label: "Automatic — she replies on her own" },
               { value: "semi", label: "Semi-automatic — you approve every reply" },
             ]}
-            help="Automatic follows her daily schedule. Semi sends drafts to your control bot at any time and waits for your approval, with no automatic timeout. You choose when to reply; context is saved across modes."
+            help="Automatic follows her daily schedule. Semi prepares drafts in Social sites and waits for your approval, with no automatic timeout. Your Telegram bot can notify you with a link to the conversation. Context is saved across modes."
           />
         </div>
       </Card>

@@ -19,7 +19,7 @@ export function InstagramSettingsForm({ row }: { row: InstagramRow }) {
       <Card>
         <CardHeader
           title="Replying"
-          description="Off until you are sure. Semi sends every reply to your control bot for approval first — the same as Telegram."
+          description="Off until you are sure. Review and approve every Semi reply in Social sites. Your Telegram bot can notify you when a draft is ready."
         />
         <div className="grid gap-5 p-5 sm:grid-cols-2">
           <SelectField

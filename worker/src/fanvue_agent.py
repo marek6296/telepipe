@@ -181,13 +181,21 @@ def fan_of(event: Dict[str, Any]) -> Dict[str, str]:
         or data.get("subscriber")
         or {}
     )
-    return {
+    result = {
         "uuid": str(fan.get("uuid") or ""),
         "handle": str(fan.get("handle") or ""),
         "display_name": str(fan.get("display_name") or ""),
         "avatar_url": str(fan.get("avatar_url") or ""),
         "text": str(data.get("text") or "").strip(),
     }
+    # Only provider message time is trustworthy. Webhook arrival/import time
+    # must not make an old message look new to the notification queue.
+    times = fvsync.message_times([data])
+    message_uuid = str(data.get('uuid') or '')
+    if message_uuid in times:
+        result['_message_uuid'] = message_uuid
+        result['_occurred_at'] = times[message_uuid]
+    return result
 
 
 def paid_cents(event: Dict[str, Any]) -> int:
@@ -645,14 +653,15 @@ class FanvueAgent:
 
     async def tick(self) -> None:
         settings = await self._db.settings()
-        if fvmedia.due_to_post(settings, datetime.now(timezone.utc)):
+        manual = not settings.get('enabled') or settings.get('reply_mode') == 'off'
+        if not manual and fvmedia.due_to_post(settings, datetime.now(timezone.utc)):
             try:
                 await self._post_to_feed(settings)
             except Exception as exc:  # noqa: BLE001 - feed nesmie zhodiť odpisovanie
                 log.warning("Príspevok na feed zlyhal: %s", exc)
 
         include_deferred = (
-            str(settings.get("reply_mode") or "auto") != "auto"
+            manual or str(settings.get("reply_mode") or "auto") != "auto"
             or await self._auto_hours_open(settings)
         )
         if include_deferred and settings.get("enabled") and settings.get("reply_mode") != "off":
@@ -668,7 +677,7 @@ class FanvueAgent:
         posledna: Dict[str, Dict[str, Any]] = {}
         prebite: List[int] = []
         for event in events:
-            kto = fan_of(event)["uuid"] if wants_reply(event) else ""
+            kto = fan_of(event)["uuid"] if event.get('type') == ODPOVEDA_NA else ""
             if not kto:
                 continue
             if kto in posledna:
@@ -687,9 +696,15 @@ class FanvueAgent:
                 log.warning("Oznam k udalosti %s zlyhal: %s", event.get("id"), exc)
 
         for event in events:
+            inbox_only = event.get('type') == ODPOVEDA_NA and (manual or not wants_reply(event))
             try:
                 if int(event["id"]) in prebite:
                     log.info("Udalosť %s prebitá novšou v tom istom chate", event["id"])
+                elif inbox_only:
+                    fan = fan_of(event)
+                    if fan['uuid']:
+                        row = await self._ensure_fan(fan)
+                        await self._reconcile(fan, row, mark_read=False, sync_only=True)
                 elif settings.get("enabled"):
                     await self._dispatch(event, settings)
             except ReplyDeferred:
@@ -699,6 +714,8 @@ class FanvueAgent:
                 continue
             except Exception as exc:  # noqa: BLE001
                 log.warning("Udalosť %s zlyhala: %s", event.get("id"), exc)
+                if inbox_only:
+                    continue  # A failed read/import is safe to retry, not handled.
             await self._db.mark_handled(int(event["id"]))
 
     async def _retry_pending_thanks(self) -> None:
@@ -1184,6 +1201,7 @@ class FanvueAgent:
         if hub := getattr(self._db, "hub", None):
             await hub.observe("fanvue", fan["uuid"], fan.get("handle", ""), fan.get("display_name", ""), fan.get("text", ""))
         if not row.get("ai_enabled", True) or row.get("human_takeover"):
+            await self._reconcile(fan, row, mark_read=False, sync_only=True)
             log.info("Fanúšik %s má odpisovanie vypnuté", fan["uuid"][:8])
             return
 
@@ -1626,7 +1644,15 @@ class FanvueAgent:
         skutocne = await self._api.chat_messages(fan["uuid"], mark_read=mark_read)
         if not skutocne:
             if fan.get("text"):
-                await self._db.add_message(fan["uuid"], "user", fan["text"])
+                message_uuid = fan.get('_message_uuid')
+                if message_uuid and fan.get('_occurred_at'):
+                    if message_uuid not in await self._db.known_message_uuids(fan['uuid']):
+                        await self._db.add_messages(fan['uuid'], [{
+                            'message_uuid': message_uuid, 'role': 'user', 'content': fan['text'],
+                            'occurred_at': fan['_occurred_at'],
+                        }])
+                else:
+                    await self._db.add_message(fan["uuid"], "user", fan["text"])
             return True
 
         try:
@@ -1677,6 +1703,8 @@ class FanvueAgent:
         except ReplyDeferred:
             raise
         except Exception as exc:  # noqa: BLE001 - zosúladenie je poistka, nie podmienka
+            if sync_only:
+                raise  # Inbox import must keep its webhook pending on failure.
             log.warning("Zosúladenie chatu zlyhalo: %s", exc)
 
         if fvsync.stay_quiet(skutocne, creator):

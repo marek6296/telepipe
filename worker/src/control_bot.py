@@ -390,11 +390,16 @@ def _parse_iso(value: Optional[str]) -> Optional[datetime]:
 
 
 class ControlBot:
-    def __init__(self, cfg: Config, db: Db, client: TelegramClient) -> None:
+    notifications_only = False
+
+    def __init__(self, cfg: Config, db: Db, client: TelegramClient, *, notifications_only: bool = False) -> None:
         self._cfg = cfg
         self._db = db
         self._client = client
         self._mirror_enabled = True
+        # The runner enables the web-first surface. Legacy adapters can still
+        # exercise the old controls; no production handler can reach them.
+        self.notifications_only = notifications_only
         # Skúšobný chat. LLM doplní runner (`set_llm`) — bez neho sa tlačidlo
         # len ospravedlní, namiesto toho aby bot spadol.
         self._llm: Any = None
@@ -450,6 +455,8 @@ class ControlBot:
         self._client.add_event_handler(self._on_callback, events.CallbackQuery())
 
     async def notify(self, text: str, buttons: Any = None) -> None:
+        if self.notifications_only:
+            return  # Only the durable Social inbox doorbell may notify.
         # Nespárovaná modelka nie je porucha, len ešte nemá kam písať. Bez tejto
         # vetvy by `send_message(0, ...)` pri každej notifikácii hodil výnimku a
         # do logu tiekla varovná hláška o zle nastavenom botovi — hoci majiteľ
@@ -466,6 +473,32 @@ class ControlBot:
             log.warning(
                 "Notifikácia sa neodoslala (dal si botovi START zo správneho účtu?): %s", exc
             )
+
+    @property
+    def notifications_ready(self) -> bool:
+        return bool(self._cfg.owner_chat_id and self._mirror_enabled)
+
+    async def _open_social(self, event, *, paired: bool = False) -> None:
+        from social_notifications import social_url
+        text = ("✅ Paired.\n\n" if paired else "") + (
+            "New messages in Manual and Semi appear here. "
+            "Read, approve and reply in Social sites:\n" + social_url(self._cfg.model_id)
+        )
+        await event.reply(text, buttons=Button.clear(), link_preview=False, parse_mode=None)
+
+    async def notify_inbound(self, item: Dict[str, Any]) -> None:
+        """One already-consumed durable batch; never retry an uncertain send."""
+        if not self.notifications_ready:
+            return
+        if str(item.get('owner_chat_id') or '') != str(self._cfg.owner_chat_id):
+            return  # Re-pairing must never disclose a new owner's inbox to the old one.
+        from social_notifications import notification_text, social_url
+        await self._client.send_message(
+            self._cfg.owner_chat_id, notification_text(item),
+            buttons=[[Button.url("Open conversation", social_url(
+                self._cfg.model_id, item['channel'], item['external_id']))]],
+            link_preview=False, parse_mode=None,
+        )
 
     def _is_owner(self, chat_id: Optional[int]) -> bool:
         # Nula je „zatiaľ nikto" (modelka pred spárovaním, viď config.py) —
@@ -518,6 +551,10 @@ class ControlBot:
         self._pair_tries.pop(chat_id, None)
         log.info("model %s: kontrolný bot spárovaný s chatom %s", self._cfg.model_id, chat_id)
 
+        if self.notifications_only:
+            await self._open_social(event, paired=True)
+            return True
+
         await event.reply(
             "✅ *Paired*\n\nFrom now on you'll get alerts about new "
             "followers here, and you control her from here. The buttons below "
@@ -566,6 +603,9 @@ class ControlBot:
         if not self._is_owner(event.chat_id):
             await self._hint_unpaired(event)
             return
+        if self.notifications_only:
+            await self._open_social(event)
+            raise events.StopPropagation
         command = (event.raw_text or "").split()[0].split("@")[0].lower()
         try:
             if command in ("/start", "/menu", "/help"):
@@ -972,6 +1012,9 @@ class ControlBot:
             except Exception:  # noqa: BLE001 — pokazené párovanie nezhodí bota
                 log.exception("párovanie zlyhalo")
             return
+        if self.notifications_only:
+            await self._open_social(event)
+            return
         # TRVALÁ KLÁVESNICA IDE PRVÁ, pred rozpísaným nastavením aj pred
         # skúšobným chatom. Ťuknutie na ňu pošle obyčajný text, takže inak by
         # sa „👤 Persona" uložilo ako nová persona alebo odišlo modelke do
@@ -1112,6 +1155,9 @@ class ControlBot:
 
     async def _on_callback(self, event: events.CallbackQuery.Event) -> None:
         if not self._is_owner(event.chat_id):
+            return
+        if self.notifications_only:
+            await event.answer("Open Social sites to read, approve or reply. Use /start for the link.", alert=True)
             return
         data = (event.data or b"").decode()
         try:
@@ -1391,6 +1437,8 @@ class ControlBot:
         (s uloženým control_msg_id) po reštarte repliky stále reagujú na kliky."""
         try:
             await self._reconcile_ig_claims()
+            if self.notifications_only:
+                return  # Old callbacks are inert; no new cards or pins.
             for row in await self._db.awaiting_pending():
                 if not await self._pending_current(row):
                     continue
@@ -1425,7 +1473,7 @@ class ControlBot:
         if not row:
             return False
         pid = row["id"]
-        if not self._cfg.owner_chat_id or not getattr(self, '_mirror_enabled', True):
+        if self.notifications_only or not self._cfg.owner_chat_id or not getattr(self, '_mirror_enabled', True):
             return True  # The durable web inbox is the primary approval surface.
         lines = _card_lines(
             channel, display_name, incoming_preview, suggestions, hint,
@@ -1514,6 +1562,8 @@ class ControlBot:
             types.BotCommand("cancel", "Cancel what you were typing"),
             types.BotCommand("help", "How this bot works"),
         ]
+        if self.notifications_only:
+            prikazy = [types.BotCommand("start", "Open Social sites")]
         try:
             await self._client(
                 functions.bots.SetBotCommandsRequest(

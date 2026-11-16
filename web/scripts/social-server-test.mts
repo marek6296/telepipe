@@ -86,3 +86,26 @@ await actions.setSocialMode(modelId,"telegram","semi");
 assert.ok(calls.some(c => c.table === "settings" && c.method === "update" && JSON.stringify(c.args[0]) === JSON.stringify({tg_reply_mode:"semi",tg_fallback_minutes:null})));
 assert.ok(calls.some(c => c.table === "settings" && c.method === "eq" && c.args[1] === modelId));
 console.log("Social server: auth, rollout, DTO, read-only history, source times, delivery state and retry checks passed.");
+
+reset();
+fixtures.social_contact_summaries={model_id:modelId,channel:"telegram",external_id:"987654",account_scope:"primary",identity_id:null,identity_updated_at:null,last_message_id:"42",pending_id:null};
+fixtures.dm_messages=[{id:42,role:"user",content:"A contact outside the first inbox page",created_at:"2026-11-16T20:00:00Z"}];
+const selected = await server.loadSocialSelection(modelId,"telegram:987654") as {thread:{contact:{key:string}};error:string|null};
+assert.equal(selected.thread?.contact.key,"telegram:987654","A notification link opens its contact without relying on the inbox page");
+assert.equal(selected.error,null);
+assert.ok(!calls.some(c => c.table === "social_inbox"),"Selecting a contact is independent of inbox filtering and pagination");
+assert.ok(!calls.some(c => ["update","insert","rpc"].includes(c.method)),"Opening a notification must never send, generate or mark seen");
+reset();
+for (const value of [["telegram:1","telegram:2"],"https://example.com","instagram:1:action-id",""]) {
+  const invalid = await server.loadSocialSelection(modelId,value) as {thread:null;error:string|null};
+  assert.equal(invalid.thread,null);
+  assert.ok(invalid.error,"Malformed notification targets must show a selection error");
+}
+assert.equal(serviceCalls,0,"Invalid targets must be rejected before service reads");
+assert.deepEqual(await server.loadSocialSelection(modelId,undefined),{thread:null,error:null});
+reset();fixtures.accounts={role:"client"};
+const unavailable = await server.loadSocialSelection(modelId,"instagram:123") as {thread:null;error:string};
+assert.equal(unavailable.thread,null);
+assert.match(unavailable.error,/not available/);
+assert.ok(!calls.some(c => c.table === "social_contact_summaries"),"Deep links cannot bypass Instagram rollout gating");
+console.log("Social notification links: independent contact loading, invalid inputs and rollout boundaries passed.");

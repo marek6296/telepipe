@@ -134,3 +134,34 @@ UI checks: linked/unlinked groups, empty/disconnected/loading/error states, swit
 contacts without draft leakage, poll cleanup, mobile layout, keyboard submission,
 queued vs sent. Run full worker, SQL contracts, web lint/typecheck/build, then deploy
 the migration, web and pinned worker with live owner read-only verification.
+
+## Web-first control bot follow-up
+
+The production control bot only sends concise inbound alerts for effective Manual
+or Semi conversations. Auto is silent; contact takeover counts as Manual. All
+legacy commands, text controls and callback buttons redirect to Social sites and
+cannot approve, send or mutate settings. Pairing remains available. Existing bot
+alert preferences remain stored; `control_bot_settings.notify_social_inbound`
+controls the new inbox notifications and is exposed as the only active preference.
+
+INSERT triggers observe newly stored inbound messages without marking them seen.
+Known provider times must be after the migration rollout epoch and within 24 hours;
+unknown times and historical imports do not generate alerts. The service-only
+`social_notifications` queue deduplicates provider IDs, batches a contact after
+8 quiet seconds (at most 60 seconds), and rechecks mode, account, owner and the
+live worker lease in `social_notification_claim(p_model,p_worker)`. It consumes the
+batch before the one Telegram send. A crash or uncertain notification transport
+can lose an alert, but never triggers automatic duplicate delivery. Queue faults
+cannot roll back authoritative incoming history. A re-paired owner cannot receive
+notifications through a worker still configured for the previous owner.
+
+Each alert links to `/app/m/{id}/social?contact={channel}:{externalId}`. SSR loads
+that authorized conversation even when it is outside the first inbox page.
+Existing Semi proposals offer Say this: the operator supplies meaning in their
+own words, the durable regenerate command creates persona-style previews, and a
+separate approval freezes exactly the chosen text. Manual conversations without
+a pending proposal retain the explicit Send exact text composer.
+
+Connected Fanvue continues importing inbound events in Manual without AI sends
+or seen receipts. Instagram retains its explicit history-sync opt-out and all
+provider circuit/budget controls.

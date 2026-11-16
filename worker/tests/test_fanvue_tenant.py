@@ -493,19 +493,19 @@ class TestStart:
         finally:
             _zrus(cleanup)
 
-    async def test_vypnute_odpisovanie_agenta_nespusti(self, fake_agent):
-        """`enabled` je vypínač ODPISOVANIA — účet môže byť pripojený a ticho."""
+    async def test_vypnute_odpisovanie_necha_bezat_inbox(self, fake_agent):
+        """`enabled` vypína odpisovanie, nie import prichádzajúcich správ."""
         cleanup = []
         sup = await start_fanvue(
             _Cfg(), _globals(), _transport({"/fanvue": [_row(enabled=False)]}, []), None, cleanup
         )
         try:
-            assert sup.agent_task is None
+            assert sup.agent_task is not None
             # Vault sa načítava aj tak: priradiť priečinkom rolu musí ísť SKÔR,
             # než sa agent zapne.
             assert sup.vault_task is not None
             assert len(fake_agent.made) == 1, "Manual keeps an operator sender"
-            assert not fake_agent.started.is_set(), "Manual must not start the AI loop"
+            await fake_agent.wait()
         finally:
             _zrus(cleanup)
 
@@ -639,8 +639,8 @@ class TestDozor:
         finally:
             await sup.close()
 
-    async def test_vypnutie_za_behu_zastavi_agenta_a_vault_necha(self, fake_agent):
-        """Vypínač je len o odpisovaní — vault sa načítava aj potichu."""
+    async def test_vypnutie_za_behu_necha_bezat_inbox_a_vault(self, fake_agent):
+        """Existujúca slučka načíta nové nastavenia a pokračuje bez AI."""
         zdroj = _MenlivyRiadok(_row())
         sup = FanvueSupervisor(_Cfg(), _globals(), zdroj.transport(), object())
         try:
@@ -650,8 +650,7 @@ class TestDozor:
 
             zdroj.row = _row(enabled=False)
             await sup.tick()
-            assert sup.agent_task is None
-            assert agent.cancelled() or agent.done()
+            assert sup.agent_task is agent and not agent.done()
             assert sup.vault_task is not None
         finally:
             await sup.close()
@@ -958,7 +957,7 @@ class TestObnovaTokenu:
         try:
             await sup.tick()
             assert api.calls == 1
-            assert sup.agent_task is None      # vypínač sa tým nezaplo
+            assert sup.agent_task is not None  # Manual imports; reply gate stays off
         finally:
             await sup.close()
 

@@ -315,7 +315,7 @@ class TenantRunner:
                 )
                 raise AuthKeyUnregisteredError(request=None)
 
-            control = ControlBot(cfg, db, bot_client)
+            control = ControlBot(cfg, db, bot_client, notifications_only=True)
             control._mirror_enabled = bot_ready
             # Runner si bota drží, aby vedel ohlásiť pád. Klient sa v `finally`
             # odpojí, takže samotné odoslanie musí prebehnúť SKÔR — viď
@@ -366,6 +366,10 @@ class TenantRunner:
             from social_commands import SocialCommands
             dispatcher = SocialCommands(self._transport, cfg.model_id, g.replica_name, control)
             self._cleanup.append(asyncio.create_task(dispatcher.run()))
+            if bot_ready:
+                from social_notifications import SocialNotifications
+                notifications = SocialNotifications(self._transport, cfg.model_id, g.replica_name, control)
+                self._cleanup.append(asyncio.create_task(notifications.run()))
 
             me = await user_client.get_me()
             handle = f"@{me.username}" if me.username else me.first_name

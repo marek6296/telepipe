@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, FileText, Loader2, RefreshCw, Send, SkipForward, Sparkles } from "lucide-react";
+import { Check, FileText, Loader2, RefreshCw, Send, SkipForward, Sparkles } from "lucide-react";
 import { skipSocialPending, submitSocialCommand } from "@/app/app/m/[id]/social/actions";
 import type { SocialChannelState, SocialCommandInput, SocialContact, SocialMessage, SocialThread } from "@/lib/social-types";
 import { cn } from "@/lib/utils";
@@ -11,23 +11,25 @@ import { CHANNEL_NAMES, commandLabel, freezeIntent, mergeMessages, mergeThread, 
 import { useSocialResource } from "./use-resource";
 import type { ComposerDraft, UpdateDraft } from "./workspace";
 
-export function Conversation({ modelId, contact, channelState, draft, updateDraft, selectContact, refreshInbox }: {
-  modelId: string; contact: SocialContact; channelState?: SocialChannelState; draft: ComposerDraft;
+export function Conversation({ modelId, contact, channelState, draft, updateDraft, selectContact, refreshInbox, initialThread }: {
+  modelId: string; contact: SocialContact; channelState?: SocialChannelState; draft: ComposerDraft; initialThread?: SocialThread;
   updateDraft: UpdateDraft; selectContact: (contact: SocialContact) => void; refreshInbox: () => void;
 }) {
   const params = new URLSearchParams({ channel: contact.channel, externalId: contact.externalId });
   const url = `/api/models/${modelId}/social/thread?${params}`;
-  const resource = useSocialResource<SocialThread>(url, undefined, mergeThread);
+  const resource = useSocialResource<SocialThread>(url, initialThread, mergeThread);
   const thread = resource.data;
   const current = thread?.contact ?? contact;
   const [olderLoading, setOlderLoading] = useState(false);
   const [olderError, setOlderError] = useState("");
   const [skipLoading, setSkipLoading] = useState(false);
-  const [briefOpen, setBriefOpen] = useState(false);
   const olderController = useRef<AbortController | null>(null);
   const actionBusy = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastSeenMessage = useRef<string | null>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const regeneratingRevision = useRef<string | null>(null);
+  const previewRevision = thread?.pending ? `${thread.pending.id}:${thread.pending.updatedAt}` : null;
   const lastId = thread?.messages.at(-1)?.id;
   const waitingForCommand = thread?.commands.some(item => ["queued", "working", "sending"].includes(item.status)
     || (item.operation !== "regenerate" && item.status === "done" && ["queued", "ready", "pending", "leased", "approval"].includes(item.deliveryState ?? ""))) ?? false;
@@ -42,6 +44,13 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
     if (!lastSeenMessage.current || scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight < 130) scroll.scrollTop = scroll.scrollHeight;
     lastSeenMessage.current = lastId;
   }, [lastId]);
+
+  useEffect(() => {
+    if (regeneratingRevision.current && previewRevision && regeneratingRevision.current !== previewRevision) {
+      regeneratingRevision.current = null;
+      previewRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }, [previewRevision]);
 
   function changeDraft(change: Partial<ComposerDraft>) {
     updateDraft(contact.key, previous => ({ ...previous, ...change }));
@@ -75,7 +84,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
       const result = await submitSocialCommand(modelId, input);
       if (result.error) {
         changeDraft({ error: result.error, retry: result.retryable ? input : null });
-        if (!result.retryable) refreshAll();
+        if (!result.retryable) { regeneratingRevision.current = null; refreshAll(); }
       } else {
         updateDraft(contact.key, previous => ({ ...previous, retry: null, notice: result.command ? commandLabel(result.command) : result.message || "Request accepted.",
           text: input.operation === "send_text" && previous.text.trim() === input.text ? "" : previous.text }));
@@ -97,6 +106,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
       // A custom answer also replaces the exact draft currently visible, if any.
       ...(pending ? { pendingId: pending.id, expectedSuggestions: pending.suggestions } : {}),
       ...(text !== undefined ? { text } : {}), ...(brief !== undefined ? { brief } : {}) });
+    if (operation === "regenerate") regeneratingRevision.current = previewRevision;
     void submit(input);
   }
 
@@ -126,22 +136,31 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
           {thread.messages.length === 0 ? <div className="flex h-full items-center justify-center text-center text-[12px] text-[var(--app-text-3)]">No imported messages for this account yet.</div> : <div className="space-y-3">{thread.messages.map(message => <Message key={message.id} message={message} />)}</div>}
         </>}
       </div>
-      {thread?.pending && <div className="border-t border-[var(--app-border)] bg-white/[0.015] p-4">
-        <div className="mb-3 flex items-center justify-between gap-2"><h3 className="flex items-center gap-1.5 text-[12px] font-medium"><Sparkles className="h-3.5 w-3.5" />Suggested replies</h3><span className="text-[10px] text-[var(--app-text-4)]">Waiting for you</span></div>
+      {thread?.pending && <div ref={previewRef} className="border-t border-[var(--app-border)] bg-white/[0.015] p-4">
+        <div className="mb-3 flex items-center justify-between gap-2"><h3 className="flex items-center gap-1.5 text-[12px] font-medium"><Sparkles className="h-3.5 w-3.5" />Suggested replies</h3><span className="text-[10px] text-[var(--app-text-4)]">Review, then approve</span></div>
+        <p className="mb-3 text-[10.5px] leading-5 text-[var(--app-text-3)]">These are the exact messages she will send. Nothing is sent until you approve.</p>
         {thread.pending.incomingPreview && <p className="mb-3 line-clamp-2 border-l border-[var(--app-border-strong)] pl-2.5 text-[11px] leading-5 text-[var(--app-text-3)]">{thread.pending.incomingPreview}</p>}
         <div className="space-y-2">{thread.pending.suggestions.map((rawSuggestion, index) => { const suggestion = thread.pending!.previews ? thread.pending!.previews[index] : rawSuggestion; return <div key={`${thread.pending!.id}-${index}-${rawSuggestion}`} className="rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3"><p className="whitespace-pre-wrap break-words text-[12px] leading-5">{suggestion || "This suggestion cannot be sent as text. Regenerate a new reply."}</p><div className="mt-2 flex justify-end"><button type="button" onClick={() => command("approve", suggestion || "")} disabled={blocked || !suggestion} className="app-btn app-btn-ghost min-h-8 px-2.5 text-[10.5px]"><Check className="h-3 w-3" />Approve reply {index + 1}</button></div></div>; })}</div>
         {thread.pending.suggestions.length === 0 && <p className="text-[11px] text-[var(--app-text-3)]">No text suggestions yet. Regenerate a draft or write your own reply.</p>}
         {thread.pending.hint && <p className="mt-2 text-[10.5px] text-[var(--app-text-4)]">{thread.pending.hint}</p>}
-        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-2"><button type="button" disabled={blocked} onClick={() => command("regenerate", undefined, draft.brief.trim())} className="inline-flex min-h-8 items-center gap-1.5 text-[11px] text-[var(--app-text-2)] disabled:opacity-40"><RefreshCw className="h-3 w-3" />Regenerate</button><button type="button" onClick={() => setBriefOpen(!briefOpen)} aria-expanded={briefOpen} className="inline-flex min-h-8 items-center gap-1 text-[11px] text-[var(--app-text-3)]">Add direction<ChevronDown className={cn("h-3 w-3", briefOpen && "rotate-180")} /></button><button type="button" disabled={blocked} onClick={() => void skip()} className="ml-auto inline-flex min-h-8 items-center gap-1 text-[11px] text-[var(--app-text-3)] disabled:opacity-40">{skipLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <SkipForward className="h-3 w-3" />}Skip</button></div>
-        {briefOpen && <label className="mt-2 block"><span className="text-[10.5px] text-[var(--app-text-3)]">Direction for the next draft</span><textarea value={draft.brief} onChange={event => changeDraft({ brief: event.target.value })} maxLength={2000} rows={2} placeholder="Keep it warm and ask about his weekend…" className="app-input mt-1 resize-y text-[12px]!" /><span className="mt-1 block text-[10px] text-[var(--app-text-4)]">Used when you choose Regenerate.</span></label>}
+        <div className="mt-3 flex flex-wrap gap-x-3 gap-y-2"><button type="button" disabled={blocked} onClick={() => command("regenerate")} className="inline-flex min-h-8 items-center gap-1.5 text-[11px] text-[var(--app-text-2)] disabled:opacity-40"><RefreshCw className="h-3 w-3" />Regenerate</button><button type="button" disabled={blocked} onClick={() => void skip()} className="ml-auto inline-flex min-h-8 items-center gap-1 text-[11px] text-[var(--app-text-3)] disabled:opacity-40">{skipLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <SkipForward className="h-3 w-3" />}Skip</button></div>
+        <form onSubmit={event => { event.preventDefault(); if (draft.brief.trim()) command("regenerate", undefined, draft.brief.trim()); }} className="mt-3 rounded-lg border border-[var(--app-border-strong)] bg-[var(--app-bg)] p-3">
+          <label htmlFor={`say-this-${current.channel}`} className="flex items-center gap-1.5 text-[12px] font-medium"><Sparkles className="h-3.5 w-3.5" />Say this</label>
+          <p className="mt-1.5 text-[10.5px] leading-5 text-[var(--app-text-3)]">Write what you mean. She will phrase it in her own voice, using this conversation. You review the new previews above before approving.</p>
+          <textarea id={`say-this-${current.channel}`} value={draft.brief} onChange={event => changeDraft({ brief: event.target.value })} maxLength={2000} rows={2} placeholder="Tell him I enjoyed the walk and ask how his weekend went…" className="app-input mt-2 resize-y text-[12px]! leading-5!" />
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2"><span className="text-[10px] text-[var(--app-text-4)]">Creates previews only.</span><button type="submit" disabled={blocked || !draft.brief.trim()} className="app-btn app-btn-ghost min-h-9 px-3 text-[11px]">{draft.submitting || waitingForCommand ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}Preview in her voice</button></div>
+        </form>
       </div>}
-      <form onSubmit={event => { event.preventDefault(); if (draft.text.trim()) command("send_text", draft.text.trim()); }} className="border-t border-[var(--app-border)] p-4">
-        <label htmlFor={`reply-${current.channel}`} className="mb-2 flex items-center justify-between gap-2 text-[11px] font-medium"><span>Reply on {CHANNEL_NAMES[current.channel]}</span><span className="truncate font-normal text-[var(--app-text-4)]">To {current.displayName || current.username || current.externalId}</span></label>
-        <textarea id={`reply-${current.channel}`} value={draft.text} onChange={event => changeDraft({ text: event.target.value })} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); if (draft.text.trim()) command("send_text", draft.text.trim()); } }} rows={3} maxLength={12000} placeholder="Write your own reply…" className="app-input resize-y text-[12px]! leading-5!" />
+      {(draft.error || draft.retry || draft.notice) && <div className="border-t border-[var(--app-border)] px-4 py-3">
         {draft.error && <p role="alert" className="mt-2 text-[11px] leading-5 text-[#fca5a5]">{draft.error}</p>}
         {draft.retry && !draft.submitting && <button type="button" onClick={() => void submit(draft.retry!)} className="app-btn app-btn-ghost mt-2 min-h-8 px-3 text-[11px]">Retry the same request</button>}
         {draft.notice && <p role="status" className="mt-2 text-[11px] text-[var(--app-text-3)]">{draft.notice}</p>}
-        <div className="mt-3 flex items-center justify-between gap-3"><p className="max-w-[65%] text-[10px] leading-4 text-[var(--app-text-4)]">{!channelState?.connected ? "Connect this channel before replying." : waitingForCommand ? "A request is in progress. Its delivery status appears below." : channelState.mode === "auto" ? "Your reply takes over this conversation. AI pauses here until you resume it." : "Sends your exact text. Ctrl / ⌘ + Enter to send."}</p><button type="submit" disabled={blocked || !draft.text.trim()} className="app-btn app-btn-primary min-h-9 shrink-0 px-3 text-[11px]">{draft.submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}Send</button></div>
+      </div>}
+      <form onSubmit={event => { event.preventDefault(); if (draft.text.trim()) command("send_text", draft.text.trim()); }} className="border-t border-[var(--app-border)] p-4">
+        <label htmlFor={`reply-${current.channel}`} className="mb-2 flex items-center justify-between gap-2 text-[11px] font-medium"><span>Write my own · {CHANNEL_NAMES[current.channel]}</span><span className="truncate font-normal text-[var(--app-text-4)]">To {current.displayName || current.username || current.externalId}</span></label>
+        <textarea id={`reply-${current.channel}`} value={draft.text} onChange={event => changeDraft({ text: event.target.value })} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); if (draft.text.trim()) command("send_text", draft.text.trim()); } }} rows={3} maxLength={12000} placeholder="Write the exact message to send…" className="app-input resize-y text-[12px]! leading-5!" />
+
+        <div className="mt-3 flex items-center justify-between gap-3"><p className="max-w-[65%] text-[10px] leading-4 text-[var(--app-text-4)]">{!channelState?.connected ? "Connect this channel before replying." : waitingForCommand ? "A request is in progress. Its delivery status appears below." : channelState.mode === "auto" ? "Your exact text is sent unchanged and takes over this conversation. AI pauses here until you resume it." : "Your text is sent unchanged. Ctrl / ⌘ + Enter to send."}</p><button type="submit" disabled={blocked || !draft.text.trim()} className="app-btn app-btn-primary min-h-9 shrink-0 px-3 text-[11px]">{draft.submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}Send exact text</button></div>
       </form>
       {thread && thread.commands.length > 0 && <div className="border-t border-[var(--app-border)] px-4 py-3"><h3 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--app-text-4)]">Recent requests</h3><ul className="space-y-2">{thread.commands.slice(0, 5).map(item => <li key={item.id} className="text-[10.5px]"><div className="flex justify-between gap-2"><span className={cn(["failed", "uncertain", "blocked", "stale"].includes(item.status) ? "text-[#fca5a5]" : "text-[var(--app-text-2)]")}>{commandLabel(item)}</span><span className="text-[var(--app-text-4)]">{sourceTime(item.createdAt)}</span></div>{item.text && <p className="mt-0.5 line-clamp-2 break-words text-[var(--app-text-3)]">{item.text}</p>}{item.reason && <p className="mt-0.5 break-words text-[var(--app-text-4)]">{item.reason}</p>}{(item.status === "uncertain" || item.deliveryState === "uncertain") && <p className="mt-1 text-[#fca5a5]">Check the channel before sending again. This request will not be resent automatically.</p>}</li>)}</ul></div>}
     </section>

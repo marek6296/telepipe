@@ -758,10 +758,9 @@ class FanvueSupervisor:
             await self._refresh_token_if_stale(row)
             self._ensure_vault()
             self._ensure_sender()
-            if enabled:
-                self._ensure_agent()
-            else:
-                await self._stop_agent()
+            # The loop also imports Manual inbox events without seen or AI.
+            # Reply/feed/payment sends still have their own enabled/mode gates.
+            self._ensure_agent()
 
         stav = (connected, enabled)
         if stav != self._last_state:
@@ -770,7 +769,7 @@ class FanvueSupervisor:
                 log.info("model %s: Fanvue agent beží ako @%s",
                          self.model_id, row.get("handle") or "?")
             elif connected:
-                log.info("model %s: Fanvue pripojený, odpisovanie vypnuté — beží len vault",
+                log.info("model %s: Fanvue pripojený, odpisovanie vypnuté — beží inbox a vault",
                          self.model_id)
             else:
                 log.info("model %s: Fanvue nie je pripojený", self.model_id)

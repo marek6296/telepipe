@@ -138,3 +138,14 @@ export async function loadSocialThread(modelId: string, key: string, before?: st
 export function socialErrorMessage(error: unknown): string {
   return error instanceof SocialError ? error.message : "Could not complete this action. Refresh and try again.";
 }
+
+/** Notification targets resolve directly; a person need not be on the inbox page. */
+export async function loadSocialSelection(modelId: string, contact: unknown): Promise<{thread: SocialThread | null; error: string | null}> {
+  if (contact === undefined) return {thread: null, error: null};
+  try {
+    parseContactKey(contact);
+    return {thread: await loadSocialThread(modelId, contact as string), error: null};
+  } catch (error) {
+    return {thread: null, error: socialErrorMessage(error)};
+  }
+}

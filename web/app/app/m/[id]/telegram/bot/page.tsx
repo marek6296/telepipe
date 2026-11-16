@@ -7,10 +7,7 @@ import { createClient } from "@/lib/supabase/server";
 
 export const metadata: Metadata = { title: "Bot notifications" };
 
-const COLUMNS =
-  "model_id, notify_fanvue_subscribe, notify_fanvue_payment, notify_fanvue_follow, " +
-  "notify_fanvue_like, notify_fanvue_comment, notify_credits_low, notify_startup, " +
-  "notify_crash, notify_hot_lead, daily_report, weekly_report, pin_approvals";
+const COLUMNS = "model_id, notify_social_inbound";
 
 /**
  * Čo má control bot hlásiť.
@@ -24,29 +21,15 @@ export default async function BotPage({ params }: PageProps<"/app/m/[id]/telegra
   const model = await requireModelSubTab(id, "telegram", "bot");
 
   const supabase = await createClient();
-  // Riadok nastavení, stav Fanvue a spárovanie bota sú nezávislé — sériovo by
-  // to boli tri okruhy do databázy pri každom otvorení karty.
-  const [{ data }, { data: fanvue }] = await Promise.all([
-    supabase.from("control_bot_settings").select(COLUMNS).eq("model_id", model.id).maybeSingle(),
-    supabase.from("fanvue").select("connected").eq("model_id", model.id).maybeSingle(),
-  ]);
+  const { data, error } = await supabase.from("control_bot_settings")
+    .select(COLUMNS).eq("model_id", model.id).maybeSingle();
+  if (error) throw new Error("Could not load notification settings. Please try again.");
 
   // Chýbajúci riadok nie je chyba: modelka mohla vzniknúť pred migráciou.
   // Formulár dostane defaulty a prvé prepnutie ho `upsert`-om založí.
   const settings: BotSettingsRow = (data as BotSettingsRow | null) ?? {
     model_id: model.id,
-    notify_fanvue_subscribe: true,
-    notify_fanvue_payment: true,
-    notify_fanvue_follow: false,
-    notify_fanvue_like: false,
-    notify_fanvue_comment: false,
-    notify_credits_low: true,
-    notify_startup: true,
-    notify_crash: true,
-    notify_hot_lead: true,
-    daily_report: false,
-    weekly_report: true,
-    pin_approvals: true,
+    notify_social_inbound: true,
   };
 
   return (
@@ -54,11 +37,10 @@ export default async function BotPage({ params }: PageProps<"/app/m/[id]/telegra
       <PageHeader
         eyebrow="Control bot"
         title="Notifications"
-        description="What your control bot tells you. This is your own bot — the one you paired — not her account."
+        description="New-message alerts in Telegram, with a direct link to the conversation in Social sites."
       />
       <BotSettingsForm
         settings={settings}
-        fanvueConnected={Boolean((fanvue as { connected?: boolean } | null)?.connected)}
         paired={Boolean(model.owner_chat_id)}
       />
     </>
