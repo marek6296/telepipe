@@ -8,7 +8,7 @@
 # `await self._refresh_token_if_stale(row)`, ale definíciu metódy ešte nie) a
 # zhodil Simone sync Fanvue vaultu, kým to nepresal redeploy z čistého checkoutu.
 #
-# Skript preto nahráva výhradne `git archive HEAD worker` — čo nie je
+# Skript preto nahráva výhradne `git archive HEAD` — čo nie je
 # commitnuté, do buildu sa nedostane (a __pycache__/ ani .venv/ tiež nie).
 # A naopak: ak máš vo worker/ rozrobené zmeny, radšej sa vôbec nespustí, aby si
 # nenasadil starú verziu v domnení, že nasadzuješ tú novú.
@@ -54,10 +54,11 @@ branch="$(git rev-parse --abbrev-ref HEAD)"
 commit="$(git log -1 --format='%h %s')"
 echo "→ $SERVICE ($ENVIRONMENT) ← $commit"
 
+# Railway rootDirectory=/worker: upload archive root, not worker contents alone.
 staging="$(mktemp -d)"
 trap 'rm -rf "$staging"' EXIT
-git archive HEAD worker | tar -x -C "$staging"
+git archive HEAD | tar -x -C "$staging"
 
-cd "$staging/worker"
+cd "$staging"
 railway link -p "$PROJECT" -s "$SERVICE" -e "$ENVIRONMENT"
 railway up --service "$SERVICE" --ci --message "$commit"
