@@ -2,11 +2,18 @@
 alter table public.instagram drop constraint instagram_funnel_target_check;
 alter table public.instagram add constraint instagram_funnel_target_check check(funnel_target in ('telegram','bio_link','both'));
 
+create function public.instagram_has_url(p_text text) returns boolean
+language sql immutable set search_path=public,pg_temp as $$
+  select coalesce(p_text ~* '(https?://[^[:space:]]+|www\.[^[:space:]]+|\y[a-z0-9-]+\.(?:com|net|org|me|io|link|co)\y[^[:space:]]*)',false);
+$$;
+revoke all on function public.instagram_has_url(text) from public,anon,authenticated;
+
 create function public.instagram_classify_link(p_text text,p_telegram text,p_page text)
 returns text language plpgsql immutable set search_path=public,pg_temp as $$
 declare urls text[]; address text;
 begin
-  select array_agg(m[1]) into urls from regexp_matches(p_text,'(https?://[^[:space:]<>]+)','g') m;
+  -- Match the worker URL detector, including schemeless manual URLs.
+  select array_agg(m[1]) into urls from regexp_matches(p_text,'(https?://[^[:space:]]+|www\.[^[:space:]]+|\y[a-z0-9-]+\.(?:com|net|org|me|io|link|co)\y[^[:space:]]*)','gi') m;
   if cardinality(urls) is distinct from 1 then return 'unknown'; end if;
   address:=rtrim(urls[1],$trim$.,!?);'"}]$trim$);
   if p_telegram ~ '^[a-zA-Z][a-zA-Z0-9_]{4,31}$' and address='https://t.me/'||p_telegram then return 'telegram'; end if;
@@ -30,6 +37,27 @@ create trigger instagram_store_link_target before insert or update of text,conta
 revoke all on function public.instagram_store_link_target() from public,anon,authenticated;
 -- Unknown historical/manual links are charged to both allowances, never ignored.
 update instagram_actions set text=text where contains_link;
+update instagram_actions set contains_link=true where not contains_link
+  and payload->>'manual'='true' and instagram_has_url(text);
+update ig_users u set link_sent_at=first_link.at from (
+  select model_id,igsid,min(reserved_at) as at from instagram_actions
+  where contains_link and reserved_at is not null group by model_id,igsid
+) first_link where u.model_id=first_link.model_id and u.igsid=first_link.igsid and u.link_sent_at is null;
+
+create or replace function public.instagram_record_manual(p_model uuid,p_key text,p_igsid text,p_occurred timestamptz,p_text text,p_photo boolean,p_account text)
+returns void language plpgsql security definer set search_path=public,pg_temp as $$
+declare has_link boolean;
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_model::text,0));
+  if p_occurred>now() then return; end if;
+  has_link:=instagram_has_url(p_text);
+  insert into instagram_actions(model_id,dedupe_key,kind,igsid,target_id,source_mid,source_at,due_at,expires_at,state,text,contains_link,reserved_at,sent_at,provider_id,payload)
+  values(p_model,p_account||':manual:'||p_key,case when p_photo then 'photo' else 'dm' end,p_igsid,'',p_key,p_occurred,p_occurred,p_occurred+interval '1 second','sent',p_text,has_link,p_occurred,p_occurred,p_key,jsonb_build_object('account_id',p_account,'manual',true))
+  on conflict(model_id,dedupe_key) do nothing;
+  update ig_users set link_sent_at=case when has_link then coalesce(link_sent_at,p_occurred) else link_sent_at end,
+    photo_sent_at=case when p_photo then coalesce(photo_sent_at,p_occurred) else photo_sent_at end
+    where model_id=p_model and igsid=p_igsid;
+end $$;
 
 create or replace function public.instagram_reserve(p_model uuid,p_action uuid,p_lease uuid,p_text text,p_link boolean default false,p_reminder boolean default false)
 returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$
@@ -103,7 +131,7 @@ begin
     select count(*) into r from instagram_actions where model_id=p_model and igsid=any(contact_ids) and kind='reaction' and reserved_at>now()-interval '24 hours';
     if r>=3 then deny:='reaction_contact_limit'; end if;
   end if;
-  if not p_link and p_text ~* '(https?://|www[.]|t[.]me/)' then deny:='unmarked_url'; end if;
+  if not p_link and instagram_has_url(p_text) then deny:='unmarked_url'; end if;
   if p_link then
     link_target:=instagram_classify_link(p_text,cfg.telegram_handle,cfg.bio_link);
     if a.kind<>'dm' or link_target='unknown' or cfg.funnel_target not in ('both',link_target) then deny:='link_target_unavailable'; end if;

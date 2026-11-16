@@ -125,6 +125,9 @@ try {
   assert.equal((await rpc('instagram_reserve',[m2,promo.id,promo.lease_token,'https://t.me/example',true,false])).reason,'contact_opt_out','a new question does not renew marketing consent');
 
   // Destination-specific budgets share the account cap and lifetime recipient guard.
+  for (const extra of ['www.linkovne.com/simonakralova','linkovne.com/simonakralova','WWW.EXAMPLE.COM/path']) {
+    assert.equal(await rpc('instagram_classify_link',['https://t.me/simapussina '+extra,'simapussina','https://linkovne.com/simonakralova']),'unknown','mixed manual URLs must consume both allowances');
+  }
   let caseNo=10;
   async function linkCase(prior, target='telegram', options={}) {
     const id='00000000-0000-4000-8000-'+String(caseNo++).padStart(12,'0');
@@ -133,12 +136,10 @@ try {
       values($1,true,true,'auto','acct','both','simapussina','https://linkovne.com/simonakralova')`,[id]);
     await db.query(`insert into ig_users(model_id,igsid,last_source_mid,last_incoming_at,age_state)
       values($1,'recipient','source',now(),'adult_self_declared')`,[id]);
-    const urls={telegram:'https://t.me/simapussina',bio_link:'https://linkovne.com/simonakralova',unknown:'https://other.test/page'};
+    const urls={telegram:'https://t.me/simapussina',bio_link:'https://linkovne.com/simonakralova',unknown:'https://other.test/page',mixed:'https://t.me/simapussina www.linkovne.com/simonakralova',bare:'linkovne.com/simonakralova'};
     for (let i=0;i<prior.length;i++) {
       const [kind,hours]=prior[i];
-      await db.query(`insert into instagram_actions(model_id,dedupe_key,kind,igsid,target_id,due_at,expires_at,state,text,contains_link,reserved_at)
-        values($1,$2,'dm',$3,'thread',now(),now()+interval '1 hour','sent',$4,true,now()-$5::double precision*interval '1 hour')`,
-        [id,'prior'+i,options.samePerson?'recipient':'past'+i,urls[kind],hours]);
+      await rpc('instagram_record_manual',[id,'prior'+i,options.samePerson?'recipient':'past'+i,new Date(Date.now()-hours*3600000),urls[kind],false,'acct']);
     }
     const action=await rpc('instagram_enqueue',[id,'new','dm','recipient','thread','source',new Date(Date.now()-1000),new Date(Date.now()-1000),new Date(Date.now()+3600000),{account_id:'acct'}]);
     if(options.mode) await db.query('update instagram set funnel_target=$2 where model_id=$1',[id,options.mode]);
@@ -154,10 +155,13 @@ try {
   assert.equal((await linkCase([['bio_link',3]],'bio_link')).reason,'url_limit');
   assert.equal((await linkCase([['telegram',.5]],'bio_link')).reason,'url_global_limit');
   assert.equal((await linkCase([['unknown',5],['unknown',10]],'bio_link')).reason,'url_limit');
+  assert.equal((await linkCase([['mixed',5],['mixed',10]],'bio_link')).reason,'url_limit','mixed manual links consume the Linkovne allowance too');
+  assert.equal((await linkCase([['bare',5],['bare',10]],'bio_link')).reason,'url_limit','schemeless manual links are not ignored');
   assert.equal((await linkCase([['telegram',25]],'bio_link',{samePerson:true})).reason,'url_already_sent','another destination is not a repeat-link loophole');
   assert.equal((await linkCase([],'telegram',{mode:'bio_link'})).reason,'link_target_unavailable');
   assert.equal((await linkCase([],'telegram',{url:'https://t.me/simapussina.evil'})).reason,'link_target_unavailable');
   assert.equal((await linkCase([],'telegram',{flag:false})).reason,'unmarked_url');
+  assert.equal((await linkCase([],'telegram',{flag:false,url:'linkovne.com/simonakralova'})).reason,'unmarked_url');
 
   await db.exec('set role authenticated');
   assert.equal((await db.query('select * from conversation_identities')).rows.length,0,'RLS hides other owners');

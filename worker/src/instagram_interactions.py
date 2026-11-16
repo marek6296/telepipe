@@ -71,7 +71,7 @@ def prepare_response(raw, settings, offer):
         result.update(text=TAGS.sub(lambda _: destination, text), link=True, link_target=target)
     elif marker == 'HIGHLIGHTS':
         if offer.get('highlights'):
-            result.update(text=TAGS.sub('', text).strip(), reminder=True)
+            result.update(text=TAGS.sub('', text).strip(), reminder=True, link_target='bio_link')
     elif marker == 'REMIND':
         if offer.get('remind'):
             result.update(text=TAGS.sub('', text).strip(), reminder=True)

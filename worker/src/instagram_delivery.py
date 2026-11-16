@@ -307,7 +307,8 @@ class InstagramDelivery:
                 await self.db.add_message(action['igsid'], 'assistant', text or '[sent approved photo]', provider)
                 if correction:
                     await self.db.update_user(action['igsid'], {'last_typo': correction})
-                if link or reminder:
+                # A reminder must not overwrite the original invitation destination.
+                if link_target:
                     await self.db.hub.record_invite('instagram', action['igsid'],
                         'telegram' if link_target == 'telegram' else 'linkpage', scope=cfg['ig_user_id'])
         except api.InstagramError as exc:

@@ -77,3 +77,27 @@ def test_conversation_pages_bound_nested_read_cost(monkeypatch):
     api.conversation_page('test','account','cursor')
     assert int(queries[0]['limit'][0]) <= 5
     assert queries[0]['after']==['cursor']
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('reply,expected', [('already in our chat [[REMIND]]',None), ('check my highlights [[HIGHLIGHTS]]','linkpage')])
+async def test_reminders_keep_original_identity_destination(monkeypatch,reply,expected):
+    from test_instagram_kolo import FakeDb, FakeLlm, mock_threads
+    from test_instagram_delivery import thread
+    from instagram_agent import InstagramAgent
+    import instagram_api as api
+    now=datetime.now(timezone.utc)
+    db=FakeDb(**CFG)
+    agent=InstagramAgent(db,FakeLlm())
+    mock_threads(monkeypatch,[thread(now)])
+    await agent._delivery.ingest(thread(now),db.nastavenia)
+    db.queue['1']['due_at']=(now-timedelta(minutes=1)).isoformat()
+    agent._napis=AsyncMock(return_value=reply)
+    agent._delivery.offer_state=AsyncMock(return_value={'remind':True,'highlights':True})
+    monkeypatch.setattr(api,'posli_text',lambda *a,**k:{'message_id':'sent'})
+    await agent._delivery.process_one(db.nastavenia)
+    assert db.queue['1']['state']=='sent'
+    if expected:
+        assert db.hub.record_invite.call_args.args[2]==expected
+    else:
+        db.hub.record_invite.assert_not_called()
