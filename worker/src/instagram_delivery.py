@@ -104,7 +104,8 @@ class InstagramDelivery:
         known = await self.db.known_mids(igsid)
         processed = await self.db.processed_mids(igsid)
         sent_actions = await self.db.actions(igsid=f'eq.{igsid}', state='in.(sent,sending,uncertain)', order='created_at.desc', limit='100')
-        own_mids = {a.get('provider_id') for a in sent_actions if a.get('provider_id')}
+        own_mids = {a.get('provider_id') for a in sent_actions if a.get('provider_id')
+                    and not (a.get('payload') or {}).get('manual')}
         for message in messages:
             if not message['mid']:
                 continue
@@ -125,15 +126,20 @@ class InstagramDelivery:
                     a = matches[0]
                     await self.db.rpc('finish', action=a['id'], lease=a['lease_token'], outcome='sent',
                                       provider=message['mid'], reason='reconciled')
-                elif stamp:
-                    await self.db.rpc('record_manual', key=message['mid'], igsid=igsid,
-                        occurred=stamp.isoformat(), text=message['content'], photo=bool(message.get('has_image')),
-                        account=cfg['ig_user_id'])
-                    completed = parse_time(cfg.get('sync_completed_at'))
-                    if not bootstrap and completed and stamp > completed:
-                        await self.db.cancel_actions(igsid, 'manual_reply')
-                        await self.db.update_user(igsid, {'human_takeover': True})
-                        user['human_takeover'] = True
+                else:
+                    # This is a native-app reply, not an instruction to pause all
+                    # future replies. Persist history first, then invalidate its
+                    # old proposal/commands; mark effects only after both succeed.
+                    # Unknown time invalidates conservatively without inventing a
+                    # provider timestamp. Manual quota ledger rows are not our echo.
+                    occurred = stamp.isoformat() if stamp else None
+                    if not await self.db.native_reply(igsid, cfg['ig_user_id'], occurred):
+                        return  # The provider account changed while reading.
+                    await self.db.cancel_actions(igsid, 'manual_reply', through=occurred)
+                    if stamp:
+                        await self.db.rpc('record_manual', key=message['mid'], igsid=igsid,
+                            occurred=occurred, text=message['content'], photo=bool(message.get('has_image')),
+                            account=cfg['ig_user_id'])
             await self.db.mark_message_effects(message['mid'])
         last = messages[-1]
         incoming = next((m for m in reversed(messages) if m['role'] == 'user'), None)
@@ -203,11 +209,16 @@ class InstagramDelivery:
         if cfg.get('reply_mode') == 'semi' and kind == 'dm':
             due = utcnow()  # Owner receives a draft now and chooses when to send.
         # Queue uses provider time and deterministic delay; retries never reroll it.
-        await self.db.rpc('enqueue', key=f'{cfg["ig_user_id"]}:{kind}:{last["mid"]}', kind=kind,
+        queued = await self.db.rpc('enqueue', key=f'{cfg["ig_user_id"]}:{kind}:{last["mid"]}', kind=kind,
             igsid=igsid, target=chat['id'], source_mid=last['mid'], source_at=source.isoformat(),
             due=due.isoformat(), expires=(source+timedelta(hours=24)).isoformat(), payload={
                 'account_id': cfg['ig_user_id'], 'requested_reply': direct_request(reply_to['content']),
                 **({'reply_to_mid': reply_to['mid']} if reply_to is not last else {})})
+        if isinstance(queued, dict) and queued.get('state') == 'approval':
+            # A late import can invalidate the proposal while the transport
+            # action remains approval for the same unanswered provider MID.
+            # SQL atomically excludes live approvals, owner decisions and sends.
+            await self.db.requeue_stale_approval(igsid, last['mid'], await self.db.latest_message_id(igsid))
 
     async def comments(self, cfg):
         posts = await asyncio.to_thread(api.prispevky_s_komentarmi, cfg['access_token'], account_id=cfg['ig_user_id'])
@@ -241,6 +252,43 @@ class InstagramDelivery:
                                          order='created_at.desc', limit='100')
         return not any(a.get('source_mid') == target or (a.get('payload') or {}).get('reply_to_mid') == target
                        for a in terminal)
+
+    async def refresh_action(self, cfg, action, *, state='leased', source_message_id=None):
+        """Import a fresh provider snapshot, then validate this exact reply target."""
+        raw = await asyncio.to_thread(api.conversation, cfg['access_token'], action['target_id'])
+        await self.ingest(raw, cfg)
+        fresh = api.rozober(raw, cfg['ig_user_id'])
+        latest = fresh['spravy'][-1] if fresh['spravy'] else {}
+        operator = (action.get('payload') or {}).get('origin') == 'operator'
+        if (latest.get('mid') != action['source_mid'] or (not operator and latest.get('role') != 'user')
+                or not await self.fallback_current(action, fresh['spravy'])):
+            await self.db.change_action(action, {'state': 'cancelled', 'reason': 'remote_context_changed'}, state=state)
+            return False
+        current = await self.db.action(action['id'])
+        if not current or current['state'] != state or current.get('source_mid') != action['source_mid']:
+            return False
+        if source_message_id is not None and await self.db.latest_message_id(action['igsid']) != source_message_id:
+            # A late import can change the context without changing the latest
+            # provider MID. Generate again instead of sending the old response.
+            payload = {k: v for k, v in action.get('payload', {}).items()
+                       if k not in ('approved_source_mid', 'approved_intent')}
+            await self.db.change_action(action, {
+                'state': 'cancelled' if operator else 'pending', 'reason': 'history_changed',
+                'text': '', 'payload': payload, 'due_at': utcnow().isoformat(),
+                'lease_token': None, 'lease_until': None,
+            }, state=state)
+            return False
+        return True
+
+    async def refresh_regeneration(self, cfg, key):
+        parts = str(key).split(':', 1)
+        if len(parts) != 2 or not cfg.get('connected') or not cfg.get('access_token'):
+            return False
+        action = await self.db.action(parts[1])
+        if (not action or action['igsid'] != parts[0] or action['state'] != 'approval'
+                or (action.get('payload') or {}).get('account_id') != cfg.get('ig_user_id')):
+            return False
+        return await self.refresh_action(cfg, action, state='approval')
 
     async def send_readiness(self, cfg, action):
         """Recheck after slow generation/provider reads; Semi only bypasses the clock."""
@@ -307,6 +355,7 @@ class InstagramDelivery:
                 if not await self.fallback_current(action, api.rozober(raw, cfg['ig_user_id'])['spravy']):
                     await self.db.change_action(action, {'state': 'cancelled', 'reason': 'reply_target_changed'})
                     return
+                source_message_id = await self.db.latest_message_id(action['igsid'])
                 if not operator and cfg['reply_mode'] == 'semi' and not action['payload'].get('approved_source_mid'):
                     if action['kind'] != 'dm':
                         await self.db.change_action(action, {'state': 'skipped', 'reason': 'semi_text_only'})
@@ -321,15 +370,20 @@ class InstagramDelivery:
                     if reason := await self.send_readiness(cfg, action):
                         await self.defer(action, reason, minutes=0)
                         return
+                    if not await self.refresh_action(cfg, action, source_message_id=source_message_id):
+                        return
                     # Versioned conversation key: an old card cannot approve a new message.
                     changed = await self.db.change_action(action, {'state': 'approval', 'lease_until': None})
                     if changed:
                         import prehlad
                         ok = await self.agent._control.post_approval(channel='instagram', conv_key=f'{action["igsid"]}:{action["id"]}',
                             display_name=user.get('username') or action['igsid'], incoming_preview=prehlad.blok_rozhovoru(history, now_local=local),
-                            suggestions=proposals, hint='Approve at any time. This exact reply still respects the messaging window and delivery limits.')
+                            suggestions=proposals, hint='Approve at any time. This exact reply still respects the messaging window and delivery limits.',
+                            source_message_id=source_message_id)
                         if not ok:
-                            await self.db.change_action(action, {'state': 'pending', 'due_at': (utcnow()+timedelta(minutes=15)).isoformat()}, state='approval')
+                            # SQL rejected an obsolete publication. Re-read next
+                            # poll; there is no provider send to back off or retry.
+                            await self.db.change_action(action, {'state': 'pending', 'due_at': utcnow().isoformat()}, state='approval')
                     return
                 if action['kind'] == 'reaction':
                     text, link, reminder = '', False, False
@@ -364,11 +418,7 @@ class InstagramDelivery:
                 return
             # Final remote freshness read after generation. DB reservation follows immediately.
             if action['kind'] != 'comment':
-                fresh = api.rozober(await asyncio.to_thread(api.conversation, cfg['access_token'], action['target_id']), cfg['ig_user_id'])
-                latest = fresh['spravy'][-1] if fresh['spravy'] else {}
-                if (latest.get('mid') != action['source_mid'] or (not operator and latest.get('role') != 'user')
-                        or not await self.fallback_current(action, fresh['spravy'])):
-                    await self.db.change_action(action, {'state': 'cancelled', 'reason': 'remote_context_changed'})
+                if not await self.refresh_action(cfg, action, source_message_id=source_message_id):
                     return
             correction = {}
             if action['kind'] == 'dm' and cfg.get('typo_enabled') and not action['payload'].get('approved_source_mid') and not link and not reminder:
@@ -393,6 +443,9 @@ class InstagramDelivery:
                     log.warning('Instagram read receipt unavailable (Meta %s)', exc.kod)
                 if reason := await self.send_readiness(cfg, action):
                     await self.db.rpc('release_unsent', action=action['id'], lease=action['lease_token'], reason=reason)
+                    return
+                if await self.db.latest_message_id(action['igsid']) != source_message_id:
+                    await self.db.rpc('release_unsent', action=action['id'], lease=action['lease_token'], reason='history_changed')
                     return
                 if operator and not await before_send():
                     await self.db.rpc('release_unsent', action=action['id'], lease=action['lease_token'], reason='stale_context')

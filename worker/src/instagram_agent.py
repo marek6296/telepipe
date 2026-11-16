@@ -256,12 +256,18 @@ class InstagramAgent:
     ) -> Dict[str, Any]:
         """Nové návrhy pre ten istý chat („Regenerate" / „Say this")."""
         from instagram_delivery import contact_key
-        conv_key = contact_key(conv_key)
+        key = conv_key
+        conv_key = contact_key(key)
         user = await self._db.user(conv_key)
         if not user:
             return {}
         nastavenia = await self._db.settings()
+        if not await self._delivery.refresh_regeneration(nastavenia, key):
+            return {}
+        user = await self._db.user(conv_key) or user
         navrhy, _ = await self._navrhy(user, conv_key, nastavenia, seed=seed or "2", brief=brief)
+        if not await self._delivery.refresh_regeneration(nastavenia, key):
+            return {}
         return {"suggestions": navrhy, "hint": ""}
 
     async def context_card(self, conv_key: str) -> str:

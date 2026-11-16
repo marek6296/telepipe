@@ -407,7 +407,7 @@ class TenantFanvueDb:
                 "fan_uuid": f"eq.{fan_uuid}",
                 "select": "message_uuid",
                 "message_uuid": "not.is.null",
-                "order": "id.desc",
+                "order": "occurred_at.desc.nullslast,id.desc",
                 "limit": str(limit),
             },
         )
@@ -435,29 +435,33 @@ class TenantFanvueDb:
         return {str(r.get("content") or "") for r in rows if r.get("content")}
 
     async def history(self, fan_uuid: str, limit: int = 16) -> List[Dict[str, str]]:
-        rows = await self._get(
-            FV_MESSAGES,
-            {
-                "model_id": self._mine,
-                "fan_uuid": f"eq.{fan_uuid}",
-                "select": "role,content",
-                "order": "id.desc",
-                "limit": str(limit),
-            },
-        )
-        return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
+        return [{"role": r["role"], "content": r["content"]}
+                for r in await self.history_rows(fan_uuid, limit)]
 
     async def history_rows(self, fan_uuid: str, limit: int = 16) -> List[Dict[str, Any]]:
-        rows = await self._get(FV_MESSAGES, {
+        known = await self._get(FV_MESSAGES, {
             "model_id": self._mine, "fan_uuid": f"eq.{fan_uuid}",
-            "select": "role,content,occurred_at", "order": "id.desc", "limit": str(max(64, limit * 4)),
+            "select": "id,role,content,occurred_at", "occurred_at": "not.is.null",
+            "order": "occurred_at.desc.nullslast,id.desc", "limit": str(max(64, limit * 4)),
         })
-        ordered = [{**r, "occurred_at": r.get("occurred_at")} for r in reversed(rows)]
+        unknown = await self._get(FV_MESSAGES, {
+            'model_id': self._mine, 'fan_uuid': f'eq.{fan_uuid}',
+            'select': 'id,role,content,occurred_at', 'occurred_at': 'is.null',
+            'order': 'id.desc', 'limit': str(limit),
+        })
+        known = [r for r in known if r.get('occurred_at')]
+        unknown = [r for r in unknown if not r.get('occurred_at')]
+        # Unknown import times carry no chronology. Keep a small visible share
+        # without letting a historical NULL-time import bury today's context.
+        unknown_budget = (max(1, limit // 4) if limit > 1 else 0) if known else limit
+        rows = known + unknown[:unknown_budget]
+        ordered = sorted(rows, key=lambda r: int(r['id']))
         # Import starých správ môže mať vyššie id než čerstvý webhook. Známe
         # časy zoradíme, neznáme ponecháme na ich miestach — nikdy ich
         # nevytlačíme za/pred známe len preto, že majú NULL čas.
         from conversation_timing import chronological_rows
-        return chronological_rows(ordered)[-limit:]
+        return [{key: r.get(key) for key in ('role', 'content', 'occurred_at')}
+                for r in chronological_rows(ordered)[-limit:]]
 
     async def backfill_message_times(self, fan_uuid: str, times: Dict[str, str]) -> None:
         if not times:
@@ -493,6 +497,38 @@ class TenantFanvueDb:
                 "limit": str(limit),
             },
         )
+
+    async def sync_contacts(self, *, after: str = '', limit: int = 5) -> List[Dict[str, Any]]:
+        """Rotate all known contacts, including quiet chats with native replies."""
+        return await self._get(FV_USERS, {
+            'model_id': self._mine, 'select': 'fan_uuid', 'order': 'fan_uuid.asc',
+            'limit': str(max(1, min(5, limit))), **({'fan_uuid': f'gt.{after}'} if after else {}),
+        })
+
+    async def unidentified_messages(self, fan_uuid: str) -> List[Dict[str, Any]]:
+        return await self._get(FV_MESSAGES, {
+            'model_id': self._mine, 'fan_uuid': f'eq.{fan_uuid}',
+            'or': '(message_uuid.is.null,message_uuid.eq.)',
+            'select': 'role,content,occurred_at', 'order': 'id.desc', 'limit': '200',
+        })
+
+    async def pending_contacts(self, *, offset: int = 0, limit: int = 5) -> List[Dict[str, Any]]:
+        """Awaiting drafts get a separate bounded rotation for fast invalidation."""
+        return await self._get('/pending_replies', {
+            'model_id': self._mine, 'channel': 'eq.fanvue', 'status': 'eq.awaiting',
+            'select': 'id,conv_key', 'order': 'created_at.asc,id.asc',
+            'limit': str(max(1, min(5, limit))), 'offset': str(max(0, offset)),
+        })
+
+    async def refreshable_pending(self, pending_id: str, fan_uuid: str) -> bool:
+        return await self.refresh_candidate(fan_uuid) == pending_id
+
+    async def refresh_candidate(self, fan_uuid: str) -> Optional[str]:
+        rows = await self._get('/pending_replies', {
+            'model_id': self._mine, 'channel': 'eq.fanvue', 'conv_key': f'eq.{fan_uuid}',
+            'select': 'id,status', 'order': 'created_at.desc,id.desc', 'limit': '1',
+        })
+        return rows[0]['id'] if rows and rows[0]['status'] == 'superseded' else None
 
     async def has_media(self) -> bool:
         """Je v trezore vôbec niečo? Jeden riadok stačí — nepočítame, pýtame sa.

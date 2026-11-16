@@ -740,6 +740,7 @@ class TenantDb:
         hint: str = "",
         prompt: str = "",
         display_name: str = "",
+        source_message_id: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """Zapíše nový čakajúci návrh. Vráti riadok (s `id`) alebo None.
 
@@ -762,6 +763,7 @@ class TenantDb:
                 "display_name": display_name[:120],
                 "hint": hint[:300],
                 "prompt": prompt,
+                **({"source_message_id": int(source_message_id)} if source_message_id is not None else {}),
             },
         )
         return rows[0] if rows else None
@@ -1288,6 +1290,26 @@ class TenantDb:
 
     # ---------- správy ----------
 
+    async def source_snapshot(self, channel: str, external: str) -> int:
+        """Stored context version used by the atomic draft-publication guard."""
+        rows = await self._get('/social_contact_summaries', {
+            'model_id': self._mine, 'channel': f'eq.{channel}',
+            'external_id': f'eq.{external}', 'select': 'last_message_id', 'limit': '1',
+        })
+        return int((rows[0].get('last_message_id') if rows else 0) or 0)
+
+    async def ingest_tg_message(
+        self, tg_id: int, message_id: int, role: str, content: str, *,
+        account_scope: str, created_at: Optional[str], origin: str,
+    ) -> Dict[str, Any]:
+        """Idempotent provider import; native replies retire stale drafts atomically."""
+        result = await self._t._rpc('social_ingest_telegram', {
+            'p_model': self.model_id, 'p_external': int(tg_id), 'p_message_id': int(message_id),
+            'p_scope': account_scope, 'p_role': role, 'p_content': content,
+            'p_occurred_at': created_at, 'p_origin': origin,
+        })
+        return result or {'inserted': False}
+
     async def add_message(
         self, tg_id: int, role: str, content: str, *, created_at: Optional[str] = None
     ) -> None:
@@ -1305,7 +1327,7 @@ class TenantDb:
                 "model_id": self._mine,
                 "tg_id": f"eq.{tg_id}",
                 "select": "role,content,created_at",
-                "order": "id.desc",
+                "order": "created_at.desc,id.desc",
                 "limit": str(limit),
             },
         )

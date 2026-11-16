@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -23,6 +24,22 @@ API = "https://api.fanvue.com"
 
 # Fanvue vyžaduje túto hlavičku na každom volaní. Bez nej vracia 400.
 API_VERSION = "2025-06-26"
+
+
+class FanvueHistoryGap(RuntimeError):
+    """A bounded read imported a page, but older context still needs syncing."""
+    def __init__(self, messages):
+        super().__init__('Fanvue history catch-up is incomplete')
+        self.messages = messages
+
+
+class FanvueHistoryBatch(list):
+    """Advance a history cursor only after its rows were durably imported."""
+    def __init__(self, messages, acknowledge, previous_state, next_state):
+        super().__init__(messages)
+        self.acknowledge = acknowledge
+        self.previous_state = previous_state
+        self.next_state = next_state
 
 
 def _ts(value: Optional[str]) -> Optional[datetime]:
@@ -376,6 +393,76 @@ class Fanvue:
         except Exception as exc:  # noqa: BLE001 - bez zosúladenia sa dá odpísať
             log.warning("Chat %s sa nepodarilo prečítať: %s", user_uuid[:8], exc)
             return []
+
+    async def _sync_json(self, path, params):
+        if time.monotonic() < getattr(self, '_sync_retry_at', 0):
+            raise RuntimeError('Fanvue history sync is backing off')
+        try:
+            response = await self._client.get(path, params=params, headers=await self._headers(fresh=True))
+            if response.status_code == 429:
+                try:
+                    delay = float(response.headers.get('Retry-After') or 60)
+                except ValueError:
+                    delay = 60
+                self._sync_retry_at = time.monotonic() + max(30, min(900, delay))
+            response.raise_for_status()
+            body = response.json()
+            if not isinstance(body.get('data'), list):
+                raise ValueError('Invalid Fanvue sync response')
+            return body
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code in (401, 429) or exc.response.status_code >= 500:
+                self._sync_retry_at = max(getattr(self, '_sync_retry_at', 0), time.monotonic() + 30)
+            raise
+        except Exception:
+            self._sync_retry_at = max(getattr(self, '_sync_retry_at', 0), time.monotonic() + 30)
+            raise
+
+    async def chat_page(self, cursor: str = '') -> Dict[str, Any]:
+        """Read-only discovery, including conversations first opened natively."""
+        return await self._sync_json('/v1/chats', {
+            'size': 5, 'sortBy': 'most_recent_messages', 'sortDirection': 'desc',
+            **({'cursor': cursor} if cursor else {}),
+        })
+
+    async def sync_messages(self, user_uuid: str, known: set) -> List[Dict[str, Any]]:
+        """Four strict pages per round; incomplete catch-up advances next round.
+
+        Gap pages are persisted, but never permission to generate/send. After
+        finishing an old cursor, a separate head walk catches newer arrivals;
+        never import just the newest page and skip the messages below it.
+        """
+        if not hasattr(self, '_sync_walks'):
+            self._sync_walks = {}
+        walk = self._sync_walks.get(user_uuid)
+        anchors = walk['anchors'] if walk else set(known)
+        cursor = walk['cursor'] if walk else ''
+        continuing = bool(cursor)
+        head_ids = list(walk.get('head_ids') or []) if walk else []
+        previous_state = {'cursor': cursor, 'anchors': list(anchors), 'head_ids': head_ids}
+        rows, seen = [], set()
+        for index in range(4):
+            body = await self._sync_json(f'/chats/{user_uuid}/messages', {
+                'size': 50, 'markAsRead': 'false',
+                **({'beforeMessageUuid': cursor} if cursor else {}),
+            })
+            page = body['data']
+            new_rows = [row for row in page if isinstance(row, dict) and row.get('uuid') and row['uuid'] not in seen]
+            if page and not new_rows:
+                raise RuntimeError('Fanvue history cursor did not advance')
+            rows.extend(new_rows)
+            seen.update(row['uuid'] for row in new_rows)
+            if index == 0 and not continuing:
+                head_ids = [row['uuid'] for row in new_rows]
+            if not new_rows or any(row['uuid'] in anchors for row in new_rows) or not (body.get('pagination') or {}).get('hasMore'):
+                if continuing:
+                    checkpoint = {'cursor': '', 'anchors': list(set(known) | seen | set(head_ids)), 'head_ids': []}
+                    raise FanvueHistoryGap(FanvueHistoryBatch(rows,
+                        lambda: self._sync_walks.__setitem__(user_uuid, checkpoint), previous_state, checkpoint))
+                return FanvueHistoryBatch(rows, lambda: self._sync_walks.pop(user_uuid, None), previous_state, None)
+            cursor = new_rows[-1]['uuid']
+        checkpoint = {'cursor': cursor, 'anchors': list(anchors), 'head_ids': head_ids}
+        raise FanvueHistoryGap(FanvueHistoryBatch(rows, lambda: self._sync_walks.__setitem__(user_uuid, checkpoint), previous_state, checkpoint))
 
     async def send(
         self,

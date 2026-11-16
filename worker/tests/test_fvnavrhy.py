@@ -90,8 +90,8 @@ class TestAkoSaPredava:
 class TestHistoriaBezDuplicit:
     """6 % správ bolo zdvojených — model videl svoju poslednú vetu dvakrát."""
 
-    def _sprava(self, uuid, text, kto="fan-1"):
-        return {"uuid": uuid, "text": text, "author": {"uuid": kto}}
+    def _sprava(self, uuid, text, kto="creator-1"):
+        return {"uuid": uuid, "text": text, "sender": {"uuid": kto}}
 
     def test_co_sme_poslali_sa_nepridava_druhy_raz(self):
         fetched = [self._sprava("u1", "ahoj")]
@@ -120,13 +120,9 @@ class TestHistoriaBezDuplicit:
 
 
 class TestPocitadloSprav:
-    def test_zosuladenie_ho_prepocita_zo_skutocneho_chatu(self):
-        from pathlib import Path
-
-        src = (Path(__file__).resolve().parents[1] / "src" / "fanvue_agent.py").read_text(
-            "utf-8"
-        )
-        i = src.index("async def _reconcile")
-        blok = src[i : i + 3000]
-        assert "skutocny_pocet = len(skutocne)" in blok
-        assert '"msg_count": skutocny_pocet' in blok
+    async def test_zosuladenie_ho_prepocita_zo_skutocneho_chatu(self):
+        from test_fanvue_native_sync import setup, message
+        agent, db, api, _ = setup()
+        api.messages.insert(0, message('native', 'creator', 'Already replied', 1))
+        await agent._reconcile({'uuid': 'fan', 'text': ''}, db.user, sync_only=True)
+        assert db.user['msg_count'] == 2

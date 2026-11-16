@@ -20,6 +20,7 @@ osoba a nesmie si protirečiť. Líši sa tempo, otvorenosť a to, že tu sa pre
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import random
 import time
@@ -48,12 +49,14 @@ log = logging.getLogger(__name__)
 # vyberá — priama cesta by znamenala písať odpoveď v tej istej požiadavke
 # a Fanvue by ju medzitým vyhodnotil ako nedoručenú.
 POLL_S = 5.0
+NATIVE_SYNC_S = 30.0
 
 # Ako dlho platí zistenie „v trezore niečo je". Klient obsah nahráva raz za
 # čas, nie každú minútu.
 _MEDIA_TTL_S = 300.0
 
 ODPOVEDA_NA = "creator.message.received"
+NATIVE_SENT = 'creator.message.sent'
 
 # Tri ťahy, medzi ktorými si majiteľ vyberá v poloautomate na Fanvue.
 #
@@ -186,15 +189,17 @@ def fan_of(event: Dict[str, Any]) -> Dict[str, str]:
         "handle": str(fan.get("handle") or ""),
         "display_name": str(fan.get("display_name") or ""),
         "avatar_url": str(fan.get("avatar_url") or ""),
-        "text": str(data.get("text") or "").strip(),
+        "text": str(data.get("text") or "").strip() or ('(media)' if data.get('media_uuids') else ''),
     }
     # Only provider message time is trustworthy. Webhook arrival/import time
     # must not make an old message look new to the notification queue.
-    times = fvsync.message_times([data])
+    times = fvsync.message_times([{**data, 'sentAt': data.get('created_at') or data.get('sentAt')}])
     message_uuid = str(data.get('uuid') or '')
     if message_uuid in times:
         result['_message_uuid'] = message_uuid
         result['_occurred_at'] = times[message_uuid]
+    if event.get('type') == NATIVE_SENT:
+        result['_source_role'] = 'assistant'
     return result
 
 
@@ -564,6 +569,11 @@ class FanvueAgent:
         # istého Telegram bota). Dopĺňa supervisor; bez neho semi len mlčí.
         self._control = control
         self._send_locks = {}
+        self._sync_locks = {}
+        self._sync_after = ''
+        self._sync_pending_offset = 0
+        self._sync_discovery_cursor = ''
+        self._sync_creator = None
         # Je v trezore čo poslať? Zisťuje sa raz za `_MEDIA_TTL_S`. `-inf`
         # zámerne: `time.monotonic()` beží od štartu stroja, takže nula by
         # v čerstvom kontajneri znamenala, že prvé volanie uverí prednastavenej
@@ -601,10 +611,11 @@ class FanvueAgent:
         if settings.get("reply_mode", "auto") != "auto" or not await self._auto_hours_open(settings):
             raise ReplyDeferred("waiting_for_schedule_or_approval")
 
-    async def _send_checked(self, conv_key, text, *args, proactive=False, approved=False):
+    async def _send_checked(self, conv_key, text, *args, proactive=False, approved=False, source_message_id=None):
         lock = self._send_lock(conv_key)
         async with lock:
-            return await self._send_checked_locked(conv_key, text, *args, proactive=proactive, approved=approved)
+            return await self._send_checked_locked(conv_key, text, *args, proactive=proactive,
+                                                   approved=approved, source_message_id=source_message_id)
 
     def _send_lock(self, conv_key):
         # Legacy adapters can initialise the agent without its tenant constructor.
@@ -612,7 +623,12 @@ class FanvueAgent:
             self._send_locks = {}
         return self._send_locks.setdefault(conv_key, asyncio.Lock())
 
-    async def _send_checked_locked(self, conv_key, text, *args, proactive=False, approved=False):
+    async def _source_snapshot(self, conv_key):
+        db = getattr(getattr(self, '_control', None), '_db', None)
+        snapshot = getattr(db, 'source_snapshot', None)
+        return await snapshot('fanvue', conv_key) if snapshot else None
+
+    async def _send_checked_locked(self, conv_key, text, *args, proactive=False, approved=False, source_message_id=None):
         settings = await self._db.settings()
         if settings.get("reply_mode") == "off":
             return None
@@ -629,6 +645,27 @@ class FanvueAgent:
                 return None
         if not approved:
             await self._require_auto_hours(settings)
+        async def fresh_context():
+            if not hasattr(self._api, 'sync_messages'):
+                return True
+            try:
+                row = await self._db.fan(conv_key) or {}
+                unanswered = await self._reconcile({'uuid': conv_key, 'text': ''}, row, sync_only=True)
+                if source_message_id is not None and await self._source_snapshot(conv_key) != source_message_id:
+                    if unanswered and not approved:
+                        raise ReplyDeferred('context_changed')
+                    return False
+                if not proactive and not approved and not unanswered:
+                    return False
+                return True
+            except ReplyDeferred:
+                raise
+            except Exception:
+                if not approved:
+                    raise ReplyDeferred('history_unavailable')
+                return False
+        if not await fresh_context():
+            return None
         # Polling a návrhy zostávajú neprečítané. „Seen“ až po kontrolách,
         # bezprostredne pred provider send (aj po schválení v Semi).
         try:
@@ -640,16 +677,113 @@ class FanvueAgent:
             return None
         if not approved:
             await self._require_auto_hours(current)
+        if not await fresh_context():
+            return None
         return await self._api.send(conv_key, text, *args)
 
     async def run(self) -> None:
         log.info("Fanvue agent beží, kontroluje frontu každých %.0f s", POLL_S)
+        sync = asyncio.create_task(self._native_sync_loop())
+        try:
+            while True:
+                try:
+                    await self.tick()
+                except Exception as exc:  # noqa: BLE001 - slučka nesmie umrieť
+                    log.exception("Kolo Fanvue zlyhalo: %s", exc)
+                await asyncio.sleep(POLL_S)
+        finally:
+            sync.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await sync
+
+    async def _native_sync_loop(self):
         while True:
             try:
-                await self.tick()
-            except Exception as exc:  # noqa: BLE001 - slučka nesmie umrieť
-                log.exception("Kolo Fanvue zlyhalo: %s", exc)
-            await asyncio.sleep(POLL_S)
+                await self.sync_native_chats()
+            except Exception:
+                log.warning('Fanvue native chat sync failed', exc_info=True)
+            await asyncio.sleep(NATIVE_SYNC_S)
+
+    async def sync_native_chats(self):
+        """Five known + five pending chats per round, independently of webhooks."""
+        cfg = await self._db.settings()
+        if not cfg.get('connected') or not cfg.get('creator_uuid') or not hasattr(self._api, 'sync_messages'):
+            return
+        if self._sync_creator != cfg['creator_uuid']:
+            self._api._sync_walks = {}
+            self._sync_discovery_cursor = ''
+            self._sync_after = ''
+            self._sync_pending_offset = 0
+            self._sync_creator = cfg['creator_uuid']
+        discovered = []
+        if hasattr(self._api, 'chat_page'):
+            head = await self._api.chat_page()
+            discovered.extend(head['data'])
+            cursor = self._sync_discovery_cursor or head.get('nextCursor')
+            if cursor:
+                page = await self._api.chat_page(cursor)
+                discovered.extend(page['data'])
+                self._sync_discovery_cursor = page.get('nextCursor') or ''
+            else:
+                self._sync_discovery_cursor = ''
+            current = await self._db.settings()
+            if current.get('creator_uuid') != cfg['creator_uuid'] or not current.get('connected'):
+                return
+        discovered_keys = []
+        for chat in discovered:
+            person = chat.get('user') or {}
+            if key := str(person.get('uuid') or ''):
+                await self._ensure_fan({'uuid': key, 'handle': person.get('handle') or '',
+                                       'display_name': person.get('displayName') or '',
+                                       'avatar_url': person.get('avatarUrl') or ''})
+                discovered_keys.append(key)
+        rows = await self._db.sync_contacts(after=self._sync_after, limit=5)
+        if not rows and self._sync_after:
+            rows = await self._db.sync_contacts(limit=5)
+        self._sync_after = rows[-1]['fan_uuid'] if len(rows) == 5 else ''
+        pending = await self._db.pending_contacts(offset=self._sync_pending_offset, limit=5)
+        self._sync_pending_offset = self._sync_pending_offset + len(pending) if len(pending) == 5 else 0
+        keys = dict.fromkeys([r['conv_key'] for r in pending] + discovered_keys + [r['fan_uuid'] for r in rows])
+        pending_ids = {r['conv_key']: r['id'] for r in pending if r.get('id')}
+        for key in keys:
+            try:
+                row = await self._db.fan(key)
+                if row:
+                    if key in pending_ids:
+                        row['_refresh_pending_id'] = pending_ids[key]
+                    await self._reconcile({'uuid': key, 'text': ''}, row, sync_only=True)
+                    await self._refresh_native_draft(key, row)
+            except Exception:
+                log.warning('Fanvue background history unavailable for %s', key[:8])
+                if time.monotonic() < getattr(self._api, '_sync_retry_at', 0):
+                    break
+
+    async def _refresh_native_draft(self, key, row):
+        """Only replace an existing Semi draft retired by this import."""
+        state = row.get('history_sync_state') or {}
+        pending_id = state.get('refresh_pending_id') or row.get('_refresh_pending_id')
+        if not pending_id and (candidate := getattr(self._db, 'refresh_candidate', None)):
+            pending_id = await candidate(key)
+        if not pending_id:
+            return
+        cfg = await self._db.settings()
+        current = await self._db.fan(key) or {}
+        history = await self._history_rows(key)
+        eligible = (cfg.get('enabled') and cfg.get('reply_mode') == 'semi'
+                    and current.get('ai_enabled', True) and not current.get('human_takeover')
+                    and history and history[-1]['role'] == 'user'
+                    and await self._db.refreshable_pending(pending_id, key))
+        if eligible:
+            # This uses the normal fresh-history/generation/source-CAS path,
+            # and only Semi. Backfill alone never creates a first proposal.
+            await self._reply({'type': ODPOVEDA_NA, 'payload': {'data': {
+                'fan': {'uuid': key}, 'sender': 'fan', 'text': history[-1]['content'],
+            }}}, cfg)
+            if await self._db.refreshable_pending(pending_id, key):
+                return  # Generation failed; keep the durable request for retry.
+        if state and state.get('complete'):
+            await self._db.update_fan(key, {'history_sync_state': None})
+            row['history_sync_state'] = None
 
     async def tick(self) -> None:
         settings = await self._db.settings()
@@ -677,6 +811,8 @@ class FanvueAgent:
         posledna: Dict[str, Dict[str, Any]] = {}
         prebite: List[int] = []
         for event in events:
+            # Outbound webhooks can arrive after a newer inbound. They refresh
+            # history but must never consume that inbound's reply trigger.
             kto = fan_of(event)["uuid"] if event.get('type') == ODPOVEDA_NA else ""
             if not kto:
                 continue
@@ -696,7 +832,7 @@ class FanvueAgent:
                 log.warning("Oznam k udalosti %s zlyhal: %s", event.get("id"), exc)
 
         for event in events:
-            inbox_only = event.get('type') == ODPOVEDA_NA and (manual or not wants_reply(event))
+            inbox_only = event.get('type') == NATIVE_SENT or (event.get('type') == ODPOVEDA_NA and (manual or not wants_reply(event)))
             try:
                 if int(event["id"]) in prebite:
                     log.info("Udalosť %s prebitá novšou v tom istom chate", event["id"])
@@ -1233,12 +1369,16 @@ class FanvueAgent:
         #
         # Skutočný stav chatu má prednosť pred frontou: doručenie sa mohlo
         # stratiť a poradie Fanvue nezaručuje.
-        if not await self._reconcile(fan, row, mark_read=False):
-            return
+        try:
+            if not await self._reconcile(fan, row, mark_read=False):
+                return
+        except Exception as exc:
+            raise ReplyDeferred('history_unavailable') from exc
         if hub := getattr(self._db, "hub", None):
             if not await hub.can_reply("fanvue", fan["uuid"]):
                 return
 
+        source_message_id = await self._source_snapshot(fan['uuid'])
         history = await self._history_rows(fan["uuid"])
         turn = conversation_timing.analyze(history, now_local=local_now(await self._db.behavior()))
         fan["text"] = turn.latest_text or fan.get("text", "")
@@ -1309,7 +1449,8 @@ class FanvueAgent:
             media = [foto["media_uuid"]] if foto else None
             cena = int(foto["price_cents"]) if foto else 0
 
-        poslana = await self._send_checked(fan["uuid"], text, media, cena)
+        poslana = await self._send_checked(fan["uuid"], text, media, cena,
+                                          source_message_id=source_message_id)
         if not poslana:
             return
 
@@ -1384,6 +1525,13 @@ class FanvueAgent:
         if not self._control:
             log.warning("Fanvue semi: control bot nie je pripojený — %s bez karty", fan["uuid"][:8])
             return False
+        source_message_id = await self._source_snapshot(fan['uuid'])
+        if source_message_id is not None:
+            current_history = await self._history_rows(fan['uuid'])
+            if preview:
+                history = current_history + history[-1:]
+            elif [(r['role'], r['content']) for r in history] != [(r['role'], r['content']) for r in current_history]:
+                raise ReplyDeferred('context_changed')
         now_local = local_now(await self._db.behavior())
         turn = conversation_timing.analyze(history, now_local=now_local)
         try:
@@ -1396,6 +1544,23 @@ class FanvueAgent:
             return False
         if not suggestions:
             return False
+        if hasattr(self._api, 'sync_messages'):
+            try:
+                unanswered = await self._reconcile(fan, row, sync_only=True)
+                if await self._source_snapshot(fan['uuid']) != source_message_id:
+                    if unanswered:
+                        raise ReplyDeferred('context_changed')
+                    return False
+            except ReplyDeferred:
+                raise
+            except Exception as exc:
+                raise ReplyDeferred('history_unavailable') from exc
+            current_cfg = await self._db.settings()
+            current_user = await self._db.fan(fan['uuid']) or {}
+            if (not current_cfg.get('connected') or not current_cfg.get('enabled')
+                    or current_cfg.get('reply_mode') != 'semi' or current_user.get('human_takeover')
+                    or not current_user.get('ai_enabled', True)):
+                return False
         name = row.get("display_name") or fan.get("name") or fan["uuid"][:8]
         # Všetko, na čo ešte neodpovedala — nielen posledná správa. Kým
         # majiteľ rozhoduje, fanúšik píše ďalej a karta sa má dopĺňať.
@@ -1408,6 +1573,7 @@ class FanvueAgent:
             ),
             suggestions=suggestions,
             hint=tip,
+            **({'source_message_id': source_message_id} if source_message_id is not None else {}),
         )
         log.info("Fanvue semi: karta pre %s %s", fan["uuid"][:8], "poslaná" if ok else "NEposlaná")
         return bool(ok)
@@ -1529,7 +1695,10 @@ class FanvueAgent:
             return DeliveryResult.blocked(reason)
         # Sync only, never seen or purchase thanks while preparing an owner action.
         row = await self._db.fan(key)
-        await self._reconcile({'uuid': key, 'text': ''}, row, mark_read=False, sync_only=True)
+        try:
+            await self._reconcile({'uuid': key, 'text': ''}, row, mark_read=False, sync_only=True)
+        except Exception:
+            return DeliveryResult.blocked('history_unavailable')
         if not await before_send():
             return DeliveryResult.blocked('stale_context')
         settings = await self._db.settings()
@@ -1544,7 +1713,14 @@ class FanvueAgent:
         await self._api.chat_messages(key, limit=1, mark_read=True)
         if not await before_send():
             return DeliveryResult.blocked('stale_context')
-        outcome = await self._api.send_operator(key, text, before_send=before_send)
+        async def fresh_before_send():
+            if hasattr(self._api, 'sync_messages'):
+                try:
+                    await self._reconcile({'uuid': key, 'text': ''}, row, sync_only=True)
+                except Exception:
+                    return False
+            return not await ready() and await before_send()
+        outcome = await self._api.send_operator(key, text, before_send=fresh_before_send)
         if outcome.status == 'done':
             try:
                 await self._db.add_message(key, 'assistant', text, outcome.result.get('provider_message_id') or '')
@@ -1632,23 +1808,70 @@ class FanvueAgent:
         self, fan: Dict[str, Any], row: Dict[str, Any], mark_read: bool = False,
         *, sync_only: bool = False,
     ) -> bool:
+        if not hasattr(self, '_sync_locks'):
+            self._sync_locks = {}
+        lock = self._sync_locks.setdefault(fan['uuid'], asyncio.Lock())
+        async with lock:
+            result = await self._reconcile_locked(fan, row, mark_read, sync_only=sync_only)
+        if row.get('pending_thanks') and not sync_only:
+            # Delivery can itself refresh history; never hold the import lock
+            # across generation/send or it would recursively acquire itself.
+            await self._thank(fan, row, await self._db.settings(), 0,
+                              int(row.get('bought_count') or 0))
+        return result
+
+    async def _reconcile_locked(
+        self, fan: Dict[str, Any], row: Dict[str, Any], mark_read: bool = False,
+        *, sync_only: bool = False,
+    ) -> bool:
         """Doplní, čo v pamäti chýba. False = teraz sa neodpisuje.
 
-        Keď sa chat nedá prečítať, pokračuje sa aj tak — uložená správa
-        z webhooku je lepšia než mlčanie. Fail-open všade.
+        Tenant reads fail closed. A provider failure or incomplete catch-up
+        cannot authorise a generated reply; the legacy adapter keeps its
+        historical fallback for standalone use.
 
         Predvolené `mark_read=False` načíta chat bez „videné“ v oboch
         režimoch. Potvrdenie prečítania patrí až do `_send_checked`.
         """
         creator = str((await self._db.settings()).get("creator_uuid") or "")
-        skutocne = await self._api.chat_messages(fan["uuid"], mark_read=mark_read)
+        known = None
+        gap = None
+        strict = hasattr(self._api, 'sync_messages')
+        if strict:
+            if getattr(self, '_sync_creator', None) != creator:
+                self._api._sync_walks = {}
+                self._sync_discovery_cursor = ''
+                self._sync_creator = creator
+            known = await self._db.known_message_uuids(fan['uuid'])
+            checkpoint = row.get('history_sync_state')
+            if checkpoint and checkpoint.get('account_scope') == 'fanvue:' + creator and not checkpoint.get('complete'):
+                self._api._sync_walks[fan['uuid']] = {
+                    'cursor': checkpoint.get('cursor') or '', 'anchors': checkpoint.get('anchors') or [],
+                    'head_ids': checkpoint.get('head_ids') or [],
+                }
+            elif checkpoint and checkpoint.get('account_scope') != 'fanvue:' + creator:
+                await self._db.update_fan(fan['uuid'], {'history_sync_state': None})
+                row['history_sync_state'] = None
+            from fanvue_api import FanvueHistoryGap
+            try:
+                skutocne = await self._api.sync_messages(fan['uuid'], known)
+            except FanvueHistoryGap as exc:
+                gap = exc
+                skutocne = exc.messages
+            current = await self._db.settings()
+            if not current.get('connected') or current.get('creator_uuid') != creator:
+                raise RuntimeError('Fanvue connection changed while reading history')
+            if not skutocne and known:
+                raise RuntimeError('Known Fanvue history is unavailable')
+        else:
+            skutocne = await self._api.chat_messages(fan["uuid"], mark_read=mark_read)
         if not skutocne:
             if fan.get("text"):
                 message_uuid = fan.get('_message_uuid')
                 if message_uuid and fan.get('_occurred_at'):
                     if message_uuid not in await self._db.known_message_uuids(fan['uuid']):
                         await self._db.add_messages(fan['uuid'], [{
-                            'message_uuid': message_uuid, 'role': 'user', 'content': fan['text'],
+                            'message_uuid': message_uuid, 'role': fan.get('_source_role', 'user'), 'content': fan['text'],
                             'occurred_at': fan['_occurred_at'],
                         }])
                 else:
@@ -1656,12 +1879,25 @@ class FanvueAgent:
             return True
 
         try:
-            zname = await self._db.known_message_uuids(fan["uuid"])
+            refresh_id = row.get('_refresh_pending_id') or (row.get('history_sync_state') or {}).get('refresh_pending_id')
+            durable_checkpoint = hasattr(skutocne, 'previous_state') and (gap or row.get('history_sync_state') or refresh_id)
+            if durable_checkpoint:
+                # Write the BEFORE-page checkpoint first. A crash during import
+                # then replays that page instead of treating its partial IDs as
+                # a complete anchor after restart.
+                state = {'account_scope': 'fanvue:' + creator, **skutocne.previous_state}
+                if refresh_id:
+                    state.update(refresh_draft=True, refresh_pending_id=refresh_id)
+                await self._db.update_fan(fan['uuid'], {'history_sync_state': state})
+                row['history_sync_state'] = state
+            zname = known if known is not None else await self._db.known_message_uuids(fan["uuid"])
             if backfill := getattr(self._db, "backfill_message_times", None):
                 await backfill(fan["uuid"], fvsync.message_times(skutocne))
+            legacy_loader = getattr(self._db, 'unidentified_messages', None)
             chybajuce = fvsync.missing(
                 zname, skutocne, creator,
-                bez_uuid=await self._db.texty_bez_uuid(fan["uuid"]),
+                **({'legacy_rows': await legacy_loader(fan['uuid'])} if legacy_loader else
+                   {'bez_uuid': await self._db.texty_bez_uuid(fan['uuid'])}),
             )
             if chybajuce:
                 await self._db.add_messages(fan["uuid"], chybajuce)
@@ -1693,19 +1929,25 @@ class FanvueAgent:
                 await self._db.update_fan(fan["uuid"], patch)
                 row.update(patch)
                 log.info("Fanúšik %s má kúpené: %s", fan["uuid"][:8], kupil)
-            if row.get("pending_thanks") and not sync_only:
-                # Počet nákupov je už pravda aj keď sa práve zatvorilo okno.
-                # Samostatný trvalý príznak nesie nedokončené poďakovanie.
-                await self._thank(
-                    fan, row, await self._db.settings(), 0,
-                    int(row.get("bought_count") or 0),
-                )
+            if durable_checkpoint:
+                state = ({'account_scope': 'fanvue:' + creator, **skutocne.next_state}
+                         if skutocne.next_state else None)
+                if refresh_id:
+                    state = state or {'account_scope': 'fanvue:' + creator, 'complete': True}
+                    state.update(refresh_draft=True, refresh_pending_id=refresh_id)
+                await self._db.update_fan(fan['uuid'], {'history_sync_state': state})
+                row['history_sync_state'] = state
         except ReplyDeferred:
             raise
         except Exception as exc:  # noqa: BLE001 - zosúladenie je poistka, nie podmienka
-            if sync_only:
+            if sync_only or strict:
                 raise  # Inbox import must keep its webhook pending on failure.
             log.warning("Zosúladenie chatu zlyhalo: %s", exc)
+
+        if acknowledge := getattr(skutocne, 'acknowledge', None):
+            acknowledge()
+        if gap:
+            raise gap
 
         if fvsync.stay_quiet(skutocne, creator):
             log.info("Na %s už niekto odpovedal — mlčím", fan["uuid"][:8])

@@ -308,8 +308,8 @@ class TestSpravy:
     async def test_history_vracia_od_najstarsej(self):
         """DB dáva `id.desc` (najnovšie), prompt chce chronológiu."""
         rows = [
-            {"role": "assistant", "content": "nova"},
-            {"role": "user", "content": "stara"},
+            {"id": 2, "role": "assistant", "content": "nova", "occurred_at": None},
+            {"id": 1, "role": "user", "content": "stara", "occurred_at": None},
         ]
         calls = []
         db = _db({"/fv_messages": rows}, calls)
@@ -422,8 +422,8 @@ class TestIzolaciaFvTabuliek:
         t = _transport({"/fv_messages": []}, calls)
         await TenantFanvueDb(t, "model-A", KEY).history("spolocny-fan")
         await TenantFanvueDb(t, "model-B", KEY).history("spolocny-fan")
-        assert "model_id=eq.model-A" in calls[0]["url"]
-        assert "model_id=eq.model-B" in calls[1]["url"]
+        assert all("model_id=eq.model-A" in call["url"] for call in calls[:2])
+        assert all("model_id=eq.model-B" in call["url"] for call in calls[2:])
 
 
 # ---------------------------------------------------------------------------
@@ -1101,9 +1101,9 @@ class TestSourceMessageTimes:
         # Newest DB row is an imported older message; unknown-time rows
         # retain their insertion position instead of being guessed old/new.
         rows = [
-            {'role':'user','content':'old imported','occurred_at':'2025-11-15T20:00:00Z'},
-            {'role':'user','content':'unknown','occurred_at':None},
-            {'role':'user','content':'hello today','occurred_at':'2025-11-16T20:00:00Z'},
+            {'id':3,'role':'user','content':'old imported','occurred_at':'2025-11-15T20:00:00Z'},
+            {'id':2,'role':'user','content':'unknown','occurred_at':None},
+            {'id':1,'role':'user','content':'hello today','occurred_at':'2025-11-16T20:00:00Z'},
         ]
         history = await _db({'/fv_messages':rows}, calls).history_rows('fan-1')
         assert [r['content'] for r in history] == ['old imported','unknown','hello today']
@@ -1112,8 +1112,8 @@ class TestSourceMessageTimes:
 
     async def test_latest_unknown_is_not_dropped_behind_sixteen_known_old_rows(self):
         calls = []
-        rows = [{'role':'user','content':'newest unknown','occurred_at':None}] + [
-            {'role':'user','content':f'old {i}','occurred_at':f'2026-11-15T20:{i:02d}:00Z'}
+        rows = [{'id':17,'role':'user','content':'newest unknown','occurred_at':None}] + [
+            {'id':i,'role':'user','content':f'old {i}','occurred_at':f'2026-11-15T20:{i:02d}:00Z'}
             for i in range(16,0,-1)]
         history = await _db({'/fv_messages':rows}, calls).history_rows('fan-1')
         assert len(history) == 16

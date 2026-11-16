@@ -80,6 +80,8 @@ SINCE = "2026-01-01T00:00:00+00:00"
 ACCOUNT = "9c0ffee0-0000-4000-8000-000000000001"
 
 CALLS = {
+    "source_snapshot": (("telegram", "42"), {}),
+    "ingest_tg_message": ((42, 501, "assistant", "Native answer"), {"account_scope": "telegram:abc", "created_at": SINCE, "origin": "native"}),
     "account_balance_usd": ((), {}),
     "control_bot_settings": ((), {}),
     "mark_daily_report_sent": (("2026-08-20T00:00:00Z",), {}),
@@ -214,7 +216,7 @@ def _assert_scoped(call, method_name):
         # RPC nemá URL filter — model_id musí byť v argumentoch. `pair_control_bot`
         # to má obzvlášť kriticky: bez `p_model` by párovací kód jednej modelky
         # prestavil majiteľa inej.
-        assert any(fn in url for fn in ("search_messages", "pair_control_bot", "social_replace_suggestions", "social_skip_pending")), where
+        assert any(fn in url for fn in ("search_messages", "pair_control_bot", "social_replace_suggestions", "social_skip_pending", "social_ingest_telegram")), where
         assert body and body.get("p_model") == MODEL, where
         return
 
@@ -812,3 +814,38 @@ async def test_platformovy_kluc_sa_berie_z_uctu_superadmina(monkeypatch):
     row = await db.get_behavior()
     assert row["eleven_key"] == "KLUC_Z_UCTU"
     assert row["eleven_voice_id"] == "ELEVEN_ABC"
+
+
+async def test_telegram_ingest_carries_provider_id_scope_and_origin():
+    seen = []
+    db = TenantDb(_capture(seen), MODEL)
+    await db.ingest_tg_message(42, 501, 'assistant', 'Native answer', account_scope='telegram:abc', created_at=SINCE, origin='native')
+    assert seen[-1]['url'].endswith('/rpc/social_ingest_telegram')
+    assert seen[-1]['body'] == {'p_model': MODEL, 'p_external': 42, 'p_message_id': 501,
+        'p_scope': 'telegram:abc', 'p_role': 'assistant', 'p_content': 'Native answer',
+        'p_occurred_at': SINCE, 'p_origin': 'native'}
+
+
+async def test_pending_card_carries_generation_source_snapshot():
+    seen = []
+    db = TenantDb(_capture(seen), MODEL)
+    await db.create_pending(channel='telegram', conv_key='42', suggestions=['Preview'], source_message_id=812)
+    assert seen[-1]['body']['source_message_id'] == 812
+
+
+async def test_source_snapshot_uses_contact_message_version():
+    seen = []
+    db = TenantDb(_capture(seen), MODEL)
+    assert await db.source_snapshot('telegram', '42') == 0
+    assert '/social_contact_summaries?' in seen[-1]['url']
+    assert 'channel=eq.telegram' in seen[-1]['url']
+    assert 'external_id=eq.42' in seen[-1]['url']
+
+
+async def test_telegram_context_limits_by_source_time_not_late_import_id():
+    from urllib.parse import parse_qs, urlparse
+    seen = []
+    db = TenantDb(_capture(seen), MODEL)
+    await db.recent_messages(42, 12)
+    query = parse_qs(urlparse(seen[-1]['url']).query)
+    assert query['order'] == ['created_at.desc,id.desc'], 'Old native replies imported late cannot displace the current incoming turn'

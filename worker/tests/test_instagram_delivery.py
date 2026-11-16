@@ -49,7 +49,7 @@ async def test_ingest_known_current_input_retries_durable_enqueue_after_crash():
 
 
 @pytest.mark.asyncio
-async def test_new_manual_reply_cancels_pending_and_takes_over():
+async def test_new_manual_reply_cancels_pending_without_changing_takeover():
     now = datetime.now(timezone.utc)
     db = AsyncMock(model_id='model')
     db.ensure_user.return_value = {}
@@ -58,8 +58,9 @@ async def test_new_manual_reply_cancels_pending_and_takes_over():
     db.actions.return_value = []
     delivery = InstagramDelivery(db, AsyncMock())
     await delivery.ingest(thread(now, 'assistant'), settings(sync_completed_at=(now-timedelta(hours=1)).isoformat()))
-    db.cancel_actions.assert_any_await('fan', 'manual_reply')
-    assert any(c.args[1].get('human_takeover') for c in db.update_user.call_args_list)
+    db.cancel_actions.assert_any_await('fan', 'manual_reply', through=now.isoformat())
+    db.native_reply.assert_awaited_once_with('fan', 'account', now.isoformat())
+    assert not any('human_takeover' in c.args[1] for c in db.update_user.call_args_list)
 
 
 @pytest.mark.asyncio

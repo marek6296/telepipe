@@ -177,13 +177,13 @@ class TestDorucenieZKarty:
 class TestOstatneTlacidla:
     def test_regenerate_vrati_nove_navrhy(self, monkeypatch):
         agent, _, llm, _, _ = _semi(monkeypatch)
-        out = asyncio.run(agent.regenerate("999", seed="3"))
+        out = asyncio.run(agent.regenerate("999:1", seed="3"))
         assert len(out["suggestions"]) == 3
         assert llm.suggest_volania[-1]["seed"] == "3"
 
     def test_say_this_pouzije_zadanie(self, monkeypatch):
         agent, _, llm, _, _ = _semi(monkeypatch)
-        asyncio.run(agent.regenerate("999", brief="opýtaj sa, odkiaľ je"))
+        asyncio.run(agent.regenerate("999:1", brief="opýtaj sa, odkiaľ je"))
         assert "opýtaj sa, odkiaľ je" in llm.prompty[-1]
         assert llm.suggest_volania[-1]["angles"] == instagram_agent.UHLY_ZADANIE
 

@@ -109,14 +109,25 @@ class FakeDb:
     async def mark_message_effects(self, mid):
         self.processed.add(mid)
 
+    async def native_reply(self, igsid, account, occurred_at):
+        return True
+
+    async def requeue_stale_approval(self, igsid, source_mid, source_message_id):
+        return False
+
+    async def latest_message_id(self, igsid):
+        return max((i for i, m in enumerate(self.spravy, 1) if m['igsid'] == igsid), default=0)
+
     async def schedule(self):
         return {}
 
     async def sfw_photo(self):
         return None
 
-    async def cancel_actions(self, igsid='', reason='channel_off'):
+    async def cancel_actions(self, igsid='', reason='channel_off', *, through=None):
         for a in self.queue.values():
+            if through is not None and a.get('source_at', '') > through:
+                continue
             if (not igsid or a['igsid'] == igsid) and a['state'] in ('pending','ready','leased','approval'):
                 a.update(state='cancelled', reason=reason)
 

@@ -236,3 +236,16 @@ def test_unknown_fanvue_message_time_is_not_replaced_with_import_time(sent_at):
     fan = fan_of({'created_at': '2026-11-16T19:01:00Z', 'payload': {'data': {
         'user': {'uuid': 'fan-1'}, 'uuid': 'message-1', 'sentAt': sent_at}}})
     assert '_occurred_at' not in fan
+
+
+async def test_obsolete_generation_cannot_close_a_newer_web_proposal():
+    bot, db, client = notification_bot()
+    # SQL rejects an obsolete source; Python must not have superseded the
+    # current proposal before the atomic insert guard makes that decision.
+    db.create_pending.return_value = None
+    assert not await bot.post_approval(channel='telegram', conv_key='555', display_name='Fan',
+                                       incoming_preview='old input', suggestions=['old reply'],
+                                       source_message_id=12)
+    db.supersede_open.assert_not_awaited()
+    assert db.create_pending.await_args.kwargs['source_message_id'] == 12
+    client.send_message.assert_not_awaited()

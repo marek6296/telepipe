@@ -207,11 +207,109 @@ class UserBot:
         # Ohraničené: drží sa posledných `_SEEN_LIMIT`, staršie vypadávajú.
         self._seen: Deque[tuple] = deque(maxlen=_SEEN_LIMIT)
         self._seen_set: set = set()
+        # Own updates can arrive before send_message returns. Serialize only
+        # provider send+record against its echo, never the slow LLM generation.
+        self._outgoing_locks: Dict[int, asyncio.Lock] = {}
+        self._native_versions: Dict[int, int] = {}
+        self._generation_versions: Dict[int, int] = {}
+        self._generation_sources: Dict[int, int] = {}
+        self._own_messages: Dict[tuple, str] = {}
+        self._synced_outgoing: Dict[tuple, None] = {}
+        self._reconciled_heads: Dict[int, int] = {}
 
     # ---------- registrácia ----------
 
     def register(self) -> None:
         self._client.add_event_handler(self._on_message, events.NewMessage(incoming=True))
+        self._client.add_event_handler(self._on_outgoing, events.NewMessage(outgoing=True))
+
+    def _managed_peer(self, peer) -> bool:
+        if not isinstance(peer, User) or peer.bot or peer.is_self or _is_system_account(peer):
+            return False
+        if peer.id == self._cfg.owner_chat_id:
+            return self._cfg.owner_as_client
+        return not (self._cfg.skip_contacts and getattr(peer, 'contact', False)
+                    and peer.id not in self._cfg.contact_exceptions)
+
+    async def _record_telegram(self, tg_id, message, role, content, *, origin='native'):
+        mid = int(getattr(message, 'id', 0) or 0)
+        stamp = getattr(message, 'date', None)
+        created_at = stamp.isoformat() if isinstance(stamp, datetime) else None
+        if not mid:
+            # Some non-provider callers have no ID. Never invent an identity.
+            await self._db.add_message(tg_id, role, content, **({'created_at': created_at} if created_at else {}))
+            return {'inserted': True, 'id': await self._db.source_snapshot('telegram', str(tg_id))}
+        result = await self._db.ingest_tg_message(
+            tg_id, mid, role, content, account_scope=self._cfg.tg_account_scope,
+            created_at=created_at, origin=origin,
+        )
+        if role == 'assistant':
+            self._synced_outgoing[(tg_id, mid)] = None
+            if len(self._synced_outgoing) > _SEEN_LIMIT:
+                self._synced_outgoing.pop(next(iter(self._synced_outgoing)))
+        if result.get('inserted') and role == 'assistant' and origin == 'native':
+            self._native_versions[tg_id] = self._native_versions.get(tg_id, 0) + 1
+            self._photo_reaction.pop(tg_id, None)
+            self._text_reaction.pop(tg_id, None)
+        return result
+
+    async def _import_outgoing(self, tg_id, message):
+        if not getattr(message, 'out', False):
+            return {'inserted': False}
+        content = _outgoing_content(message)
+        if not content:
+            return {'inserted': False}
+        async with self._outgoing_locks.setdefault(tg_id, asyncio.Lock()):
+            if (tg_id, int(message.id)) in self._synced_outgoing:
+                return {'inserted': False}
+            own = self._own_messages.get((tg_id, int(message.id)))
+            return await self._record_telegram(tg_id, message, 'assistant', own or content,
+                                               origin='telepipe' if own is not None else 'native')
+
+    async def _on_outgoing(self, event) -> None:
+        try:
+            if not event.is_private:
+                return
+            # Outgoing sender is ourselves; chat is the actual recipient.
+            peer = await event.get_chat()
+            if not self._managed_peer(peer):
+                return
+            await self._db.ensure_user(peer.id, peer.username, peer.first_name, getattr(peer, 'lang_code', None))
+            await self._import_outgoing(peer.id, event.message)
+        except Exception:
+            # The next provider preflight/startup reconciliation retries imports.
+            log.exception('Could not synchronize native Telegram reply')
+
+    async def _sync_native_outgoing(self, tg_id) -> None:
+        # Overlap deliberately: the inbound watermark cannot identify outgoing
+        # messages, and a reconnect can deliver an older update late.
+        rows = [row async for row in self._client.iter_messages(tg_id, limit=30)]
+        for row in reversed(rows):
+            if getattr(row, 'out', False):
+                await self._import_outgoing(tg_id, row)
+
+    async def _send_tracked(self, tg_id, content, *, file=None, **kwargs):
+        async with self._outgoing_locks.setdefault(tg_id, asyncio.Lock()):
+            if file is None:
+                sent = await self._client.send_message(tg_id, content, **kwargs)
+            else:
+                sent = await self._client.send_file(tg_id, file, **kwargs)
+            mid = int(getattr(sent, 'id', 0) or 0)
+            if mid:
+                self._own_messages[(tg_id, mid)] = content
+                if len(self._own_messages) > _SEEN_LIMIT:
+                    self._own_messages.pop(next(iter(self._own_messages)))
+            try:
+                recorded = await self._record_telegram(tg_id, sent, 'assistant', content, origin='telepipe')
+                if tg_id in self._generation_sources and recorded.get('id') is not None:
+                    # Further bubbles may use our own newly stored reply, but
+                    # never advance to an unrelated message imported concurrently.
+                    self._generation_sources[tg_id] = int(recorded['id'])
+            except Exception:
+                # The provider already accepted it. Never retry/fallback because
+                # recording failed; its outgoing echo/reconciliation can repair it.
+                log.exception('%s: Telegram reply sent; history recording failed', tg_id)
+            return sent
 
     def start_sweeper(self) -> asyncio.Task:
         return asyncio.create_task(self._sweep_loop())
@@ -478,10 +576,7 @@ class UserBot:
             log.info("Preskakujem %s: správu %s spracoval niekto iný", tg_id, message_id)
             return
 
-        stamp = getattr(event, "date", None)
-        await self._db.add_message(tg_id, "user", text, **(
-            {"created_at": stamp.isoformat()} if isinstance(stamp, datetime) else {}
-        ))
+        await self._record_telegram(tg_id, event.message, "user", text)
         if hub := getattr(self._db, "hub", None):
             await hub.observe("telegram", str(tg_id), user.get("username", ""), user.get("first_name", ""), text)
 
@@ -610,6 +705,9 @@ class UserBot:
         return tg_id == self._cfg.owner_chat_id and self._cfg.owner_as_client
 
     async def _reply_locked(self, tg_id: int, behavior: Behavior, morning: bool = False) -> None:
+        await self._sync_native_outgoing(tg_id)
+        self._generation_versions[tg_id] = self._native_versions.get(tg_id, 0)
+        self._generation_sources[tg_id] = await self._db.source_snapshot('telegram', str(tg_id))
         user = await self._db.get_user(tg_id)
         if not user:
             return
@@ -1555,7 +1653,7 @@ class UserBot:
                 if not await self._auto_send_time_ok(tg_id):
                     await finish_delivery()
                     return
-                await self._client.send_message(tg_id, chunk)
+                await self._send_tracked(tg_id, chunk)
             except Exception as exc:  # noqa: BLE001
                 # Flood chyba sa nesmie stratiť v logu ako hocijaká iná —
                 # z nej vyplýva, že sa má prestať posielať úplne.
@@ -1565,7 +1663,6 @@ class UserBot:
                     return
                 await finish_delivery()
                 raise
-            await self._db.add_message(tg_id, "assistant", chunk)
             sent.append(chunk)
 
         # Hlasovka až PO texte. Prompt jej hovorí napísať pred ňou krátke
@@ -1631,6 +1728,8 @@ class UserBot:
         V debounce ceste to nehrozí (nová správa bežiacu úlohu zruší), ale
         odpoveď zo sweepera nikto nezruší, a tá je práve tá pomalá.
         """
+        await self._sync_native_outgoing(tg_id)
+        source_message_id = await self._db.source_snapshot('telegram', str(tg_id))
         user = await self._db.get_user(tg_id)
         if not user:
             return None
@@ -1646,6 +1745,8 @@ class UserBot:
             return None
         turn = conversation_timing.analyze(rows)
         history, last_user_text = turn.messages, turn.latest_text
+        self._generation_sources[tg_id] = source_message_id
+        self._generation_versions[tg_id] = self._native_versions.get(tg_id, 0)
         return user, rows, history, last_user_text
 
     async def _flood_ok(self) -> bool:
@@ -2038,13 +2139,11 @@ class UserBot:
             await self._mark_read(tg_id)
             if not await self._auto_send_time_ok(tg_id):
                 return False
-            await self._client.send_file(tg_id, buffer, force_document=False)
+            await self._send_tracked(tg_id, f"[poslala fotku: {photo.get('caption') or 'selfie'}]",
+                                     file=buffer, force_document=False)
             sent = True
             await self._db.record_photo_send(int(photo["id"]), tg_id)
             await self._db.update_user(tg_id, {"last_photo_at": _utc_iso()})
-            await self._db.add_message(
-                tg_id, "assistant", f"[poslala fotku: {photo.get('caption') or 'selfie'}]"
-            )
             # Az TERAZ — fotka naozaj odisla. Ucet za nedorucenu fotku by bol
             # najhorsi druh polozky na fakture.
             await self._llm.charge_unit("photo", "photo_usd", 0.10)
@@ -2249,9 +2348,8 @@ class UserBot:
                 return False
             if not approved and not await self._auto_send_time_ok(tg_id):
                 return False
-            await self._client.send_file(tg_id, buffer, voice_note=True)
+            await self._send_tracked(tg_id, f"(hlasovka) {text}".strip(), file=buffer, voice_note=True)
             await self._db.update_user(tg_id, {"last_voice_at": _utc_iso()})
-            await self._db.add_message(tg_id, "assistant", f"(hlasovka) {text}".strip())
             # Cena zavisi od toho, ci sla cez NAS kluc (managed hlas) alebo
             # klientov — pri jeho kluci nam ElevenLabs nic neuctuje.
             managed = (await self._behavior()).voice_source == "managed"
@@ -2277,8 +2375,7 @@ class UserBot:
                 return False
             if not approved and not await self._auto_send_time_ok(tg_id):
                 return False
-            await self._client.send_message(tg_id, text)
-            await self._db.add_message(tg_id, "assistant", text)
+            await self._send_tracked(tg_id, text)
             return True
 
     # ---------- semi-auto: handoff a doručovanie po schválení ----------
@@ -2301,9 +2398,17 @@ class UserBot:
             # Bez kontrolného bota niet ako schvaľovať — nechaj čakať sweeperu.
             await self._db.update_user(tg_id, {"pending_reply": True})
             return
+        await self._sync_native_outgoing(tg_id)
+        source_message_id = await self._db.source_snapshot('telegram', str(tg_id))
+        # The caller may have prepared history while a native update arrived.
+        if self._generation_versions.get(tg_id, self._native_versions.get(tg_id, 0)) != self._native_versions.get(tg_id, 0):
+            return
+        history = await self._db.recent_messages(tg_id, self._cfg.context_messages)
         behavior = await self._behavior()
         now_local = datetime.now(ZoneInfo(behavior.active_tz))
         turn = conversation_timing.analyze(history, now_local=now_local)
+        if not turn.incoming:
+            return
         try:
             suggestions = await self._llm.suggest(
                 conversation_timing.prompt_with_timing(system, turn),
@@ -2315,6 +2420,9 @@ class UserBot:
             return
         if not suggestions:
             await self._db.update_user(tg_id, {"pending_reply": True})
+            return
+        await self._sync_native_outgoing(tg_id)
+        if await self._db.source_snapshot('telegram', str(tg_id)) != source_message_id:
             return
         name = (user.get("partner_name") or "").strip() or str(tg_id)
         ok = await self._control.post_approval(
@@ -2331,6 +2439,7 @@ class UserBot:
             # ktoré by druhá kópia výpočtu skôr či neskôr počítala inak.
             # Karta žije len kým nepríde nová správa, takže snímka platí.
             prompt=system,
+            source_message_id=source_message_id,
         )
         # Karta drží pending; dm_users.pending_reply nech sweeper znovu nespustí.
         await self._db.update_user(tg_id, {"pending_reply": not ok})
@@ -2350,6 +2459,7 @@ class UserBot:
             tg_id = int(conv_key)
         except (TypeError, ValueError):
             return {}
+        await self._sync_native_outgoing(tg_id)
         row = await self._db.get_pending_for(conv_key)
         system = str((row or {}).get("prompt") or "")
         if not system:
@@ -2442,6 +2552,12 @@ class UserBot:
         Schválené deliver_* túto časovú bránu nepoužívajú. Pri zmene na
         Semi čaká pôvodná automatická odpoveď na nový návrh/schválenie.
         """
+        await self._sync_native_outgoing(tg_id)
+        if self._generation_versions.get(tg_id, 0) != self._native_versions.get(tg_id, 0):
+            return False
+        expected = self._generation_sources.get(tg_id)
+        if expected is not None and await self._db.source_snapshot('telegram', str(tg_id)) != expected:
+            return False
         mode = (await self._db.tg_reply_mode()).get("mode", "auto")
         if mode != "auto":
             await self._db.update_user(tg_id, {"pending_reply": mode == "semi"})
@@ -2484,13 +2600,12 @@ class UserBot:
             await self._mark_read(tg_id)
             if not await self._shared_send_ok(tg_id, text):
                 return False
-            await self._client.send_message(tg_id, text)
+            await self._send_tracked(tg_id, text)
         except Exception as exc:  # noqa: BLE001
             if await self._note_flood(exc, tg_id):
                 return False
             log.warning("%s: schválený text neodišiel (%s)", tg_id, exc)
             return False
-        await self._db.add_message(tg_id, "assistant", text)
         self._reply_times.append(datetime.now(timezone.utc))
         await self._semi_post_update(tg_id, text)
         return True
@@ -2504,6 +2619,10 @@ class UserBot:
         tg_id, text = int(command['external_id']), command['text']
         lock = self._locks.setdefault(tg_id, asyncio.Lock())
         async with lock:
+            try:
+                await self._sync_native_outgoing(tg_id)
+            except Exception:
+                return DeliveryResult.blocked('telegram_sync_failed')
             async def ready():
                 user = await self._db.get_user(tg_id)
                 if not user:
@@ -2546,10 +2665,14 @@ class UserBot:
                 await self._client.send_read_acknowledge(tg_id)
             except Exception:
                 pass
+            try:
+                await self._sync_native_outgoing(tg_id)
+            except Exception:
+                return DeliveryResult.blocked('telegram_sync_failed')
             if not await before_send():
                 return DeliveryResult.blocked('stale_context')
             try:
-                sent = await self._client.send_message(tg_id, text, parse_mode=None)
+                sent = await self._send_tracked(tg_id, text, parse_mode=None)
             except Exception as exc:
                 if await self._note_flood(exc, tg_id):
                     return DeliveryResult.blocked('telegram_flood_pause')
@@ -2561,7 +2684,6 @@ class UserBot:
             provider_id = getattr(sent, 'id', '')
             self._reply_times.append(datetime.now(timezone.utc))
             try:
-                await self._db.add_message(tg_id, 'assistant', text)
                 await self._semi_post_update(tg_id, text)
             except Exception:
                 log.warning('%s: operator reply sent; history update failed', tg_id)
@@ -2609,13 +2731,10 @@ class UserBot:
             await self._mark_read(tg_id)
             if not await self._shared_send_ok(tg_id, caption):
                 return False
-            await self._client.send_file(
-                tg_id, buffer, caption=caption or "", force_document=False
-            )
+            marker = f"[poslala fotku: {caption or photo.get('caption') or 'selfie'}]"
+            await self._send_tracked(tg_id, marker, file=buffer, caption=caption or "", force_document=False)
             await self._db.record_photo_send(int(photo["id"]), tg_id)
             await self._db.update_user(tg_id, {"last_photo_at": _utc_iso()})
-            marker = f"[poslala fotku: {caption or photo.get('caption') or 'selfie'}]"
-            await self._db.add_message(tg_id, "assistant", marker)
         except Exception as exc:  # noqa: BLE001
             if await self._note_flood(exc, tg_id):
                 return False
@@ -2680,17 +2799,13 @@ class UserBot:
             await self._mark_read(tg_id)
             if not await self._auto_send_time_ok(tg_id):
                 return False
-            await self._client.send_file(tg_id, buffer, voice_note=True)
+            await self._send_tracked(tg_id, f"(hlasovka) {voice.get('transcript') or ''}".strip(),
+                                     file=buffer, voice_note=True)
             await self._db.record_voice_send(int(voice["id"]), tg_id)
             await self._db.update_user(tg_id, {"last_voice_at": _utc_iso()})
             # Do archívu ide ako jej vlastná reč. Vďaka tomu si o pár správ
             # nezopakuje textom to, čo už povedala hlasom — v histórii to vidí
             # ako svoju správu, len s poznámkou, že odznela hlasom.
-            await self._db.add_message(
-                tg_id,
-                "assistant",
-                f"(hlasovka) {voice.get('transcript') or ''}".strip(),
-            )
             return True
         except Exception as exc:  # noqa: BLE001 - hlasovka nesmie zhodiť odpoveď
             await self._note_flood(exc, tg_id)
@@ -3230,6 +3345,7 @@ class UserBot:
             await asyncio.sleep(_SWEEP_FIRST_S if first else _SWEEP_INTERVAL_S)
             first = False
             try:
+                await Reconciler(self, self._cfg, self._db, self._client).run()
                 await self._sweep_once()
             except Exception:  # noqa: BLE001
                 log.exception("Sweeper zlyhal")
@@ -3423,6 +3539,21 @@ def message_id_of(event) -> int:
     return int(getattr(getattr(event, "message", None), "id", 0) or 0)
 
 
+def _outgoing_content(message) -> str:
+    """Do not hallucinate what a native voice/file contains."""
+    text = str(getattr(message, 'message', '') or '').strip()
+    kind = next((label for attr, label in (
+        ('voice', 'hlasovku'), ('audio', 'audio'), ('photo', 'fotku'),
+        ('video_note', 'krátke video'), ('gif', 'GIF'), ('video', 'video'),
+        ('sticker', 'nálepku'), ('document', 'súbor'),
+    ) if getattr(message, attr, None)), '')
+    if kind:
+        return f'[poslala {kind}]' + (f' {text}' if text else '')
+    if text:
+        return text
+    return '[poslala médium bez textu]' if getattr(message, 'media', None) else ''
+
+
 def _voice_ranges(behavior) -> Dict[str, tuple]:
     """Rozsahy hlasovky z nastavení klienta (migrácia 029) pre `livevoice.speak`.
 
@@ -3503,7 +3634,15 @@ class Reconciler:
                     ):
                         continue
                 stats["dialogov"] += 1
-                await self._catch_up(entity, stats)
+                head = int(getattr(getattr(dialog, 'message', None), 'id', 0) or 0)
+                if head and self._bot._reconciled_heads.get(entity.id) == head:
+                    continue
+                try:
+                    await self._catch_up(entity, stats)
+                    if head:
+                        self._bot._reconciled_heads[entity.id] = head
+                except Exception:
+                    log.exception('%s: Telegram reconciliation failed; retry next sweep', entity.id)
         except Exception:  # noqa: BLE001 - štart nesmie padnúť na tomto
             log.exception("Dobehnutie po štarte zlyhalo")
         log.info(
@@ -3522,42 +3661,59 @@ class Reconciler:
             )
 
         last_seen = int(user.get("last_msg_id") or 0)
+        rows = [message async for message in self._client.iter_messages(entity, limit=30)]
+        cursor = max(last_seen, self._bot._reconciled_heads.get(tg_id, 0))
+        if cursor and len(rows) == 30 and min(message.id for message in rows) > cursor:
+            # Telethon paginates this iterator. A long outage must not silently
+            # drop everything before the last page. Untracked chats still get
+            # only a bounded initial window, not a lifetime-history backfill.
+            gap = {message.id: message for message in rows}
+            async for message in self._client.iter_messages(entity, min_id=cursor, limit=None):
+                gap[message.id] = message
+            rows = sorted(gap.values(), key=lambda message: message.id, reverse=True)
         missed = []
-        async for message in self._client.iter_messages(entity, min_id=last_seen, limit=30):
-            if message.out or not (message.message or "").strip():
-                continue
-            missed.append(message)
+        # Include outgoing overlap even when the incoming watermark has moved
+        # past it. Durable provider IDs make restart/reconnect replays harmless.
+        for message in rows:
+            if getattr(message, 'out', False) or (message.id > last_seen and (message.message or '').strip()):
+                missed.append(message)
         if not missed:
             return
 
-        missed.reverse()  # chronologicky
-        count = int(user.get("msg_count") or 0)
+        missed.reverse()
+        count = int(user.get('msg_count') or 0)
+        incoming = []
+        imported = 0
         for message in missed:
-            await self._db.add_message(tg_id, "user", message.message.strip(),
-                                       created_at=message.date.isoformat())
-            count += 1
-        stats["dotiahnutych"] += len(missed)
+            if getattr(message, 'out', False):
+                result = await self._bot._import_outgoing(tg_id, message)
+            else:
+                if not await self._db.claim_message(tg_id, message.id):
+                    continue
+                result = await self._bot._record_telegram(tg_id, message, 'user', message.message.strip())
+                incoming.append(message)
+                count += 1
+            imported += int(bool(result.get('inserted')))
+        stats['dotiahnutych'] += imported
+        if not incoming:
+            return
 
-        newest = missed[-1]
+        newest = incoming[-1]
         patch: Dict[str, Any] = {
-            "msg_count": count,
-            "last_msg_id": newest.id,
-            "last_incoming_at": newest.date.astimezone(timezone.utc).isoformat(),
+            'msg_count': count,
+            'last_incoming_at': newest.date.astimezone(timezone.utc).isoformat(),
         }
-
+        answered = any(getattr(message, 'out', False) and message.id > newest.id for message in missed)
         age_h = (datetime.now(timezone.utc) - newest.date.astimezone(timezone.utc)).total_seconds() / 3600
-        if age_h > STALE_HOURS:
-            # Uložíme kontext, ale neodpisujeme. Keď sa ozve, budeme vedieť všetko.
-            patch["pending_reply"] = False
-            stats["prestarnutych"] += 1
-            log.info("%s: %s zmeškaných správ, ale najnovšia má %.0f h — neodpisujem",
-                     tg_id, len(missed), age_h)
+        patch['pending_reply'] = not answered and age_h <= STALE_HOURS
+        if answered:
+            log.info('%s: native reply already answered recovered incoming messages', tg_id)
+        elif age_h > STALE_HOURS:
+            stats['prestarnutych'] += 1
         else:
-            patch["pending_reply"] = True
-            stats["na_odpoved"] += 1
-            log.info("%s: %s zmeškaných správ (%.1f h) — zaradené na odpoveď",
-                     tg_id, len(missed), age_h)
+            stats['na_odpoved'] += 1
         await self._db.update_user(tg_id, patch)
+
 
 
 # ---------- fotky ----------

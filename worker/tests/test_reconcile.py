@@ -114,11 +114,13 @@ class TestCatchUp:
         assert stats["dotiahnutych"] == 0
         assert db.messages == []
 
-    def test_skips_her_own_outgoing_messages(self):
+    def test_stores_native_outgoing_messages_as_context(self):
         p = person()
         msgs = [FakeMessage(101, "moja odpoved", 1.0, out=True)]
         rec, db = make([FakeDialog(p, msgs[0])], {555: msgs})
-        assert asyncio.run(rec.run())["dotiahnutych"] == 0
+        assert asyncio.run(rec.run())["dotiahnutych"] == 1
+        assert db.messages[0]["role"] == "assistant"
+        assert db.users[555]["pending_reply"] is False
 
     def test_counts_messages_into_msg_count(self):
         p = person()

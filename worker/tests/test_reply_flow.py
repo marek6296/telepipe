@@ -217,6 +217,21 @@ class FakeDb:
         self.messages.append({"role": role, "content": content,
                               **({"created_at": created_at} if created_at else {})})
 
+    async def ingest_tg_message(self, tg_id, message_id, role, content, *, account_scope, created_at, origin):
+        key = (tg_id, account_scope, message_id)
+        seen = getattr(self, '_provider_ids', set())
+        self._provider_ids = seen
+        if key in seen:
+            return {'inserted': False}
+        seen.add(key)
+        await self.add_message(tg_id, role, content, created_at=created_at)
+        if role == 'assistant' and origin == 'native':
+            await self.update_user(tg_id, {'pending_reply': False})
+        return {'inserted': True, 'id': len(self.messages)}
+
+    async def source_snapshot(self, channel, external):
+        return len(self.messages)
+
     async def pending_users(self):
         return [dict(u) for u in self.users.values() if u.get("pending_reply")]
 
@@ -264,6 +279,11 @@ class _NoopAction:
 
 
 class FakeClient:
+    def iter_messages(self, entity, **kwargs):
+        async def empty():
+            if False:
+                yield None
+        return empty()
     def __init__(self):
         self.sent = []
         self.read = []

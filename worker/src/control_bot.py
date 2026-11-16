@@ -1457,18 +1457,22 @@ class ControlBot:
     async def post_approval(
         self, *, channel: str, conv_key: str, display_name: str,
         incoming_preview: str, suggestions: List[str],
-        hint: str = "", prompt: str = "",
+        hint: str = "", prompt: str = "", source_message_id: Optional[int] = None,
     ) -> bool:
         """Založí pending, pošle kartu majiteľovi. True = poslané."""
         # Fanúšik mohol napísať znova, kým visela stará karta — zavri ju.
-        for old in await self._db.supersede_open(channel, conv_key):
-            cmid = old.get("control_msg_id")
-            if cmid:
-                await self.cancel_card(int(cmid))
+        # Versioned proposals supersede atomically in SQL *after* their source
+        # is checked. A stale generator must not close a newer valid draft.
+        if source_message_id is None:
+            for old in await self._db.supersede_open(channel, conv_key):
+                cmid = old.get("control_msg_id")
+                if cmid:
+                    await self.cancel_card(int(cmid))
         row = await self._db.create_pending(
             channel=channel, conv_key=conv_key,
             suggestions=suggestions, incoming_preview=incoming_preview,
             hint=hint, prompt=prompt, display_name=display_name,
+            **({"source_message_id": source_message_id} if source_message_id is not None else {}),
         )
         if not row:
             return False

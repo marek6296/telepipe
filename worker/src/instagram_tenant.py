@@ -154,6 +154,21 @@ class TenantInstagramDb:
     async def mark_message_effects(self, mid):
         await self._patch(IG_MESSAGES, {'model_id': self._mine, 'mid': f'eq.{mid}'}, {'effects_applied': True})
 
+    async def latest_message_id(self, igsid):
+        rows = await self._get(IG_MESSAGES, {'model_id': self._mine, 'igsid': f'eq.{igsid}',
+            'select': 'id', 'order': 'id.desc', 'limit': '1'})
+        return int(rows[0]['id']) if rows else 0
+
+    async def native_reply(self, igsid, account, occurred_at):
+        return await self._t._rpc('social_native_reply', {
+            'p_model': self.model_id, 'p_channel': 'instagram', 'p_external': igsid,
+            'p_scope': account, 'p_occurred_at': occurred_at,
+        })
+
+    async def requeue_stale_approval(self, igsid, source_mid, source_message_id):
+        return await self.rpc('requeue_stale_approval', igsid=igsid,
+                              source_mid=source_mid, source_message_id=source_message_id)
+
     async def add_message(self, igsid: str, role: str, content: str, mid: str = "",
                           occurred_at=None, source='worker', metadata=None) -> None:
         from datetime import datetime, timezone
@@ -253,12 +268,14 @@ class TenantInstagramDb:
             params['lease_token'] = f"eq.{action['lease_token']}"
         return await self._t._patch_returning('/instagram_actions', params, patch)
 
-    async def cancel_actions(self, igsid='', reason='channel_off'):
+    async def cancel_actions(self, igsid='', reason='channel_off', *, through=None):
         params = {'model_id': self._mine, 'state': 'in.(pending,ready,approval,leased)'}
         if reason in ('channel_off', 'takeover', 'manual_reply', 'outbound_is_latest'):
             params['or'] = '(payload->>origin.is.null,payload->>origin.neq.operator)'
         if igsid:
             params['igsid'] = f'eq.{igsid}'
+        if through is not None:
+            params['source_at'] = 'lte.' + through
         await self._patch('/instagram_actions', params, {'state': 'cancelled', 'reason': reason})
 
     async def prepare_operator_action(self, command, target, source_mid, source_at):

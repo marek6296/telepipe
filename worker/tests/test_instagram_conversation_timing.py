@@ -26,6 +26,9 @@ async def test_current_greeting_survives_every_instagram_generation_path(path, m
     llm.reply.return_value = 'hey honey im here'
     llm.suggest.return_value = ['hey honey im here', 'hi you im here']
     agent = instagram_agent.InstagramAgent(db, llm)
+    # This test isolates prompt chronology; provider freshness has dedicated
+    # native-reply race regressions with actual snapshots and state changes.
+    agent._delivery.refresh_regeneration = AsyncMock(return_value=True)
     if path == 'auto':
         out = await agent._napis(user, 'fan', db.nastavenia)
         call = llm.reply.call_args

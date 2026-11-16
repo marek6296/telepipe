@@ -80,7 +80,8 @@ async def test_known_manual_mid_retries_effects_after_import_crash():
     db.actions.return_value = []
     await InstagramDelivery(db, AsyncMock()).ingest(thread(now, 'assistant', 'outbound'), settings(sync_completed_at=(now-timedelta(hours=1)).isoformat()))
     assert any(c.args == ('record_manual',) for c in db.rpc.call_args_list)
-    db.cancel_actions.assert_any_await('fan', 'manual_reply')
+    db.cancel_actions.assert_any_await('fan', 'manual_reply', through=now.isoformat())
+    db.native_reply.assert_awaited_once_with('fan', 'account', now.isoformat())
 
 
 @pytest.mark.asyncio

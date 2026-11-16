@@ -72,6 +72,7 @@ def missing(
     fetched: Sequence[Dict[str, Any]],
     creator_uuid: str,
     bez_uuid: Sequence[str] = (),
+    legacy_rows: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> List[Dict[str, str]]:
     """Správy, ktoré nemáme — od najstaršej, nech poradie v pamäti sedí.
 
@@ -84,6 +85,7 @@ def missing(
     a modelka mala v histórii vlastnú poslednú vetu dvakrát.
     """
     uz_mame = {str(t) for t in bez_uuid}
+    unmatched = list(legacy_rows or [])
     times = message_times(fetched)
     out: List[Dict[str, str]] = []
     for message in reversed(list(fetched)):
@@ -93,7 +95,24 @@ def missing(
         text = as_text(message)
         if not text:
             continue
-        if text[:2000] in uz_mame:
+        if legacy_rows is not None and role_of(message, creator_uuid) == 'assistant':
+            stamp = times.get(uuid)
+            match = None
+            for index, old in enumerate(unmatched):
+                if old.get('role') != 'assistant' or old.get('content') != text[:2000] or not stamp or not old.get('occurred_at'):
+                    continue
+                try:
+                    before = datetime.fromisoformat(str(old['occurred_at']).replace('Z', '+00:00'))
+                    after = datetime.fromisoformat(stamp)
+                    if before.tzinfo is not None and abs((after - before).total_seconds()) <= 5:
+                        match = index
+                        break
+                except (ValueError, TypeError):
+                    continue
+            if match is not None:
+                unmatched.pop(match)
+                continue
+        if legacy_rows is None and role_of(message, creator_uuid) == 'assistant' and text[:2000] in uz_mame:
             # Zapíše sa len raz: druhá rovnaká správa v tom istom ťahu je už
             # naozaj nová (človek zopakoval to isté).
             uz_mame.discard(text[:2000])

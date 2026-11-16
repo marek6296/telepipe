@@ -165,3 +165,39 @@ a pending proposal retain the explicit Send exact text composer.
 Connected Fanvue continues importing inbound events in Manual without AI sends
 or seen receipts. Instagram retains its explicit history-sync opt-out and all
 provider circuit/budget controls.
+
+## Replies made in the native social apps
+
+The provider conversation remains authoritative when an owner alternates between
+Telepipe and the native app. Imports are read-only (no seen receipts). Native
+assistant messages enter the same chronological history used for generation;
+manual activity does not silently turn on permanent human takeover.
+
+Telegram records provider message IDs with the connected-account scope. Native
+updates and recovery are idempotent; own-send echoes serialize with recording the
+provider result. Only exact legacy text/role within five seconds can be attached
+to a previously stored row without inserting a duplicate; media placeholders do
+not use this heuristic.
+
+`pending_replies.source_message_id` records the database history revision captured
+before generation. Its insert trigger validates that revision, then atomically
+supersedes the previous proposal. A stale generator cannot remove a newer valid
+proposal. Every newly imported message invalidates older version-bound proposals
+and queued/working commands, including late historical messages. Already-sending
+commands keep their uncertain-outcome discipline. Instagram also requires the
+linked transport action to remain in approval state.
+
+Fanvue/Instagram assistant inserts and native-reply invalidation commit together.
+Legacy proposals without a revision are also invalidated by a new history row;
+regeneration upgrades them to a guarded revision. Timestamp checks alone cannot
+certify a proposal made before a missing historical message was imported. Provider refreshes before
+generation/publication and at the send boundary close the normal polling gap;
+API failures do not certify stale history as current. There remains an unavoidable
+race if an owner sends after the final provider check and an external send has
+already started: no provider offers a shared atomic send lock with its native app.
+
+Fanvue catch-up checkpoints live in `fv_users.history_sync_state`: the original
+provider anchors survive a restart even after newer pages were imported. A gap
+blocks generated delivery until pagination reaches its original anchor or the
+provider's history boundary. New provider UUID duplicates are ignored under a
+database advisory lock; existing historical duplicate rows are preserved.
