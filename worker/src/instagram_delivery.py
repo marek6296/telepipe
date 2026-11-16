@@ -434,6 +434,29 @@ class InstagramDelivery:
                 'photo': bool(cfg.get('photos_enabled') and not user.get('photo_sent_at') and allowed and adult),
                 'age_unknown': user.get('age_state', 'unknown') == 'unknown'}
 
+    async def approval_state(self, key):
+        """Read-only owner-card eligibility, without provider calls or receipts."""
+        parts = str(key).split(':', 1)
+        if len(parts) != 2:
+            return 'superseded'
+        action = await self.db.action(parts[1])
+        if not action or action['igsid'] != parts[0]:
+            return 'superseded'
+        approved = (action.get('payload') or {}).get('approved_source_mid') == action.get('source_mid') and bool(action.get('source_mid'))
+        if (action['state'] in ('ready', 'sending', 'sent', 'uncertain')
+                or approved and action['state'] in ('pending', 'leased')):
+            return 'sent'  # Already approved; never offer approval a second time.
+        if action['state'] != 'approval' or not in_window(action.get('source_at')):
+            return 'superseded'
+        user = await self.db.user(parts[0]) or {}
+        if (user.get('human_takeover') or not user.get('ai_enabled', True)
+                or user.get('last_source_mid') != action['source_mid']):
+            return 'superseded'
+        cfg = await self.db.settings()
+        if not cfg.get('enabled') or not cfg.get('connected') or cfg.get('reply_mode') == 'off':
+            return 'paused'
+        return 'awaiting'
+
     async def approve(self, key, text):
         parts = str(key).split(':', 1)
         if len(parts) != 2:

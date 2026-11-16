@@ -597,5 +597,5 @@ class TestVysledokJeVidiet:
         src = (Path(__file__).resolve().parents[1] / "src" / "control_bot.py").read_text("utf-8")
         i = src.index("if nova_sprava:")
         telo = src[i : i + 1200]
-        for kus in ("mark_pending", "self._cards[novy]", "_zapamataj_chat", "_pin_card"):
+        for kus in ("move_pending_card", "self._cards[novy]", "_zapamataj_chat", "_pin_card"):
             assert kus in telo, kus

@@ -245,6 +245,9 @@ class InstagramAgent:
         """Approve this exact durable action. Sending happens after current gates."""
         return await self._delivery.approve(conv_key, text)
 
+    async def approval_state(self, conv_key: str) -> str:
+        return await self._delivery.approval_state(conv_key)
+
     async def regenerate(
         self, conv_key: str, seed: str = "", brief: str = ""
     ) -> Dict[str, Any]:

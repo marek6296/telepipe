@@ -53,6 +53,21 @@ async def test_two_tenants_never_share_transport_state():
     assert "model_id=eq.model-B" in seen[1]["url"]
 
 
+async def test_superseding_instagram_closes_contact_versions_with_tenant_channel_and_status_scope():
+    from urllib.parse import urlparse, parse_qs
+    seen = []
+    db = TenantDb(_capture(seen), MODEL)
+    await db.supersede_open("instagram", "123:version-two")
+    params = parse_qs(urlparse(seen[0]["url"]).query)
+    assert params["model_id"] == ["eq.model-A"]
+    assert params["channel"] == ["eq.instagram"]
+    assert params["status"] == ["eq.awaiting"]
+    assert params["or"] == ["(conv_key.eq.123,conv_key.like.123:*)"]
+    await db.supersede_open("fanvue", "123")
+    params = parse_qs(urlparse(seen[1]["url"]).query)
+    assert params["conv_key"] == ["eq.123"] and "or" not in params
+
+
 # ---------------------------------------------------------------------------
 # Vyčerpávajúca sieť: KAŽDÁ verejná metóda sa zavolá a každý HTTP dotaz, ktorý
 # z nej vypadne, musí byť pripnutý na model_id. Toto je skutočná poistka proti
@@ -86,6 +101,10 @@ CALLS = {
     "fresh_clicks": ((), {}),
     "save_today_plan": (("2026-08-24", []), {}),
     "get_pending_for": (("123",), {}),
+    "resolve_pending": (("pid", "superseded"), {}),
+    "move_pending_card": (("pid", 10, 20), {}),
+    "incomplete_instagram_claims": ((), {}),
+    "restore_pending_claim": (("pid", SINCE), {}),
     "replace_suggestions": (("pid", ["a"]), {}),
     "sleeping_until": ((), {}),
     "flood_until": ((), {}),

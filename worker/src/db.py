@@ -830,19 +830,70 @@ class TenantDb:
     async def supersede_open(self, channel: str, conv_key: str) -> List[Dict[str, Any]]:
         """Uzavrie všetky otvorené awaiting pre konverzáciu (→ superseded).
         Vráti uzavreté riadky (majú `control_msg_id` na zrušenie karty)."""
+        params = {
+            "model_id": self._mine, "channel": f"eq.{channel}",
+            "conv_key": f"eq.{conv_key}", "status": "eq.awaiting",
+        }
+        # Instagram keys include an action UUID. A newer action supersedes the
+        # contact's previous card, while approval still uses its exact version.
+        contact = str(conv_key).split(":", 1)[0]
+        if channel == "instagram" and contact.isdigit():
+            params.pop("conv_key")
+            params["or"] = f"(conv_key.eq.{contact},conv_key.like.{contact}:*)"
         r = await self._client.patch(
             PENDING,
-            params={
-                "model_id": self._mine,
-                "channel": f"eq.{channel}",
-                "conv_key": f"eq.{conv_key}",
-                "status": "eq.awaiting",
-            },
+            params=params,
             json={"status": "superseded", "updated_at": _now_iso()},
             headers={"Prefer": "return=representation"},
         )
         r.raise_for_status()
         return r.json() or []
+
+    async def resolve_pending(self, pending_id: str, status: str) -> List[Dict[str, Any]]:
+        """Retire only still-awaiting cards; never overwrite an owner's decision."""
+        if status not in ("sent", "superseded"):
+            raise ValueError("Invalid resolved status")
+        r = await self._client.patch(
+            PENDING,
+            params={"model_id": self._mine, "id": f"eq.{pending_id}", "status": "eq.awaiting"},
+            json={"status": status, "decided_at": _now_iso(), "updated_at": _now_iso()},
+            headers={"Prefer": "return=representation"},
+        )
+        r.raise_for_status()
+        return r.json() or []
+
+    async def move_pending_card(self, pending_id: str, old_mid: Optional[int], new_mid: int) -> bool:
+        """One current Telegram card, even when two inbox opens race approval."""
+        r = await self._client.patch(
+            PENDING,
+            params={"model_id": self._mine, "id": f"eq.{pending_id}", "status": "eq.awaiting",
+                    "control_msg_id": f"eq.{old_mid}" if old_mid is not None else "is.null"},
+            json={"control_msg_id": new_mid, "updated_at": _now_iso()},
+            headers={"Prefer": "return=representation"},
+        )
+        r.raise_for_status()
+        return bool(r.json())
+
+    async def incomplete_instagram_claims(self) -> List[Dict[str, Any]]:
+        """Claims with no recorded success, after a grace period for live sends."""
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+        return await self._get(PENDING, {
+            "model_id": self._mine, "channel": "eq.instagram", "status": "eq.sent",
+            "chosen_text": "is.null", "updated_at": f"lt.{cutoff}",
+            "select": "*", "order": "updated_at.desc", "limit": "100",
+        })
+
+    async def restore_pending_claim(self, pending_id: str, updated_at: str) -> bool:
+        """Restore only the unchanged incomplete claim verified against its IG action."""
+        r = await self._client.patch(
+            PENDING,
+            params={"model_id": self._mine, "id": f"eq.{pending_id}", "channel": "eq.instagram",
+                    "status": "eq.sent", "chosen_text": "is.null", "updated_at": f"eq.{updated_at}"},
+            json={"status": "awaiting", "decided_at": None, "updated_at": _now_iso()},
+            headers={"Prefer": "return=representation"},
+        )
+        r.raise_for_status()
+        return bool(r.json())
 
     async def awaiting_pending(self, channel: str = "") -> List[Dict[str, Any]]:
         """Otvorené čakajúce návrhy modelky (na obnovu po štarte aj pre poller)."""

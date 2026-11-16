@@ -36,7 +36,7 @@ def _callbacky() -> set:
     otázku „nezmizol niektorý callback?" je to presne to, čo treba.
     """
     out = set(re.findall(r'\bb"([a-z]+)(?::[^"]*)?"', SRC))
-    out |= set(re.findall(r'f"([a-z]+):\{[^}]+\}"\.encode\(\)', SRC))
+    out |= set(re.findall(r'f"([a-z]+):[^"]*"\.encode\(\)', SRC))
     return out
 
 

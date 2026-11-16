@@ -36,6 +36,9 @@ async def start_instagram(cfg, g, transport, llm, cleanup: list, control=None) -
         # Kliky na Instagram kartách (schváliť, Regenerate, Context, Take over)
         # doručuje control bot cez tohto agenta.
         control.register_sender("instagram", agent)
+        # The runner initially restores cards before channel senders exist.
+        # Now IG can retire cancelled/expired actions left by older versions.
+        await control.recover_cards()
 
     uloha = asyncio.create_task(agent.run())
     cleanup.append(uloha)

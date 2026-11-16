@@ -222,6 +222,10 @@ class FakeControl:
         self.karty = []
         self.senders = {}
         self.ok = ok
+        self.recovered_with_senders = []
+
+    async def recover_cards(self):
+        self.recovered_with_senders.append(set(self.senders))
 
     async def post_approval(self, **karta):
         self.karty.append(karta)

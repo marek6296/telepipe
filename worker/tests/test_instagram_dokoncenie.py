@@ -54,6 +54,7 @@ class TestStartBezPripojenia:
         control = FakeControl()
         self._spusti(monkeypatch, control)
         assert "instagram" in control.senders
+        assert control.recovered_with_senders == [{"instagram"}]
 
     def test_nepripojene_kolo_je_necinne(self):
         agent = instagram_agent.InstagramAgent(FakeDb(connected=False), FakeLlm())
