@@ -27,6 +27,15 @@ def contact_key(key):
     return str(key).split(':', 1)[0]
 
 
+def unanswered_text(messages):
+    for message in reversed(messages):
+        if message['role'] != 'user':
+            break
+        if message.get('kind') == 'dm':
+            return message
+    return None
+
+
 class InstagramDelivery:
     def __init__(self, db, agent):
         self.db, self.agent = db, agent
@@ -130,6 +139,10 @@ class InstagramDelivery:
         incoming = next((m for m in reversed(messages) if m['role'] == 'user'), None)
         if incoming:
             patch = {'last_incoming_at': (parse_time(incoming.get('created_time')).isoformat() if parse_time(incoming.get('created_time')) else None), 'last_source_mid': last['mid']}
+            if last['role'] == 'user' and last.get('kind') == 'unknown':
+                # Consent/age/identity evidence belongs to the usable text, not
+                # the opaque placeholder following it. Keep the latest watermark.
+                incoming = unanswered_text(messages) or incoming
             from instagram_interactions import age_evidence
             age = age_evidence(incoming['content'])
             if age and user.get('age_state') != 'minor_or_conflicting':
@@ -154,15 +167,36 @@ class InstagramDelivery:
             await self.db.cancel_actions(igsid, 'outbound_is_latest')
             return
         source = parse_time(last.get('created_time'))
+        kind = last.get('kind', 'dm')
+        reply_to = last
+        if kind == 'unknown':
+            # A trailing unsupported attachment must not hide an unanswered DM.
+            # Keep freshness tied to the latest event, but NEVER let that unknown
+            # event extend the text message's 24-hour window or revive a Skip.
+            reply_to = unanswered_text(messages)
+            if not reply_to:
+                await self.db.cancel_actions(igsid, 'reply_target_missing')
+                return
+            text_source = parse_time(reply_to.get('created_time'))
+            if not source or not in_window(source) or not text_source or not in_window(text_source):
+                await self.db.cancel_actions(igsid, 'reply_target_expired')
+                return
+            terminal = await self.db.actions(igsid=f'eq.{igsid}', state='in.(skipped,sent,sending,uncertain)',
+                                             order='created_at.desc', limit='100')
+            if any(a.get('source_mid') == reply_to['mid'] or
+                   (a.get('payload') or {}).get('reply_to_mid') == reply_to['mid'] for a in terminal):
+                await self.db.cancel_actions(igsid, 'reply_target_closed')
+                return
+            source = min(source, text_source)
+            kind = 'dm'
         # A fresh remote snapshot, not enable time, decides whether a DM is unanswered.
         # This also recovers messages received while Off or while the worker was down.
         if (bootstrap or not cfg.get('enabled') or cfg.get('reply_mode') == 'off'
                 or not source or not in_window(source)
                 or user.get('human_takeover') or not user.get('ai_enabled', True)
-                or (user.get('no_initiate') and not direct_request(last['content']))):
+                or (user.get('no_initiate') and not direct_request(reply_to['content']))):
             return
-        kind = last.get('kind', 'dm')
-        if kind == 'unknown' or (kind == 'reaction' and not cfg.get('reactions_enabled')):
+        if kind == 'reaction' and not cfg.get('reactions_enabled'):
             return
         due = choose_due(kind, source, f'{self.db.model_id}:{last["mid"]}',
                          active=bool(parse_time(user.get('last_reply_at')) and utcnow()-parse_time(user['last_reply_at']) < timedelta(minutes=15)))
@@ -171,7 +205,9 @@ class InstagramDelivery:
         # Queue uses provider time and deterministic delay; retries never reroll it.
         await self.db.rpc('enqueue', key=f'{cfg["ig_user_id"]}:{kind}:{last["mid"]}', kind=kind,
             igsid=igsid, target=chat['id'], source_mid=last['mid'], source_at=source.isoformat(),
-            due=due.isoformat(), expires=(source+timedelta(hours=24)).isoformat(), payload={'account_id': cfg['ig_user_id'], 'requested_reply': direct_request(last['content'])})
+            due=due.isoformat(), expires=(source+timedelta(hours=24)).isoformat(), payload={
+                'account_id': cfg['ig_user_id'], 'requested_reply': direct_request(reply_to['content']),
+                **({'reply_to_mid': reply_to['mid']} if reply_to is not last else {})})
 
     async def comments(self, cfg):
         posts = await asyncio.to_thread(api.prispevky_s_komentarmi, cfg['access_token'], account_id=cfg['ig_user_id'])
@@ -192,6 +228,19 @@ class InstagramDelivery:
     async def defer(self, action, reason, minutes=15):
         await self.db.change_action(action, {'state': 'pending', 'due_at': (utcnow()+timedelta(minutes=minutes)).isoformat(),
             'lease_token': None, 'lease_until': None, 'reason': reason})
+
+    async def fallback_current(self, action, messages):
+        target = (action.get('payload') or {}).get('reply_to_mid')
+        if not target:
+            return True
+        reply_to = unanswered_text(messages)
+        if (not reply_to or reply_to['mid'] != target or not in_window(reply_to.get('created_time'))
+                or opt_out(reply_to['content']) == 'contact'):
+            return False
+        terminal = await self.db.actions(igsid=f'eq.{action["igsid"]}', state='in.(skipped,sent,sending,uncertain)',
+                                         order='created_at.desc', limit='100')
+        return not any(a.get('source_mid') == target or (a.get('payload') or {}).get('reply_to_mid') == target
+                       for a in terminal)
 
     async def send_readiness(self, cfg, action):
         """Recheck after slow generation/provider reads; Semi only bypasses the clock."""
@@ -242,6 +291,9 @@ class InstagramDelivery:
                 user = await self.db.user(action['igsid']) or {}
                 current = await self.db.action(action['id'])
                 if not current or current['state'] != 'leased':
+                    return
+                if not await self.fallback_current(action, api.rozober(raw, cfg['ig_user_id'])['spravy']):
+                    await self.db.change_action(action, {'state': 'cancelled', 'reason': 'reply_target_changed'})
                     return
                 if cfg['reply_mode'] == 'semi' and not action['payload'].get('approved_source_mid'):
                     if action['kind'] != 'dm':
@@ -297,7 +349,8 @@ class InstagramDelivery:
             if action['kind'] != 'comment':
                 fresh = api.rozober(await asyncio.to_thread(api.conversation, cfg['access_token'], action['target_id']), cfg['ig_user_id'])
                 latest = fresh['spravy'][-1] if fresh['spravy'] else {}
-                if latest.get('mid') != action['source_mid'] or latest.get('role') != 'user':
+                if (latest.get('mid') != action['source_mid'] or latest.get('role') != 'user'
+                        or not await self.fallback_current(action, fresh['spravy'])):
                     await self.db.change_action(action, {'state': 'cancelled', 'reason': 'remote_context_changed'})
                     return
             correction = {}

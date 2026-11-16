@@ -22,6 +22,11 @@ _START = '[CONVERSATION TIMING]'
 _END = '[/CONVERSATION TIMING]'
 
 
+def unreadable_attachment(row: dict[str, Any]) -> bool:
+    """Provider-classified unknown content is not a new conversational topic."""
+    return row.get('role') == 'user' and (row.get('kind') or (row.get('metadata') or {}).get('kind')) == 'unknown'
+
+
 def message_time(row: dict[str, Any]) -> datetime | None:
     # An explicit null source time means UNKNOWN, never "use time of import".
     value = row.get('occurred_at') if 'occurred_at' in row else row.get('created_at')
@@ -80,11 +85,16 @@ def analyze(history: list[dict[str, Any]], now_local: datetime | None = None) ->
     tail = next((i + 1 for i in range(len(rows) - 1, -1, -1) if rows[i]['role'] == 'assistant'), 0)
     start = tail
     new_session = False
-    for i in range(max(1, tail), len(rows)):
-        previous, current = stamps[i - 1], stamps[i]
-        if previous and current and current.astimezone(timezone.utc) - previous.astimezone(timezone.utc) >= SESSION_GAP:
+    previous_index = None
+    for i in range(len(rows)):
+        if unreadable_attachment(rows[i]):
+            continue
+        previous = stamps[previous_index] if previous_index is not None else None
+        current = stamps[i]
+        if i >= tail and previous and current and current.astimezone(timezone.utc) - previous.astimezone(timezone.utc) >= SESSION_GAP:
             start = i
             new_session = True
+        previous_index = i
     incoming = rows[start:]
     has_greeting = any(_GREETING.match(str(r['content']).strip()) for r in incoming)
     greeting_only = len(incoming) == 1 and humanize.is_bare_greeting(str(incoming[0]['content']))
@@ -105,6 +115,8 @@ def analyze(history: list[dict[str, Any]], now_local: datetime | None = None) ->
     ]
     if new_session:
         instructions.append('There was a substantial pause before the CURRENT TURN. Treat this as a reopened conversation, not an immediate continuation of the old topic.')
+    if any(unreadable_attachment(r) for r in incoming):
+        instructions.append('The current turn includes an unreadable attachment. Do not infer its contents, describe it or claim to have viewed it. An unreadable attachment does not erase an unanswered text question: respond to the available text naturally, with its original timing. If there is no usable text, do not invent a topic.')
     if has_greeting:
         instructions.append('He greets you in the CURRENT TURN. Acknowledge that naturally in your own voice, even when a check-in or question follows it. This overrides a generic no-greeting rule. Every suggested alternative must fit this opening; do not jump straight to an old unanswered topic.')
     else:
