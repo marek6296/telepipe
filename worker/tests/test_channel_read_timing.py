@@ -124,8 +124,10 @@ async def test_telegram_auto_outside_hours_never_reads_or_sends(monkeypatch):
 
 
 @pytest.mark.parametrize("mode", ["auto", "semi"])
-async def test_fanvue_incoming_sync_never_marks_read_outside_hours(mode):
+async def test_fanvue_incoming_sync_never_marks_read_outside_hours(mode, monkeypatch):
     a = fanvue_test_agent()
+    a._db.behavior = AsyncMock(return_value={"active_tz": "America/Los_Angeles"})
+    monkeypatch.setattr(fanvue_agent, "local_now", lambda _: datetime(2026, 11, 16, 3))
     a._ensure_fan = AsyncMock(return_value={"tg_id": 555})
     a._situacia = AsyncMock(return_value=SimpleNamespace(
         persona={}, behavior={}, teraz=datetime(2026, 11, 16, 3), blok=None,
@@ -139,9 +141,15 @@ async def test_fanvue_incoming_sync_never_marks_read_outside_hours(mode):
         return True
     a._control = SimpleNamespace(post_approval=card)
     a._llm = SimpleNamespace(suggest=AsyncMock(return_value=["hi"]))
-    await a._reply({"payload": {"data": {"user": {"uuid": "fan-1"}, "text": "hey"}}},
-                   {"reply_mode": mode, "active_start_min": 600, "active_end_min": 1200})
-    assert a._api.citania == [("fan-1", False)]
+    event = {"payload": {"data": {"user": {"uuid": "fan-1"}, "text": "hey"}}}
+    settings = {"reply_mode": mode, "active_start_min": 600, "active_end_min": 1200}
+    if mode == "auto":
+        with pytest.raises(fanvue_agent.ReplyDeferred):
+            await a._reply(event, settings)
+        assert a._api.citania == []
+    else:
+        await a._reply(event, settings)
+        assert a._api.citania == [("fan-1", False)]
     assert a._api.odoslane == []
     assert len(cards) == (1 if mode == "semi" else 0)
 
@@ -189,6 +197,8 @@ async def test_fanvue_api_poll_defaults_to_mark_as_read_false():
 
 async def test_fanvue_auto_generation_and_delay_stay_unread(monkeypatch):
     a = fanvue_test_agent()
+    a._db.behavior = AsyncMock(return_value={"active_tz": "America/Los_Angeles"})
+    monkeypatch.setattr(fanvue_agent, "local_now", lambda _: datetime(2026, 11, 16, 13))
     a._ensure_fan = AsyncMock(return_value={"tg_id": 555})
     a._situacia = AsyncMock(return_value=SimpleNamespace(
         persona={}, behavior={}, teraz=datetime(2026, 11, 16, 13), blok=None,

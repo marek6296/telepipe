@@ -1049,3 +1049,46 @@ class TestObnovaTokenu:
             assert api.calls == 1
         finally:
             await sup.close()
+
+
+class TestDurableReplyQueue:
+    async def test_pending_thanks_poll_is_tenant_scoped(self):
+        calls = []
+        db = _db({'/fv_users': [{'fan_uuid': 'fan-1'}]}, calls)
+        assert await db.pending_thanks() == [{'fan_uuid': 'fan-1'}]
+        assert 'pending_thanks=eq.true' in calls[-1]['url']
+        assert 'model_id=eq.model-A' in calls[-1]['url']
+
+    async def test_sleeping_poll_skips_deferred_without_hiding_new_events(self):
+        calls = []
+        db = _db({}, calls)
+        await db.pending(include_deferred=False)
+        assert 'reply_deferred=eq.false' in calls[-1]['url']
+        await db.pending(include_deferred=True)
+        assert 'reply_deferred=eq.false' not in calls[-1]['url']
+        assert 'notified_at' in calls[-1]['url']
+
+    async def test_deferred_event_is_not_marked_processed(self):
+        calls = []
+        db = _db({}, calls)
+        await db.defer_event(77)
+        assert calls[-1]['body'] == {'reply_deferred': True}
+        assert 'model_id=eq.model-A' in calls[-1]['url'] and 'id=eq.77' in calls[-1]['url']
+
+    async def test_owner_notice_is_claimed_once_by_conditional_update(self):
+        calls = []
+        db = _db({'/fanvue_events': [{'id': 77}]}, calls)
+        assert await db.claim_event_notification(77)
+        assert 'notified_at=is.null' in calls[-1]['url']
+        assert 'model_id=eq.model-A' in calls[-1]['url']
+        assert calls[-1]['body']['notified_at']
+        db = _db({'/fanvue_events': []}, calls)
+        assert await db.claim_event_notification(77) is False
+
+    async def test_payment_uses_atomic_tenant_scoped_rpc(self):
+        calls = []
+        row = {'fan_uuid': 'fan-1', 'bought_count': 1, 'spent_cents': 3099}
+        db = _db({'/rpc/fanvue_record_payment_once': row}, calls)
+        assert await db.record_payment_once(77, 'fan-1', 3099) == row
+        assert calls[-1]['body'] == {'p_model_id': 'model-A', 'p_event_id': 77,
+                                    'p_fan_uuid': 'fan-1', 'p_cents': 3099}

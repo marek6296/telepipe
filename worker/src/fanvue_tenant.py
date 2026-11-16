@@ -72,7 +72,7 @@ CONTROL_BOT_SETTINGS = "/control_bot_settings"
 # `fanvue_agent` číta `event["type"]`, v DB je stĺpec `event_type` (aby sa
 # nebilo s rezervovaným slovom a sedelo to s webhookom). PostgREST vie stĺpec
 # premenovať priamo v selecte, takže agent o rozdiele nevie.
-EVENT_SELECT = "id,type:event_type,payload,created_at"
+EVENT_SELECT = "id,type:event_type,payload,created_at,reply_deferred,notified_at,payment_recorded_at"
 
 
 class TenantFanvueDb:
@@ -165,12 +165,13 @@ class TenantFanvueDb:
 
     # ---------- fronta udalostí ----------
 
-    async def pending(self, limit: int = 20) -> List[Dict[str, Any]]:
+    async def pending(self, limit: int = 20, *, include_deferred: bool = True) -> List[Dict[str, Any]]:
         return await self._get(
             EVENTS,
             {
                 "model_id": self._mine,
                 "processed_at": "is.null",
+                **({} if include_deferred else {"reply_deferred": "eq.false"}),
                 "select": EVENT_SELECT,
                 "order": "id.asc",
                 "limit": str(limit),
@@ -183,6 +184,31 @@ class TenantFanvueDb:
             {"model_id": self._mine, "id": f"eq.{event_id}"},
             {"processed_at": datetime.now(timezone.utc).isoformat()},
         )
+
+    async def defer_event(self, event_id: int) -> None:
+        await self._patch(EVENTS, {"model_id": self._mine, "id": f"eq.{event_id}"},
+                          {"reply_deferred": True})
+
+    async def claim_event_notification(self, event_id: int) -> bool:
+        """At-most-once owner notice across schedule retries/restarts."""
+        rows = await self._t._patch_returning(
+            EVENTS,
+            {"model_id": self._mine, "id": f"eq.{event_id}", "notified_at": "is.null"},
+            {"notified_at": datetime.now(timezone.utc).isoformat()},
+        )
+        return bool(rows)
+
+    async def record_payment_once(self, event_id: int, fan_uuid: str, cents: int) -> Dict[str, Any]:
+        return await self._t._rpc("fanvue_record_payment_once", {
+            "p_model_id": self.model_id, "p_event_id": event_id,
+            "p_fan_uuid": fan_uuid, "p_cents": cents,
+        })
+
+    async def pending_thanks(self, limit: int = 20) -> List[Dict[str, Any]]:
+        return await self._get(FV_USERS, {
+            "model_id": self._mine, "pending_thanks": "eq.true",
+            "select": "fan_uuid", "order": "fan_uuid.asc", "limit": str(limit),
+        })
 
     # ---------- most do Telegramu ----------
 

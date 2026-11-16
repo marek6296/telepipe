@@ -540,6 +540,10 @@ GREETING_PROMPT = (
 # ---------- beh ----------
 
 
+class ReplyDeferred(Exception):
+    """Udalosť ostáva v trvalej fronte do otvorenia okna alebo zmeny režimu."""
+
+
 class FanvueAgent:
     """Vyberá frontu udalostí a odpisuje na ne."""
 
@@ -557,7 +561,34 @@ class FanvueAgent:
         self._media = True
         self._media_at = float("-inf")
 
-    async def _send_checked(self, conv_key, text, *args, proactive=False):
+    async def _auto_hours_open(self, settings: Dict[str, Any]) -> bool:
+        """Spoločný lokálny deň + okno osoby, Fanvue okno je len ďalší limit."""
+        try:
+            behavior = await self._db.behavior()
+            now = local_now(behavior)
+            for limits in (behavior, settings):
+                start, end = int(limits.get("active_start_min") or 0), int(limits.get("active_end_min") or 0)
+                if start != end and (now is None or not within_hours(limits, now)):
+                    return False
+            if hub := getattr(self._db, "hub", None):
+                if now is None:
+                    return False
+                block, _ = await hub.day(now, den.Rozvrh.from_row(await self._db.schedule()))
+                if not block:
+                    return False
+            return True
+        except Exception as exc:  # noqa: BLE001 - neznámy čas neotvára Auto
+            log.warning("Fanvue rozvrh sa nedá overiť: %s", exc)
+            return False
+
+    async def _require_auto_hours(self, settings: Dict[str, Any]) -> None:
+        if settings.get("reply_mode", "auto") != "auto" or not await self._auto_hours_open(settings):
+            raise ReplyDeferred("waiting_for_schedule_or_approval")
+
+    async def _send_checked(self, conv_key, text, *args, proactive=False, approved=False):
+        settings = await self._db.settings()
+        if settings.get("reply_mode") == "off":
+            return None
         hub = getattr(self._db, "hub", None)
         if hub:
             if not await hub.can_reply("fanvue", conv_key, proactive=proactive or bool(args and args[0])):
@@ -567,15 +598,21 @@ class FanvueAgent:
             if preferences.get("no_links") and URL.search(text or ""):
                 return None
             row = await self._db.fan(conv_key) or {}
-            settings = await self._db.settings()
             if row.get("human_takeover") or not row.get("ai_enabled", True) or settings.get("reply_mode") == "off":
                 return None
+        if not approved:
+            await self._require_auto_hours(settings)
         # Polling a návrhy zostávajú neprečítané. „Seen“ až po kontrolách,
         # bezprostredne pred provider send (aj po schválení v Semi).
         try:
             await self._api.chat_messages(conv_key, limit=1, mark_read=True)
         except Exception as exc:  # noqa: BLE001 - seen nesmie zhodiť odpoveď
             log.warning("Fanvue seen pre %s zlyhalo: %s", conv_key[:8], exc)
+        current = await self._db.settings()
+        if current.get("reply_mode") == "off":
+            return None
+        if not approved:
+            await self._require_auto_hours(current)
         return await self._api.send(conv_key, text, *args)
 
     async def run(self) -> None:
@@ -595,7 +632,13 @@ class FanvueAgent:
             except Exception as exc:  # noqa: BLE001 - feed nesmie zhodiť odpisovanie
                 log.warning("Príspevok na feed zlyhal: %s", exc)
 
-        events = await self._db.pending()
+        include_deferred = (
+            str(settings.get("reply_mode") or "auto") != "auto"
+            or await self._auto_hours_open(settings)
+        )
+        if include_deferred and settings.get("enabled") and settings.get("reply_mode") != "off":
+            await self._retry_pending_thanks()
+        events = await self._db.pending(include_deferred=include_deferred)
         if not events:
             return
 
@@ -619,7 +662,8 @@ class FanvueAgent:
         bot_nastavenia = await self._db.control_bot_settings()
         for event in events:
             try:
-                await self._oznam(event, bot_nastavenia)
+                if not event.get("notified_at") and await self._db.claim_event_notification(int(event["id"])):
+                    await self._oznam(event, bot_nastavenia)
             except Exception as exc:  # noqa: BLE001 — oznam nesmie zhodiť odpisovanie
                 log.warning("Oznam k udalosti %s zlyhal: %s", event.get("id"), exc)
 
@@ -629,12 +673,31 @@ class FanvueAgent:
                     log.info("Udalosť %s prebitá novšou v tom istom chate", event["id"])
                 elif settings.get("enabled"):
                     await self._dispatch(event, settings)
+            except ReplyDeferred:
+                # Časové odloženie nie je vybavenie. Mimo okna sa táto
+                # udalosť vynechá, aby nové owner notifikácie nehladovali.
+                await self._db.defer_event(int(event["id"]))
+                continue
             except Exception as exc:  # noqa: BLE001
                 log.warning("Udalosť %s zlyhala: %s", event.get("id"), exc)
-            finally:
-                # Označí sa vždy, aj keď sa neodpisuje. Inak by tá istá
-                # udalosť visela vo fronte donekonečna a blokovala novšie.
-                await self._db.mark_handled(int(event["id"]))
+            await self._db.mark_handled(int(event["id"]))
+
+    async def _retry_pending_thanks(self) -> None:
+        """Unlock zistený synchronizáciou dobehne aj bez ďalšieho webhooku."""
+        for pending in await self._db.pending_thanks():
+            try:
+                uuid = pending["fan_uuid"]
+                row = await self._db.fan(uuid) or {}
+                if not row.get("pending_thanks"):
+                    continue
+                fan = {"uuid": uuid, "handle": row.get("handle") or "",
+                       "display_name": row.get("display_name") or "", "text": ""}
+                await self._thank(fan, row, await self._db.settings(), 0,
+                                  int(row.get("bought_count") or 0))
+            except ReplyDeferred:
+                break
+            except Exception as exc:  # noqa: BLE001 - trvalý príznak ostáva
+                log.warning("Čakajúce poďakovanie sa nepodarilo dokončiť: %s", exc)
 
     async def _oznam(self, event: Dict[str, Any], nastavenia: Dict[str, Any]) -> None:
         """Pošle majiteľovi do control bota, že sa niečo stalo na Fanvue.
@@ -785,18 +848,8 @@ class FanvueAgent:
         if not row.get("tg_id"):
             await self._try_link(fan, row, klik_plati=True)
 
-        kupene = int(row.get("bought_count") or 0) + 1
-        teraz = datetime.now(timezone.utc).isoformat()
-        await self._db.update_fan(
-            fan["uuid"],
-            {
-                "spent_cents": int(row.get("spent_cents") or 0) + suma,
-                "bought_count": kupene,
-                "last_bought_at": teraz,
-                # Odomkol, takže už nič nevisí a ďalšia ponuka je v poriadku.
-                "pending_offer_at": None,
-            },
-        )
+        row = await self._db.record_payment_once(int(event["id"]), fan["uuid"], suma)
+        kupene = int(row.get("bought_count") or 0)
         log.info("Fanúšik %s zaplatil %s c (%s. nákup)", fan["uuid"][:8], suma, kupene)
 
         # Zaplatil → v Telegrame prestáva byť lead. Bez tohto by mu modelka
@@ -853,6 +906,8 @@ class FanvueAgent:
         reply_mode = str(settings.get("reply_mode") or "auto")
         if reply_mode == "off":
             return
+        if reply_mode == "auto":
+            await self._require_auto_hours(settings)
 
         persona = await self._db.persona()
         behavior = await self._db.behavior()
@@ -876,6 +931,7 @@ class FanvueAgent:
                     {
                         "last_thanks_at": datetime.now(timezone.utc).isoformat(),
                         "thanks_sent": int(row.get("thanks_sent") or 0) + 1,
+                        "pending_thanks": False,
                     },
                 )
             return
@@ -900,6 +956,7 @@ class FanvueAgent:
             {
                 "last_thanks_at": datetime.now(timezone.utc).isoformat(),
                 "thanks_sent": int(row.get("thanks_sent") or 0) + 1,
+                "pending_thanks": False,
             },
         )
         log.info("Poďakované za nákup %s", fan["uuid"][:8])
@@ -941,6 +998,8 @@ class FanvueAgent:
         reply_mode = str(settings.get("reply_mode") or "auto")
         if reply_mode == "off":
             return
+        if reply_mode == "auto":
+            await self._require_auto_hours(settings)
 
         persona = await self._db.persona()
         prompt = build_prompt(persona, settings, fan, row, None)
@@ -1113,6 +1172,8 @@ class FanvueAgent:
         if reply_mode == "off":
             return
         semi = reply_mode == "semi"
+        if not semi:
+            await self._require_auto_hours(settings)
 
         if not row.get("tg_id"):
             # Prvá správa od neznámeho = práve prišiel, takže čerstvý klik
@@ -1148,7 +1209,7 @@ class FanvueAgent:
         # hodín (rovnako ako na Telegrame). Auto naďalej rešpektuje rozvrh.
         if not semi and not within_hours(settings, teraz):
             log.info("Mimo času na Fanvue — %s ostáva bez odpovede", fan["uuid"][:8])
-            return
+            raise ReplyDeferred("outside_fanvue_hours")
 
         history = await self._db.history(fan["uuid"])
 
@@ -1385,7 +1446,7 @@ class FanvueAgent:
         return prehlad.fanvue(row, history, tg)
 
     async def deliver_text(self, conv_key: str, text: str) -> bool:
-        sent = await self._send_checked(conv_key, text)
+        sent = await self._send_checked(conv_key, text, approved=True)
         if not sent:
             return False
         await self._db.add_message(conv_key, "assistant", text, "" if sent == "-" else sent)
@@ -1439,7 +1500,7 @@ class FanvueAgent:
         self, conv_key: str, media_ref: str, caption: str, price_cents=None
     ) -> bool:
         price = int(price_cents or 0)
-        sent = await self._send_checked(conv_key, caption or "", [media_ref], price)
+        sent = await self._send_checked(conv_key, caption or "", [media_ref], price, approved=True)
         if not sent:
             return False
         try:
@@ -1513,19 +1574,23 @@ class FanvueAgent:
             # Nákup sa inak nedozvieme — webhook o odomknutí správy nechodí.
             kupil = fvsync.bought(skutocne)
             if kupil > int(row.get("bought_count") or 0):
-                patch = {"bought_count": kupil, "pending_offer_at": None}
+                patch = {"bought_count": kupil, "pending_offer_at": None,
+                         "pending_thanks": True}
                 kedy = fvsync.last_bought_at(skutocne)
                 if kedy:
                     patch["last_bought_at"] = kedy
                 await self._db.update_fan(fan["uuid"], patch)
                 row.update(patch)
                 log.info("Fanúšik %s má kúpené: %s", fan["uuid"][:8], kupil)
-                # Druhá cesta k vďake: keby sa udalosť o platbe stratila,
-                # nákup by ostal bez poďakovania. Odstup v `may_thank`
-                # zabráni tomu, aby sa ďakovalo dvakrát.
+            if row.get("pending_thanks"):
+                # Počet nákupov je už pravda aj keď sa práve zatvorilo okno.
+                # Samostatný trvalý príznak nesie nedokončené poďakovanie.
                 await self._thank(
-                    fan, row, await self._db.settings(), 0, kupil
+                    fan, row, await self._db.settings(), 0,
+                    int(row.get("bought_count") or 0),
                 )
+        except ReplyDeferred:
+            raise
         except Exception as exc:  # noqa: BLE001 - zosúladenie je poistka, nie podmienka
             log.warning("Zosúladenie chatu zlyhalo: %s", exc)
 

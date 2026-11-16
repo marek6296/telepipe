@@ -156,12 +156,16 @@ class TestNapojenie:
         i = src.index("async def _behavior")
         assert "set_chat_tier" in src[i : i + 900]
 
-    def test_fanvue_prepina_vsade_kde_cita_chovanie(self):
+    def test_fanvue_prepina_pri_nacitani_chovania_pre_generovanie(self):
         from pathlib import Path
+        from fanvue_agent import FanvueAgent
 
         src = (Path(__file__).resolve().parents[1] / "src" / "fanvue_agent.py").read_text(
             "utf-8"
         )
+        # Časová brána iba číta rozvrh; negeneruje text a nemá meniť LLM
+        # počas odosielania. Ostatné načítania pripravujú generovanie.
+        src = src.replace(inspect.getsource(FanvueAgent._auto_hours_open), "")
         assert src.count("behavior = await self._db.behavior()") == src.count(
             "self._rezim(behavior)"
         )

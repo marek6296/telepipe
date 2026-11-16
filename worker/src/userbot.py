@@ -1356,9 +1356,31 @@ class UserBot:
         elif not testing:
             await asyncio.sleep(bhv.reply_delay(behavior, factor=factor))
 
+        if not await self._auto_send_time_ok(tg_id):
+            return
         sent: List[str] = []
+        media_sent = False
+        voice_sent = False
+
+        async def finish_delivery(complete=False):
+            # Aj prvá z viacerých bublín už spotrebovala odpoveď a prípadný
+            # CTA limit. Zvyšok sa nesmie pri odložení tváriť ako doručený.
+            if not sent and not media_sent:
+                return
+            self._reply_times.append(datetime.now(timezone.utc))
+            await self._post_send_update(
+                user, persona, behavior, " ".join(sent), rows, now_local,
+                gag.key if gag and complete else None,
+                said_goodnight=bool(len_hlasovka and voice_sent),
+                cta_voice=bool(voice_sent and chosen_voice.get("is_cta")),
+                farewell=je_rozlucka and complete,
+                link_override=kratky,
+                unlock_offer=unlock_ponuka and complete,
+                unlock_link=unlock_url,
+            )
+
         if chosen_photo:
-            await self._send_photo(tg_id, chosen_photo)
+            media_sent = await self._send_photo(tg_id, chosen_photo)
         chunks = [humanize.strip_archive_marks(c) for c in chunks]
         # Oslovenie a čiarky rieši kód, nie prosba v prompte — model obe
         # pravidlá ignoroval, nech boli napísané akokoľvek dôrazne.
@@ -1491,7 +1513,11 @@ class UserBot:
                     "%s: odpoveď posielam hlasom z %s (%s bajtov)",
                     tg_id, kde, len(nahravka),
                 )
-                await self._send_generated_voice(tg_id, nahravka, povedany_text)
+                if not await self._send_generated_voice(tg_id, nahravka, povedany_text):
+                    await finish_delivery()
+                    return
+                media_sent = True
+                sent.append(povedany_text)
                 # Testovaciemu účtu ide len hlas — zvyšok textu by testovanie
                 # znejasnil, lebo by nebolo vidieť, čo hlasovka pokryla.
                 chunks = [] if len_hlasom else chunks[1:]
@@ -1507,18 +1533,27 @@ class UserBot:
 
         for chunk in chunks:
             if not await self._shared_send_ok(tg_id, chunk, proactive=morning):
+                await finish_delivery()
                 return
             async with self._client.action(tg_id, "typing"):
                 await asyncio.sleep(humanize.typing_delay(chunk))
             try:
+                if not await self._auto_send_time_ok(tg_id):
+                    await finish_delivery()
+                    return
                 await self._mark_read(tg_id)
+                if not await self._auto_send_time_ok(tg_id):
+                    await finish_delivery()
+                    return
                 await self._client.send_message(tg_id, chunk)
             except Exception as exc:  # noqa: BLE001
                 # Flood chyba sa nesmie stratiť v logu ako hocijaká iná —
                 # z nej vyplýva, že sa má prestať posielať úplne.
                 if await self._note_flood(exc, tg_id):
                     await self._db.update_user(tg_id, {"pending_reply": True})
+                    await finish_delivery()
                     return
+                await finish_delivery()
                 raise
             await self._db.add_message(tg_id, "assistant", chunk)
             sent.append(chunk)
@@ -1527,19 +1562,10 @@ class UserBot:
         # „one sec“ — pri opačnom poradí pristála veta až za nahrávkou a
         # vyzeralo to ako porucha.
         if chosen_voice:
-            await self._send_voice(tg_id, chosen_voice)
+            voice_sent = await self._send_voice(tg_id, chosen_voice)
+            media_sent = media_sent or voice_sent
 
-        self._reply_times.append(datetime.now(timezone.utc))
-        await self._post_send_update(
-            user, persona, behavior, " ".join(sent), rows, now_local,
-            gag.key if gag else None,
-            said_goodnight=len_hlasovka,
-            cta_voice=bool(chosen_voice and chosen_voice.get("is_cta")),
-            farewell=je_rozlucka,
-            link_override=kratky,
-            unlock_offer=unlock_ponuka,
-            unlock_link=unlock_url,
-        )
+        await finish_delivery(complete=not chosen_voice or voice_sent)
 
     @staticmethod
     def _uprav_odpoved(
@@ -1984,12 +2010,13 @@ class UserBot:
                 f"📷 `{tg_id}` has only {zostava} unseen photos left. Add more to the library."
             )
 
-    async def _send_photo(self, tg_id: int, photo: Dict[str, Any]) -> None:
+    async def _send_photo(self, tg_id: int, photo: Dict[str, Any]) -> bool:
         if not await self._shared_send_ok(tg_id, proactive=True):
-            return
+            return False
         data = await _download(photo["url"])
         if not data:
-            return
+            return False
+        sent = False
         try:
             async with self._client.action(tg_id, "photo"):
                 await asyncio.sleep(humanize.typing_delay("x" * 40))
@@ -1998,8 +2025,13 @@ class UserBot:
             # a force_document=False z toho urobia normálnu fotku v bubline.
             buffer = io.BytesIO(data)
             buffer.name = photo_filename(photo["url"])
+            if not await self._auto_send_time_ok(tg_id):
+                return False
             await self._mark_read(tg_id)
+            if not await self._auto_send_time_ok(tg_id):
+                return False
             await self._client.send_file(tg_id, buffer, force_document=False)
+            sent = True
             await self._db.record_photo_send(int(photo["id"]), tg_id)
             await self._db.update_user(tg_id, {"last_photo_at": _utc_iso()})
             await self._db.add_message(
@@ -2013,6 +2045,7 @@ class UserBot:
             # ochranu vôbec nespustila a sweeper by to o tri minúty skúsil znova.
             await self._note_flood(exc, tg_id)
             log.warning("Fotku sa nepodarilo poslať %s: %s", tg_id, exc)
+        return sent
 
     async def _defer(self, tg_id: int, seconds: float) -> None:
         """Zapíše do DB, že odpoveď má prísť až za `seconds`.
@@ -2189,17 +2222,25 @@ class UserBot:
             except Exception:  # noqa: BLE001
                 pass
 
-    async def _send_generated_voice(self, tg_id: int, data: bytes, text: str) -> None:
+    async def _send_generated_voice(
+        self, tg_id: int, data: bytes, text: str, *, approved: bool = False
+    ) -> bool:
         """Pošle nahrávku vyrobenú na mieru a do pamäte ju uloží ako jej slová."""
         if not await self._shared_send_ok(tg_id, text):
-            return
+            return False
         try:
             async with self._client.action(tg_id, "record-voice"):
                 await asyncio.sleep(random.uniform(3, 10))
             prevedene = await _to_opus(data) or data
             buffer = io.BytesIO(prevedene)
             buffer.name = "voice.ogg"
+            if not approved and not await self._auto_send_time_ok(tg_id):
+                return False
             await self._mark_read(tg_id)
+            if not await self._shared_send_ok(tg_id, text):
+                return False
+            if not approved and not await self._auto_send_time_ok(tg_id):
+                return False
             await self._client.send_file(tg_id, buffer, voice_note=True)
             await self._db.update_user(tg_id, {"last_voice_at": _utc_iso()})
             await self._db.add_message(tg_id, "assistant", f"(hlasovka) {text}".strip())
@@ -2211,6 +2252,7 @@ class UserBot:
                 "voice_managed_usd" if managed else "voice_own_usd",
                 0.50 if managed else 0.30,
             )
+            return True
         except Exception as exc:  # noqa: BLE001 - odpoveď nesmie zapadnúť
             log.warning("Hlasovku na mieru sa nepodarilo poslať %s: %s", tg_id, exc)
             # Náhrada textom má zmysel pri pokazenom súbore či prevode. Pri
@@ -2219,10 +2261,17 @@ class UserBot:
             # Text sa nestratí: človeku ostane `pending_reply` a dobehne, keď
             # pauza vyprší.
             if await self._note_flood(exc, tg_id):
-                return
+                return False
+            if not approved and not await self._auto_send_time_ok(tg_id):
+                return False
             await self._mark_read(tg_id)
+            if not await self._shared_send_ok(tg_id, text):
+                return False
+            if not approved and not await self._auto_send_time_ok(tg_id):
+                return False
             await self._client.send_message(tg_id, text)
             await self._db.add_message(tg_id, "assistant", text)
+            return True
 
     # ---------- semi-auto: handoff a doručovanie po schválení ----------
 
@@ -2349,15 +2398,42 @@ class UserBot:
                 tg_id, {"pending_reply": False, "last_reply_at": _utc_iso()}
             )
 
+    async def _auto_send_time_ok(self, tg_id: int) -> bool:
+        """Auto musí byť v okne aj po generovaní, pauze a príprave média.
+
+        Schválené deliver_* túto časovú bránu nepoužívajú. Pri zmene na
+        Semi čaká pôvodná automatická odpoveď na nový návrh/schválenie.
+        """
+        mode = (await self._db.tg_reply_mode()).get("mode", "auto")
+        if mode != "auto":
+            await self._db.update_user(tg_id, {"pending_reply": mode == "semi"})
+            return False
+        if self._is_test_account(tg_id):
+            return True
+        behavior = await self._behavior()
+        now_local = datetime.now(ZoneInfo(behavior.active_tz))
+        allowed = bhv.in_active_window(now_local, behavior.active_start_min, behavior.active_end_min)
+        if allowed and (hub := getattr(self._db, "hub", None)):
+            try:
+                block, _ = await hub.day(now_local, await self._rozvrh())
+                allowed = bool(block)
+            except Exception as exc:  # noqa: BLE001 - bez rozvrhu Auto čaká
+                log.warning("%s: spoločný deň sa nedá overiť: %s", tg_id, exc)
+                allowed = False
+        if not allowed:
+            await self._db.update_user(tg_id, {"pending_reply": True})
+        return allowed
+
     async def _shared_send_ok(self, tg_id, text="", proactive=False):
         hub = getattr(self._db, "hub", None)
-        if not hub:
-            return True
-        if not await hub.can_reply("telegram", str(tg_id), proactive=proactive):
-            return False
-        preferences = await hub.restrictions("telegram", str(tg_id))
-        from instagram_interactions import URL
-        return not (preferences.get("no_links") and URL.search(text or ""))
+        if hub:
+            if not await hub.can_reply("telegram", str(tg_id), proactive=proactive):
+                return False
+            preferences = await hub.restrictions("telegram", str(tg_id))
+            from instagram_interactions import URL
+            if preferences.get("no_links") and URL.search(text or ""):
+                return False
+        return (await self._db.tg_reply_mode()).get("mode", "auto") != "off"
 
     async def deliver_text(self, conv_key: str, text: str) -> bool:
         """Odošle schválený text ako ona, uloží ho do pamäte, dorovná stav."""
@@ -2368,6 +2444,8 @@ class UserBot:
             async with self._client.action(tg_id, "typing"):
                 await asyncio.sleep(humanize.typing_delay(text))
             await self._mark_read(tg_id)
+            if not await self._shared_send_ok(tg_id, text):
+                return False
             await self._client.send_message(tg_id, text)
         except Exception as exc:  # noqa: BLE001
             if await self._note_flood(exc, tg_id):
@@ -2419,6 +2497,8 @@ class UserBot:
             async with self._client.action(tg_id, "photo"):
                 await asyncio.sleep(humanize.typing_delay("x" * 40))
             await self._mark_read(tg_id)
+            if not await self._shared_send_ok(tg_id, caption):
+                return False
             await self._client.send_file(
                 tg_id, buffer, caption=caption or "", force_document=False
             )
@@ -2457,7 +2537,8 @@ class UserBot:
         tg_id = int(conv_key)
         if not await self._shared_send_ok(tg_id, text):
             return False
-        await self._send_generated_voice(tg_id, ogg, text)
+        if not await self._send_generated_voice(tg_id, ogg, text, approved=True):
+            return False
         await self._semi_post_update(tg_id, f"(hlasovka) {text}")
         return True
 
@@ -2484,7 +2565,11 @@ class UserBot:
                 data = await _to_opus(data) or data
             buffer = io.BytesIO(data)
             buffer.name = "voice.ogg"
+            if not await self._auto_send_time_ok(tg_id):
+                return False
             await self._mark_read(tg_id)
+            if not await self._auto_send_time_ok(tg_id):
+                return False
             await self._client.send_file(tg_id, buffer, voice_note=True)
             await self._db.record_voice_send(int(voice["id"]), tg_id)
             await self._db.update_user(tg_id, {"last_voice_at": _utc_iso()})
@@ -3065,7 +3150,8 @@ class UserBot:
         behavior = await self._behavior()
         now_local = datetime.now(ZoneInfo(behavior.active_tz))
         await self._zapis_dnesok(behavior, now_local)
-        if not bhv.in_active_window(
+        semi = (await self._db.tg_reply_mode()).get("mode", "auto") == "semi"
+        if not semi and not bhv.in_active_window(
             now_local, behavior.active_start_min, behavior.active_end_min
         ):
             # Mimo okna aj tak nikto nečaká — je to najlepší čas upratať.
@@ -3092,7 +3178,7 @@ class UserBot:
         dnes = now_local.date().isoformat()
 
         def rad_prisiel(tg_id: int) -> bool:
-            if od_otvorenia is None or od_otvorenia > outreach_mod.BACKLOG_SPREAD_H * 60:
+            if semi or od_otvorenia is None or od_otvorenia > outreach_mod.BACKLOG_SPREAD_H * 60:
                 return True
             return outreach_mod.backlog_ready(tg_id, dnes, od_otvorenia)
 
@@ -3111,7 +3197,7 @@ class UserBot:
                 await self._db.update_user(tg_id, {"pending_reply": False})
                 continue
             # Odložená odpoveď ešte nedozrela — nechaj ju čakať.
-            wait_until = _parse_ts(user.get("reply_after"))
+            wait_until = None if semi else _parse_ts(user.get("reply_after"))
             if wait_until and wait_until > now_utc:
                 continue
             if not rad_prisiel(tg_id):
@@ -3127,7 +3213,7 @@ class UserBot:
             tg_id = user["tg_id"]
             if tg_id in done:
                 continue
-            wait_until = _parse_ts(user.get("reply_after"))
+            wait_until = None if semi else _parse_ts(user.get("reply_after"))
             if wait_until and wait_until > now_utc:
                 continue
             if not rad_prisiel(tg_id):
@@ -3139,6 +3225,10 @@ class UserBot:
         # odpovedať tomu, kto napísal prvý, nie je vzor, ktorý by komukoľvek
         # vadil — a s ním by sa trinásty človek odpovede nedočkal, kým beží
         # dvanásť rozhovorov.
+        if semi:
+            # Návrhy nemajú odchádzajúci objem; tempo odoslania riadi majiteľ.
+            await self._reply_batch(caka, behavior)
+            return
         volno = await self._rate_left(behavior.max_replies_per_hour)
         aktivni = await self._aktivne_rozhovory(behavior)
         if aktivni is None:
