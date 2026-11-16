@@ -13,7 +13,8 @@ begin
   insert into instagram_actions(model_id,dedupe_key,kind,igsid,target_id,source_mid,source_at,due_at,expires_at,payload)
   values(p_model,p_key,p_kind,p_igsid,p_target,p_source_mid,p_source_at,p_due,p_expires,p_payload)
   on conflict(model_id,dedupe_key) do update set
-    state='pending',reason='',text='',payload=excluded.payload,due_at=excluded.due_at,
+    state='pending',reason='',text='',kind=excluded.kind,target_id=excluded.target_id,
+    payload=excluded.payload,due_at=excluded.due_at,
     lease_token=null,lease_until=null
   where instagram_actions.state='cancelled' and instagram_actions.reason in ('channel_off','channel_changed')
     and instagram_actions.reserved_at is null and excluded.expires_at>now()
@@ -24,6 +25,40 @@ begin
   if not found then select * into a from instagram_actions where model_id=p_model and dedupe_key=p_key; end if;
   return to_jsonb(a);
 end $$;
+
+-- Skip in the owner's control card is terminal for this exact source/action.
+create function public.instagram_skip_approval() returns trigger
+language plpgsql security definer set search_path=public,pg_temp as $$
+begin
+  if new.channel='instagram' and new.status='skipped' then
+    -- This trigger already holds the pending row lock: do not invert the
+    -- model-lock → pending-row order used by identity invalidation.
+    update instagram_actions set state='skipped',reason='owner_skipped',lease_token=null,lease_until=null
+      where model_id=new.model_id and new.conv_key=igsid||':'||id::text
+        and state in ('pending','approval','ready','leased','cancelled') and reserved_at is null;
+  end if;
+  return new;
+end $$;
+create trigger instagram_skip_approval after insert or update of status on public.pending_replies
+  for each row execute function public.instagram_skip_approval();
+revoke all on function public.instagram_skip_approval() from public,anon,authenticated;
+update instagram_actions a set state='skipped',reason='owner_skipped',lease_token=null,lease_until=null
+  where state in ('pending','approval','ready','leased','cancelled') and reserved_at is null
+    and exists(select 1 from pending_replies p where p.model_id=a.model_id and p.channel='instagram'
+      and p.status='skipped' and p.conv_key=a.igsid||':'||a.id::text);
+
+-- Only for an action whose message API has NOT been attempted (receipt is separate).
+create function public.instagram_release_unsent(p_model uuid,p_action uuid,p_lease uuid,p_reason text)
+returns boolean language plpgsql security definer set search_path=public,pg_temp as $$
+begin
+  perform pg_advisory_xact_lock(hashtextextended(p_model::text,0));
+  update instagram_actions set state='pending',reserved_at=null,lease_token=null,lease_until=null,
+    due_at=now()+interval '1 minute',reason=p_reason
+    where model_id=p_model and id=p_action and lease_token=p_lease and state='sending';
+  return found;
+end $$;
+revoke all on function public.instagram_release_unsent(uuid,uuid,uuid,text) from public,anon,authenticated;
+grant execute on function public.instagram_release_unsent(uuid,uuid,uuid,text) to service_role;
 
 create or replace function public.instagram_claim(p_model uuid)
 returns jsonb language plpgsql security definer set search_path=public,pg_temp as $$

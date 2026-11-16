@@ -174,15 +174,29 @@ try {
     assert.equal((await rpc('instagram_enqueue',recoverArgs)).state,state,'terminal work is not silently replayed');
   }
   for(const reason of ['channel_off','channel_changed']) {
-    await db.query(`update instagram_actions set state='cancelled',reason=$2,payload='{"account_id":"acct","approved_source_mid":"recover-source"}' where id=$1`,[recoverAction.id,reason]);
+    await db.query(`update instagram_actions set state='cancelled',kind='photo',reason=$2,payload='{"account_id":"acct","approved_source_mid":"recover-source"}' where id=$1`,[recoverAction.id,reason]);
     const revived=await rpc('instagram_enqueue',recoverArgs);
     assert.equal(revived.state,'pending','fresh unanswered snapshot revives work cancelled only by channel pause');
     assert.equal(revived.payload.approved_source_mid,undefined,'pause invalidates old approval');
+    assert.equal(revived.kind,'dm','pause resets derived photo intent to the freshly read DM');
   }
   assert.equal((await rpc('instagram_claim',[recovery])).id,recoverAction.id,'Semi draft does not wait for Auto due time');
   await db.query(`update instagram_actions set state='pending',due_at=now()+interval '1 hour',lease_until=null where id=$1`,[recoverAction.id]);
   await db.query(`update instagram set reply_mode='auto' where model_id=$1`,[recovery]);
   assert.equal(await rpc('instagram_claim',[recovery]),null,'Auto keeps scheduled due time');
+  const releaseLease='00000000-0000-4000-8000-000000000199';
+  await db.query(`update instagram_actions set state='sending',reserved_at=now(),lease_token=$2 where id=$1`,[recoverAction.id,releaseLease]);
+  assert.equal(await rpc('instagram_release_unsent',[recovery,recoverAction.id,recovery,'channel_mode_changed']),false,'release requires the exact reservation lease');
+  assert.equal(await rpc('instagram_release_unsent',[recovery,recoverAction.id,releaseLease,'channel_mode_changed']),true);
+  const released=(await db.query('select state,reserved_at from instagram_actions where id=$1',[recoverAction.id])).rows[0];
+  assert.equal(released.state,'pending'); assert.equal(released.reserved_at,null,'an unattempted message releases quota');
+  await db.query(`update instagram_actions set state='approval',reason='',reserved_at=null where id=$1`,[recoverAction.id]);
+  await db.query(`insert into pending_replies(model_id,channel,conv_key,status) values($1,'instagram',$2,'awaiting')`,[recovery,'recover-fan:'+recoverAction.id]);
+  // This is what the actual control-bot Skip button writes.
+  await db.query(`update pending_replies set status='skipped' where model_id=$1`,[recovery]);
+  await db.query(`update instagram set reply_mode='off' where model_id=$1`,[recovery]);
+  await db.query(`update instagram set reply_mode='auto' where model_id=$1`,[recovery]);
+  assert.equal((await rpc('instagram_enqueue',recoverArgs)).state,'skipped','UI Skip survives Off → Auto recovery');
 
   await db.exec('set role authenticated');
   assert.equal((await db.query('select * from conversation_identities')).rows.length,0,'RLS hides other owners');

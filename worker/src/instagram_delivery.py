@@ -193,6 +193,23 @@ class InstagramDelivery:
         await self.db.change_action(action, {'state': 'pending', 'due_at': (utcnow()+timedelta(minutes=minutes)).isoformat(),
             'lease_token': None, 'lease_until': None, 'reason': reason})
 
+    async def send_readiness(self, cfg, action):
+        """Recheck after slow generation/provider reads; Semi only bypasses the clock."""
+        current = await self.db.settings()
+        if (not current.get('enabled') or not current.get('connected')
+                or any(current.get(k) != cfg.get(k) for k in ('reply_mode','ig_user_id'))):
+            return 'channel_mode_changed'
+        if not in_window(action.get('source_at')):
+            return 'window_expired'
+        if current.get('reply_mode') == 'semi':
+            return ''
+        behavior = Behavior.from_row(await self.db.behavior())
+        local = utcnow().astimezone(ZoneInfo(behavior.active_tz))
+        block, _ = await self.db.hub.day(local, den.Rozvrh.from_row(await self.db.schedule()))
+        testing = (action['igsid'] and current.get('test_igsid') == action['igsid']
+                   and parse_time(current.get('test_until')) and parse_time(current['test_until']) > utcnow())
+        return '' if testing or (block and in_active_window(local, behavior.active_start_min, behavior.active_end_min)) else 'sleeping'
+
     async def process_one(self, cfg):
         action = await self.db.rpc('claim')
         if not action:
@@ -236,6 +253,9 @@ class InstagramDelivery:
                     proposals, history = await self.agent._navrhy(user, action['igsid'], cfg)
                     if not proposals:
                         await self.defer(action, 'generation_empty')
+                        return
+                    if reason := await self.send_readiness(cfg, action):
+                        await self.defer(action, reason, minutes=0)
                         return
                     # Versioned conversation key: an old card cannot approve a new message.
                     changed = await self.db.change_action(action, {'state': 'approval', 'lease_until': None})
@@ -284,6 +304,9 @@ class InstagramDelivery:
             if action['kind'] == 'dm' and cfg.get('typo_enabled') and not action['payload'].get('approved_source_mid') and not link and not reminder:
                 from instagram_interactions import small_typo
                 text, correction = small_typo(text, action['id'])
+            if reason := await self.send_readiness(cfg, action):
+                await self.defer(action, reason, minutes=1)
+                return
             reserved = await self.db.rpc('reserve', action=action['id'], lease=action['lease_token'], text=text, link=link, reminder=reminder)
             if not reserved.get('ok'):
                 return
@@ -295,6 +318,9 @@ class InstagramDelivery:
                 except api.InstagramError as exc:
                     # Optional acknowledgement failure must not lose an unsent reply.
                     log.warning('Instagram read receipt unavailable (Meta %s)', exc.kod)
+                if reason := await self.send_readiness(cfg, action):
+                    await self.db.rpc('release_unsent', action=action['id'], lease=action['lease_token'], reason=reason)
+                    return
             try:
                 if action['kind'] == 'comment':
                     response = await asyncio.to_thread(api.odpovedz_na_komentar, cfg['access_token'], action['target_id'], text)

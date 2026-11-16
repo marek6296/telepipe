@@ -173,6 +173,12 @@ class FakeDb:
                 if a.get('contains_link'):
                     self.users[a['igsid']]['link_sent_at'] = _teraz()
             return True
+        if name == 'release_unsent':
+            a = self.queue[args['action']]
+            if a['state'] != 'sending' or a['lease_token'] != args['lease']:
+                return False
+            a.update(state='pending',reserved_at=None,lease_token=None,reason=args['reason'])
+            return True
         if name == 'record_manual':
             return None
         raise AssertionError(name)
