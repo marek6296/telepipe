@@ -14,6 +14,7 @@ try {
     create table photos(model_id uuid,id bigserial,url text,active boolean default true,spicy boolean default false);
     create table dm_users(model_id uuid,tg_id bigint,username text,first_name text,link_sent_at timestamptz);
     create table fv_users(model_id uuid,fan_uuid text,handle text,display_name text);
+    create table pending_replies(model_id uuid,channel text,conv_key text,status text default 'awaiting');
     grant select on models to authenticated; grant usage on schema auth to authenticated;`);
   const initial = await read('20260824010000_instagram.sql');
   await db.exec(initial.slice(initial.indexOf('create table'), initial.indexOf('comment on table')));
@@ -27,6 +28,7 @@ try {
   await db.query(`insert into ig_users(model_id,igsid,last_source_mid,last_incoming_at,age_state) values($1,'fan','in-1',now(),'adult_self_declared')`,[m]);
   await db.query(`insert into dm_users values($1,999,'legacy','Roberto',now()-interval '1 hour')`,[m]);
   await db.exec(await read('20261116093007_conversation_rollout_controls.sql'));
+  await db.exec(await read('20261116101120_identity_change_pending_replies.sql'));
   const seeded=(await db.query(`select status,last_invite_at from conversation_identities where model_id=$1 and external_id='999'`,[m])).rows[0];
   assert.equal(seeded.status,'local','backfill must not verify a heuristic identity');
   assert.ok(seeded.last_invite_at);
@@ -42,9 +44,19 @@ try {
   assert.equal(recognized.person_id,tg.person_id,'recognition must not merge private memory');
   const verified = await rpc('conversation_pair',[m,tg.id,first.id,'verified',{}]);
   assert.equal(verified.person_id,first.person_id);
+  const fv = await rpc('conversation_ensure_identity',[m,'fanvue','fan-uuid','primary','rob','Roberto']);
+  await rpc('conversation_pair',[m,fv.id,first.id,'verified',{}]);
+  await db.query(`insert into pending_replies(model_id,channel,conv_key) values
+    ($1,'telegram','111'),($1,'instagram','fan:approval-id'),($1,'fanvue','fan-uuid'),($1,'telegram','unrelated'),($2,'telegram','111')`,[m,m2]);
   const rejected = await rpc('conversation_pair',[m,tg.id,first.id,'rejected',{}]);
   assert.notEqual(rejected.person_id,first.person_id);
   assert.ok(rejected.rejected_ids.includes(first.id));
+  const pending=(await db.query(`select model_id,channel,conv_key,status from pending_replies`)).rows;
+  assert.equal(pending.find(r=>r.model_id===m && r.conv_key==='111').status,'superseded','identity rejection invalidates Telegram proposals containing old shared context');
+  assert.equal(pending.find(r=>r.channel==='instagram').status,'superseded','the other side of the rejected association also loses stale proposals');
+  assert.equal(pending.find(r=>r.channel==='fanvue').status,'superseded','Fanvue proposals must be regenerated too');
+  assert.equal(pending.find(r=>r.conv_key==='unrelated').status,'awaiting');
+  assert.equal(pending.find(r=>r.model_id===m2).status,'awaiting','another model stays isolated');
   await assert.rejects(rpc('conversation_pair',[m2,tg.id,first.id,'verified',{}]));
 
   const now = Date.now();
