@@ -357,7 +357,9 @@ class InstagramDelivery:
         restrictions = await self.db.hub.restrictions('instagram', user.get('igsid', ''), cfg['ig_user_id'])
         allowed = not (user.get('no_links') or user.get('no_initiate') or restrictions.get('no_links')
                        or restrictions.get('no_initiate') or restrictions.get('age_state') == 'minor_or_conflicting')
-        if await self.db.hub.linked('instagram', user.get('igsid', ''), 'fanvue', cfg['ig_user_id']):
+        fanvue_customer = bool(await self.db.hub.linked('instagram', user.get('igsid', ''), 'fanvue', cfg['ig_user_id']))
+        can_return = allowed
+        if fanvue_customer:
             allowed = False
         adult = user.get('age_state') in ('adult_self_declared', 'adult_platform_verified')
         links = await self.db.actions(contains_link='eq.true', reserved_at='not.is.null', order='reserved_at.desc', limit='100')
@@ -370,7 +372,9 @@ class InstagramDelivery:
         reminder_ok = not parse_time(user.get('last_reminder_at')) or utcnow()-parse_time(user['last_reminder_at']) >= timedelta(days=1)
         primary = 'telegram' if cfg.get('funnel_target') == 'both' else cfg.get('funnel_target')
         spent = not budgets.get('bio_link' if 'bio_link' in targets else 'telegram', False)
-        return {'link': telegram_link if primary == 'telegram' else bio_link,
+        return {'fanvue_customer': fanvue_customer,
+                'fanvue_return': bool(fanvue_customer and can_return and adult and reminder_ok),
+                'link': telegram_link if primary == 'telegram' else bio_link,
                 'telegram_link': telegram_link, 'bio_link': bio_link,
                 'highlights': bool(eligible and spent and cfg.get('highlights_link') and reminder_ok),
                 'remind': bool(allowed and adult and has_link and reminder_ok),

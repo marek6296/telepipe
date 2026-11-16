@@ -44,3 +44,26 @@ def test_typos_never_change_url_numbers_names_or_negations():
         text, correction = small_typo('Roberto 24 not https://t.me/simona_here', str(i))
         assert text == 'Roberto 24 not https://t.me/simona_here'
         assert not correction
+
+
+def test_verified_customer_return_is_a_counted_reminder_not_a_link():
+    offer = dict(OFFER, link=False, remind=False, fanvue_return=True)
+    result = prepare_response('[[REMIND]] come back to our Fanvue chat', CFG, offer)
+    assert result['text'] == 'come back to our Fanvue chat'
+    assert result['reminder'] and not result['link']
+    assert prepare_response('come back to our Fanvue chat', CFG, offer)['reminder']
+    assert not prepare_response('come back to our Fanvue chat', CFG, dict(offer, fanvue_return=False))['text']
+    assert not prepare_response('[[REMIND]] https://fanvue.com/anyone', CFG, offer)['text']
+    assert not prepare_response('come to OnlyFans', CFG, offer)['text']
+
+
+def test_returning_customer_prompt_does_not_restart_the_funnel():
+    from instagram_pravidla import blok
+    text = blok(CFG, offer=dict(fanvue_customer=True, fanvue_return=True))
+    assert 'existing Fanvue conversation' in text
+    assert 'Never promote or name Fanvue' not in text
+    assert 'Do not invite them to Telegram' in text
+    assert '[[REMIND]]' in text
+    blocked = blok(CFG, offer=dict(fanvue_customer=True, fanvue_return=False))
+    assert 'Do not invite them to Telegram' in blocked
+    assert 'No invitation or reminder is available' in blocked

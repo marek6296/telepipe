@@ -130,6 +130,26 @@ try {
     assert.equal(await rpc('instagram_classify_link',['https://t.me/simapussina '+extra,'simapussina','https://linkovne.com/simonakralova']),'unknown','mixed manual URLs must consume both allowances');
   }
   let caseNo=10;
+  // Returning to an existing Fanvue chat uses the same durable reminder quota.
+  async function returnCase(priorHours) {
+    const id='00000000-0000-4000-8000-'+String(caseNo++).padStart(12,'0');
+    await db.query('insert into models(id) values($1)',[id]);
+    await db.query(`insert into instagram(model_id,connected,enabled,reply_mode,ig_user_id)
+      values($1,true,true,'auto','acct')`,[id]);
+    await db.query(`insert into ig_users(model_id,igsid,last_source_mid,last_incoming_at,age_state)
+      values($1,'recipient','source',now(),'adult_self_declared')`,[id]);
+    for (let i=0;i<priorHours.length;i++) {
+      await db.query(`insert into instagram_actions(model_id,dedupe_key,kind,igsid,target_id,due_at,expires_at,state,contains_reminder,reserved_at)
+        values($1,$2,'dm','recipient','thread',now(),now()+interval '1 hour','sent',true,$3)`,
+        [id,'reminder'+i,new Date(Date.now()-priorHours[i]*3600000)]);
+    }
+    const a=await rpc('instagram_enqueue',[id,'return','dm','recipient','thread','source',new Date(now-1000),new Date(now-1000),new Date(now+3600000),{account_id:'acct'}]);
+    const claim=await rpc('instagram_claim',[id]);
+    return await rpc('instagram_reserve',[id,a.id,claim.lease_token,'continue our Fanvue chat',false,true]);
+  }
+  assert.equal((await returnCase([])).ok,true);
+  assert.equal((await returnCase([3])).reason,'reminder_limit','at most one reminder per rolling day');
+  assert.equal((await returnCase([25,50])).reason,'reminder_limit','at most two reminders per rolling week');
   async function linkCase(prior, target='telegram', options={}) {
     const id='00000000-0000-4000-8000-'+String(caseNo++).padStart(12,'0');
     await db.query('insert into models(id) values($1)',[id]);

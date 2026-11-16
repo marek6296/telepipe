@@ -60,7 +60,9 @@ def prepare_response(raw, settings, offer):
             return result
         text = text.replace(urls[0], '[[LINK]]')
         marker = 'LINK'
-    if re.search(r'fanvue|onlyfans', text, re.I):
+    if re.search(r'onlyfans', text, re.I):
+        return result
+    if re.search(r'fanvue', text, re.I) and not offer.get('fanvue_return'):
         return result
     if marker in ('LINK', 'TELEGRAM', 'LINKPAGE'):
         permission = offer.get('telegram_link' if target == 'telegram' else 'bio_link',
@@ -73,13 +75,13 @@ def prepare_response(raw, settings, offer):
         if offer.get('highlights'):
             result.update(text=TAGS.sub('', text).strip(), reminder=True, link_target='bio_link')
     elif marker == 'REMIND':
-        if offer.get('remind'):
+        if offer.get('remind') or offer.get('fanvue_return'):
             result.update(text=TAGS.sub('', text).strip(), reminder=True)
     elif marker == 'PHOTO':
         if offer.get('photo'):
             result['kind'] = 'photo'
     elif PROMO.search(text):
-        if offer.get('remind') and not re.search(r'highlights?|bio|profile|telegram', text, re.I):
+        if (offer.get('remind') or offer.get('fanvue_return')) and not re.search(r'highlights?|bio|profile|telegram', text, re.I):
             result.update(text=text, reminder=True)
     elif '[[' not in text and ']]' not in text:
         result['text'] = text

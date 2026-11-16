@@ -131,3 +131,21 @@ async def test_reservation_failure_is_not_sent(monkeypatch):
     monkeypatch.setattr(api, 'posli_text', lambda *a, **k: sends.append(1))
     await agent._delivery.process_one(db.nastavenia)
     assert not sends
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('age,no_links,expected', [('adult_self_declared',False,True),('unknown',False,False),('minor_or_conflicting',False,False),('adult_self_declared',True,False)])
+async def test_existing_customer_return_keeps_age_optout_and_reminder_guards(age,no_links,expected):
+    db = AsyncMock()
+    db.hub.restrictions.return_value = {'no_links': no_links}
+    db.hub.linked.return_value = [{'id':'fv'}]
+    db.actions.return_value = []
+    delivery = InstagramDelivery(db, AsyncMock())
+    cfg = settings(funnel_target='both',telegram_handle='someone',bio_link='https://linkovne.com/someone')
+    user = {'igsid':'fan','age_state':age}
+    offer = await delivery.offer_state(cfg,user)
+    assert offer['fanvue_customer']
+    assert offer['fanvue_return'] is expected
+    assert not offer['telegram_link'] and not offer['bio_link']
+    user['last_reminder_at'] = datetime.now(timezone.utc).isoformat()
+    assert not (await delivery.offer_state(cfg,user))['fanvue_return']

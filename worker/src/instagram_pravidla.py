@@ -14,7 +14,7 @@ def blok(nastavenia: Dict[str, Any], pozvala_uz: int = 0, offer=None) -> str:
         "Follow the authored spelling/slang/no-diacritics rules. Usually one or two short sentences. "
         "Answer the actual latest message using the recent conversation; never restart an existing conversation. "
         "Avoid repeated greetings, pet names, questions and invitation phrases. Match the conversational energy.",
-        "Keep this channel non-explicit. Never promote or name Fanvue/OnlyFans here. No payment pressure. "
+        "Keep this channel non-explicit. No payment pressure. "
         "No voice notes, videos or promises of unavailable media. Do not invent what an unviewed photo contains. "
         "Do not pretend to be human when directly asked about automation or the virtual persona.",
         "No literal URLs, handles or obfuscated addresses. Only the server may insert a configured URL. "
@@ -23,6 +23,20 @@ def blok(nastavenia: Dict[str, Any], pozvala_uz: int = 0, offer=None) -> str:
         "Never invite in every response, after rejection, during distress, or as an unrelated interruption. "
         "Repeated pressure for media can receive a brief, firm boundary in your existing voice.",
     ]
+    if offer.get('fanvue_customer'):
+        rules.append('This person has a VERIFIED existing Fanvue conversation with you. '
+                     'Do not invite them to Telegram or treat them as a new lead. '
+                     'Do not ask them to register or subscribe again, and do not claim a current paid '
+                     'subscription unless confirmed by the owner or current account data. '
+                     'Continue ordinary Instagram conversation naturally; do not redirect every reply.')
+    if offer.get('fanvue_return'):
+        rules.append('Only when they ask for a more private or adult conversation, you MAY briefly '
+                     'invite them back to your existing Fanvue conversation. Prefix [[REMIND]]; '
+                     'you may name Fanvue but never include a URL or handle. Keep the invitation '
+                     'non-explicit, in your established voice, with no pressure or promise. '
+                     'This is a limited reminder, not a new sales pitch. Never mention OnlyFans.')
+    else:
+        rules.append('Never promote or name Fanvue/OnlyFans here.')
     telegram = offer.get('telegram_link', offer.get('link') and nastavenia.get('funnel_target') == 'telegram')
     linkpage = offer.get('bio_link', offer.get('link') and nastavenia.get('funnel_target') == 'bio_link')
     if telegram:
@@ -36,10 +50,10 @@ def blok(nastavenia: Dict[str, Any], pozvala_uz: int = 0, offer=None) -> str:
         rules.append('A relevant link-page invitation MAY instead point to the existing link in Instagram Highlights. '
                      'Prefix [[HIGHLIGHTS]] and formulate it naturally in your own voice and conversation language. '
                      'No fixed phrase, URL, invented location or discussion of quotas/algorithms.')
-    elif offer.get('remind'):
+    elif offer.get('remind') and not offer.get('fanvue_customer'):
         rules.append('This person already has your link in this chat. Only if they ask again or keep pressing, '
                      'prefix [[REMIND]] and briefly refer to that existing message. No second URL, even to another destination.')
-    elif not telegram and not linkpage:
+    elif not telegram and not linkpage and not offer.get('fanvue_return'):
         rules.append('No invitation or reminder is available for this response. Just answer the conversation.')
     if offer.get('photo'):
         rules.append('One owner-approved ordinary SFW photo is available for this person. If asked for a normal photo '
