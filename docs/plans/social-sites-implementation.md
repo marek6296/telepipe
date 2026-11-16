@@ -89,10 +89,15 @@ tab/label registry files. Contracts are `web/lib/social-types.ts`.
 
 ## Verification before release
 
-- Worker: 2,651 passed, 2 deselected.
+- Worker: 2,658 passed, 2 deselected.
 - PGlite: Social sites, shared conversations, Fanvue schedule contracts passed.
 - Web: policy/server/UI scripts, scoped ESLint, typecheck and production build passed.
 - Independent review: mirror resurrection, IG safe retry, late imports and provider
   account changes addressed; no remaining critical/important finding.
 - Database migration applied; authenticated has neither queue SELECT nor enqueue EXECUTE.
 - No live customer send/seen and no local worker were used during verification.
+
+Live verification also exposed legacy Instagram intent markers in proposals.
+The follow-up preview migration renders them for review, freezes canonical text
+in the command, and keeps the original suggestion array for CAS. Worker current
+offer validation must resolve the same text; a changed URL cannot replace it.

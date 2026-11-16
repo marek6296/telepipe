@@ -88,7 +88,9 @@ export async function socialPending(ctx: SocialContext, contact: SocialContact):
   const row = checked(result,"Could not load reply suggestions.");
   if (!row) return null;
   if (row.conv_key !== contact.externalId && !(contact.channel === "instagram" && row.conv_key.split(":")[0] === contact.externalId)) return null;
-  return {id:row.id,channel:contact.channel,convKey:row.conv_key,suggestions:Array.isArray(row.suggestions) ? row.suggestions.filter((v: unknown): v is string => typeof v === "string") : [],incomingPreview:row.incoming_preview || "",hint:row.hint || "",createdAt:row.created_at,updatedAt:row.updated_at};
+  const suggestions = Array.isArray(row.suggestions) ? row.suggestions.filter((v: unknown): v is string => typeof v === "string") : [];
+  const previews = contact.channel === "instagram" ? checked(await ctx.db.rpc("social_instagram_previews",{p_model:ctx.model.id,p_suggestions:suggestions}),"Could not prepare the exact reply preview.") as (string|null)[] : suggestions;
+  return {id:row.id,channel:contact.channel,convKey:row.conv_key,suggestions,previews,incomingPreview:row.incoming_preview || "",hint:row.hint || "",createdAt:row.created_at,updatedAt:row.updated_at};
 }
 
 export function mapSocialCommand(row: Row, actionState?: string): SocialCommand {

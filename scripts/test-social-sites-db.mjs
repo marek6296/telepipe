@@ -32,7 +32,7 @@ try {
   for(const name of ['20261116090354_shared_conversations.sql','20261116093007_conversation_rollout_controls.sql',
     '20261116101120_identity_change_pending_replies.sql','20261116152955_instagram_destination_budgets.sql',
     '20261116154902_instagram_unanswered_recovery.sql','20261116182921_conversation_message_times.sql',
-    '20261116220950_social_sites_inbox.sql']) await db.exec(await read(name));
+    '20261116220950_social_sites_inbox.sql','20261116223529_social_instagram_suggestion_previews.sql']) await db.exec(await read(name));
   assert.ok((await one("select to_regclass('public.social_commands') as table_name")).table_name,'durable social queue must exist');
   await db.query(`insert into accounts(id) values($1),($2)`,[owner,foreignOwner]);
   await db.query(`insert into models(id,account_id,claimed_by,heartbeat_at) values($1,$2,'worker-a',now()),($3,$4,'worker-b',now())`,[m,owner,other,foreignOwner]);
@@ -175,6 +175,15 @@ try {
   await db.query(`insert into instagram(model_id,connected,enabled,reply_mode,ig_user_id) values($1,true,false,'off','ig-account')`,[m]);
   await db.query(`insert into ig_users(model_id,igsid,last_source_mid,last_incoming_at,human_takeover) values($1,'123','provider-in',now(),true)`,[m]);
   await db.query(`insert into ig_messages(model_id,igsid,mid,role,content,occurred_at) values($1,'123','provider-in','user','hello',now())`,[m]);
+  await db.query("update instagram set telegram_handle='example_account',bio_link='https://linkovne.com/example',funnel_target='both' where model_id=$1",[m]);
+  assert.deepEqual(await rpc('social_instagram_previews',[m,['[[REMIND]] see you there','check my highlights [[HIGHLIGHTS]]','join me [[TELEGRAM]]','[[LINKPAGE]]','[[PHOTO]]','[[REMIND]] [[LINK]]','[[UNKNOWN]]']]),
+    ['see you there','check my highlights','join me https://t.me/example_account','https://linkovne.com/example',null,null,null]);
+  const intentDraft=await one(`insert into pending_replies(model_id,channel,conv_key,suggestions) values($1,'instagram','123','["[[REMIND]] see you there"]') returning id`,[m]);
+  const canonical=await enqueue({channel:'instagram',external:'123',operation:'approve',pending:intentDraft.id,suggestions:['[[REMIND]] see you there'],text:'see you there'});
+  assert.equal(canonical.text,'see you there','the command freezes the exact displayed text, without internal markers');
+  await assert.rejects(enqueue({channel:'instagram',external:'123',operation:'approve',pending:intentDraft.id,suggestions:['[[REMIND]] see you there'],text:'changed after review'}),/not a suggestion/);
+  await db.query("update social_commands set status='failed' where id=$1",[canonical.id]);
+  await db.query("update pending_replies set status='superseded' where id=$1",[intentDraft.id]);
   let ig=await enqueue({channel:'instagram',external:'123',scope:'ig-account',text:'Plain manual answer'});
   let igClaim=await rpc('social_claim',[m,'worker-a']);
   await rpc('social_start_send',[m,ig.id,igClaim.lease_token,'worker-a']);

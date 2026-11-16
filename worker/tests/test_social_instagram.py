@@ -16,6 +16,8 @@ class OperatorDb(FakeDb):
             target_id=target, source_mid=source_mid, source_at=source_at,
             expires_at=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(),
             lease_token='action-lease', payload={'origin': 'operator', 'command_id': cmd['id'],
+                'operator_operation': cmd['operation'],
+                'approved_intent': cmd.get('approved_intent'),
                 'approved_source_mid': source_mid, 'account_id': MOJE_ID}, text=cmd['text'])
         self.queue['op'] = action
         return dict(action)
@@ -148,3 +150,68 @@ async def test_terminal_ig_action_never_restores_unusable_pending(monkeypatch):
                                                   pending_id='pending', operation='approve'), AsyncMock(return_value=True))
     assert result.status == 'blocked' and result.result['safe_to_retry']
     assert result.result['restore_pending'] is False
+
+
+@pytest.mark.parametrize('operation,text,expected', [
+    ('approve', '[[REMIND]] hey, you can find it there', 'hey, you can find it there'),
+    ('send_text', '[[REMIND]] hey, you can find it there', None),
+    ('approve', '[[PHOTO]]', None),
+    ('approve', '[[REMIND]] [[PHOTO]] hey', None),
+])
+async def test_only_approved_legacy_text_markers_are_rendered(monkeypatch, operation, text, expected):
+    import instagram_api as api
+    raw = thread(datetime.now(timezone.utc))
+    db = OperatorDb(reply_mode='semi')
+    agent = InstagramAgent(db, FakeLlm())
+    await db.ensure_user('fan')
+    db.users['fan']['link_sent_at'] = datetime.now(timezone.utc).isoformat()
+    monkeypatch.setattr(api, 'conversation_page', lambda *a, **k: {'data': [raw], 'after': ''})
+    monkeypatch.setattr(api, 'conversation', lambda *a, **k: raw)
+    sent, seen = [], []
+    monkeypatch.setattr(api, 'mark_seen', lambda *a, **k: seen.append(True))
+    monkeypatch.setattr(api, 'posli_text', lambda *a, **k: sent.append(a[2]) or {'message_id': 'sent'})
+    result = await agent.deliver_operator(command(channel='instagram', external_id='fan', account_scope=MOJE_ID,
+        pending_id='pending' if operation == 'approve' else None, operation=operation,
+        text=expected or text, expected_suggestions=[text]), AsyncMock(return_value=True))
+    assert result.status == ('done' if expected else 'blocked')
+    assert sent == ([expected] if expected else [])
+    assert seen == ([True] if expected else [])
+    if expected:
+        assert db.queue['op']['text'] == expected
+        assert db.queue['op']['payload']['approved_intent'] == text
+
+
+async def test_approved_marker_cannot_authorize_unrelated_text_transformation(monkeypatch):
+    import instagram_api as api
+    import instagram_interactions as interactions
+    raw = thread(datetime.now(timezone.utc))
+    db = OperatorDb(reply_mode='semi')
+    agent = InstagramAgent(db, FakeLlm())
+    monkeypatch.setattr(api, 'conversation_page', lambda *a, **k: {'data': [raw], 'after': ''})
+    monkeypatch.setattr(api, 'conversation', lambda *a, **k: raw)
+    monkeypatch.setattr(interactions, 'prepare_response', lambda *a, **k: {
+        'kind': 'dm', 'text': 'unreviewed different words', 'link': False, 'reminder': True, 'link_target': ''})
+    result = await agent.deliver_operator(command(channel='instagram', external_id='fan', account_scope=MOJE_ID,
+        pending_id='pending', operation='approve', text='reviewed words',
+        expected_suggestions=['[[REMIND]] reviewed words']), AsyncMock(return_value=True))
+    assert result.status == 'blocked'
+    assert result.reason == 'approved_text_unavailable'
+
+
+@pytest.mark.parametrize('current_handle,allowed', [('simona_here', True), ('changed_here', False)])
+async def test_approved_marker_keeps_the_exact_displayed_url(monkeypatch, current_handle, allowed):
+    import instagram_api as api
+    raw = thread(datetime.now(timezone.utc))
+    db = OperatorDb(reply_mode='semi', telegram_handle=current_handle)
+    agent = InstagramAgent(db, FakeLlm())
+    monkeypatch.setattr(api, 'conversation_page', lambda *a, **k: {'data': [raw], 'after': ''})
+    monkeypatch.setattr(api, 'conversation', lambda *a, **k: raw)
+    sent = []
+    monkeypatch.setattr(api, 'mark_seen', lambda *a, **k: None)
+    monkeypatch.setattr(api, 'posli_text', lambda *a, **k: sent.append(a[2]) or {'message_id': 'sent'})
+    canonical = 'come chat https://t.me/simona_here'
+    result = await agent.deliver_operator(command(channel='instagram', external_id='fan', account_scope=MOJE_ID,
+        pending_id='pending', operation='approve', text=canonical,
+        expected_suggestions=['come chat [[TELEGRAM]]']), AsyncMock(return_value=True))
+    assert result.status == ('done' if allowed else 'blocked')
+    assert sent == ([canonical] if allowed else [])

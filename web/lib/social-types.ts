@@ -78,6 +78,7 @@ export type SocialPending = {
   channel: SocialChannel;
   convKey: string;
   suggestions: string[];
+  previews?: (string | null)[];
   incomingPreview: string;
   hint: string;
   createdAt: string;

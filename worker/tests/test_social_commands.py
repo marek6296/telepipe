@@ -8,9 +8,12 @@ from social_commands import DeliveryResult, SocialCommands
 
 
 def command(**patch):
-    return {**dict(id='c1', model_id='model', operation='send_text', channel='telegram',
+    result = {**dict(id='c1', model_id='model', operation='send_text', channel='telegram',
                 external_id='555', account_scope='primary', text='exact owner text',
                 lease_token='lease', status='working'), **patch}
+    if result['operation'] == 'approve' and 'expected_suggestions' not in result:
+        result['expected_suggestions'] = [result['text']]
+    return result
 
 
 def setup(job=None):

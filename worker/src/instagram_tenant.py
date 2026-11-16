@@ -268,7 +268,10 @@ class TenantInstagramDb:
         from conversation_policy import parse_time
         now = datetime.now(timezone.utc)
         payload = {'origin': 'operator', 'command_id': command['id'],
+                   'operator_operation': command['operation'],
                    'account_id': command['account_scope'], 'approved_source_mid': source_mid}
+        if command['operation'] == 'approve':
+            payload['approved_intent'] = command.get('approved_intent') or ''
         patch = {'state': 'leased', 'lease_token': str(uuid4()),
                  'lease_until': (now + timedelta(minutes=2)).isoformat(), 'text': command['text']}
         if command.get('pending_id'):

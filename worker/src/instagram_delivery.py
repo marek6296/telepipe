@@ -339,11 +339,13 @@ class InstagramDelivery:
                         if not current_offer['photo']:
                             await self.db.change_action(action, {'state': 'blocked', 'reason': 'photo_no_longer_allowed'})
                             return
-                    raw_text = '[[PHOTO]]' if action['kind'] == 'photo' else action.get('text') if action['payload'].get('approved_source_mid') else await self.agent._napis(user, action['igsid'], cfg)
+                    approved_raw = (action['payload'].get('approved_intent')
+                        if operator and action['payload'].get('operator_operation') == 'approve' else action.get('text'))
+                    raw_text = '[[PHOTO]]' if action['kind'] == 'photo' else approved_raw if action['payload'].get('approved_source_mid') else await self.agent._napis(user, action['igsid'], cfg)
                     from instagram_interactions import prepare_response
                     offer = await self.offer_state(cfg, user)
                     prepared = prepare_response(raw_text or '', cfg, offer)
-                    if operator and (prepared['kind'] != 'dm' or prepared['text'] != action['text']):
+                    if operator and (prepared['kind'] != 'dm' or not prepared['text'] or prepared['text'] != action['text']):
                         await self.db.change_action(action, {'state': 'blocked', 'reason': 'text_not_allowed'})
                         return
                     if prepared['kind'] == 'photo':
@@ -459,6 +461,23 @@ class InstagramDelivery:
         user = await self.db.user(command['external_id']) or {}
         if not in_window(user.get('last_incoming_at')):
             return DeliveryResult.blocked('window_expired', restore_pending=False)
+        if command['operation'] == 'approve':
+            # Old proposals may contain intents such as [[REMIND]]. The command
+            # freezes the exact text/URL shown in the web UI, while the reviewed
+            # raw array lets us recover its meaning without inventing a new one.
+            from instagram_interactions import prepare_response
+            offer = await self.offer_state(cfg, user)
+            intent = None
+            for candidate in command.get('expected_suggestions') or []:
+                if not isinstance(candidate, str):
+                    continue
+                prepared = prepare_response(candidate, cfg, offer)
+                if prepared['kind'] == 'dm' and prepared['text'] and prepared['text'] == command['text']:
+                    intent = candidate
+                    break
+            if intent is None:
+                return DeliveryResult.blocked('approved_text_unavailable')
+            command = {**command, 'approved_intent': intent}
         if not await before_send():
             return DeliveryResult.blocked('stale_context')
         if command['operation'] == 'send_text' and cfg.get('reply_mode') == 'auto':
@@ -487,7 +506,7 @@ class InstagramDelivery:
                 and not current.get('reserved_at')
                 and (current.get('payload') or {}).get('command_id') == command['id']):
             payload = {k: v for k, v in (current.get('payload') or {}).items()
-                       if k not in ('origin', 'command_id', 'approved_source_mid')}
+                       if k not in ('origin', 'command_id', 'operator_operation', 'approved_intent', 'approved_source_mid')}
             restored = await self.db.change_action(current, {'state': 'approval', 'payload': payload,
                 'lease_token': None, 'lease_until': None}, state=state)
             return DeliveryResult.blocked(current.get('reason') or 'delivery_blocked', restore_pending=bool(restored))

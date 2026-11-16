@@ -59,7 +59,7 @@ export function validateSocialCommand(input: unknown, contact: SocialContact, pe
   if (Array.from(text).length > 4000 || brief.length > 2000) throw new SocialError("This message is too long.");
   if (contact.channel === "instagram" && new TextEncoder().encode(text).length > 1000)
     throw new SocialError("Instagram messages must fit within 1,000 bytes. Shorten this reply.");
-  if (raw.operation === "approve" && !pending?.suggestions.includes(text))
+  if (raw.operation === "approve" && !(pending?.previews || pending?.suggestions || []).includes(text))
     throw new SocialError("Approve a displayed suggestion, or send your own text.", 409);
   return {
     requestId: raw.requestId, operation: raw.operation as SocialCommandInput["operation"], contactKey: contact.key,

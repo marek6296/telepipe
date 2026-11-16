@@ -26,6 +26,9 @@ assert.deepEqual(parseSocialQuery(new URLSearchParams("offset=-3&filter=nope&cha
   {search:"",channel:"all",filter:"all",offset:0});
 
 assert.equal(validateSocialCommand(base,contact,pending as never).text,"hello");
+const intent = {...pending,suggestions:["[[REMIND]] see you there"],previews:["see you there"]};
+assert.equal(validateSocialCommand({...base,expectedSuggestions:intent.suggestions,text:"see you there"},contact,intent as never).text,"see you there");
+assert.throws(() => validateSocialCommand({...base,expectedSuggestions:intent.suggestions,text:"[[REMIND]] see you there"},contact,intent as never));
 for (const patch of [
   {requestId:"bad"},{operation:"delete"},{contactKey:"instagram:124"},{expectedSourceId:"8"},{expectedAccountScope:"different-account"},
   {identityId:requestId},{pendingId:"another"},{expectedSuggestions:["new"]},{text:"not displayed"},
