@@ -84,7 +84,7 @@ tab/label registry files. Contracts are `web/lib/social-types.ts`.
 - [x] Render real UI with isolated fake data on desktop 1440, mobile 390 and
   dialog 320 px; check overflow, draft isolation, and keyboard-safe dialogs.
   Production browser verification follows deployment.
-- [ ] Apply reviewed migration, commit/push, deploy web and pinned worker. Verify
+- [x] Apply reviewed migration, commit/push, deploy web and pinned worker. Verify
   production read-only page/health and update vault with actual shipped behavior.
 
 ## Verification before release
@@ -101,3 +101,14 @@ Live verification also exposed legacy Instagram intent markers in proposals.
 The follow-up preview migration renders them for review, freezes canonical text
 in the command, and keeps the original suggestion array for CAS. Worker current
 offer validation must resolve the same text; a changed URL cannot replace it.
+
+## Production verification
+
+Runtime `39a5309dfe96f2da4652d1c150a4535b53a6e34d` is deployed on Railway
+(`78c39dba-b8fd-44d2-bcc3-27a1e4bf6d4f`, SUCCESS) and Vercel production
+(`dpl_5QNGGPwjuGh5g68P4QNtaSYQdHYQ`, READY). Both migrations applied.
+All three active tenants moved to the new replica and reported fresh heartbeats.
+The authenticated production page showed its real grouped inbox, all three linked
+channels, channel switching and three marker-free suggestions. No operator command
+was submitted during verification. Existing channel modes were preserved.
+An existing Instagram provider circuit pause remained visible and was not bypassed.
