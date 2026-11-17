@@ -98,6 +98,7 @@ export function outboxCommands(commands:SocialCommand[],messages:SocialMessage[]
 
 export function commandExplanation(command:SocialCommand):string {
   const reasons:Record<string,string>={
+    generation_empty:"No new preview was created. Refresh the conversation and try Say this again. Nothing was sent.",
     voice_preview_expired:"This voice preview expired. Generate a new voice reply.",
     voice_preview_changed:"This voice belongs to an older reply. Generate a fresh preview.",
     voice_environment_changed:"Her current location changed. Generate a new voice preview for the current setting.",

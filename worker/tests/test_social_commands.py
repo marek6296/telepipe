@@ -24,7 +24,7 @@ def setup(job=None):
         if name == 'social_start_send':
             return {**job, 'status': 'sending'}
         return True
-    transport = SimpleNamespace(_rpc=AsyncMock(side_effect=rpc))
+    transport = SimpleNamespace(_rpc=AsyncMock(side_effect=rpc), _get=AsyncMock(return_value=[{'conv_key':job['external_id'],'suggestions':job.get('expected_suggestions')}]))
     control = SimpleNamespace(_senders={}, sync_social_cards=AsyncMock())
     dispatcher = SocialCommands(transport, 'model', 'replica', control)
     return dispatcher, transport, control
@@ -296,3 +296,25 @@ async def test_slow_telegram_mirror_cannot_resurrect_web_sent_draft():
     assert b._db.rows['p1']['status'] == 'sent'
     assert 100 not in b._cards
     assert b._db.rows['p1']['control_msg_id'] is None
+
+async def test_instagram_say_this_uses_exact_pending_conversation_key():
+    job=command(operation='regenerate',channel='instagram',external_id='fan',account_scope='ig-account',pending_id='pending',expected_suggestions=['old'],brief='say you enjoyed the walk')
+    dispatcher,t,control=setup(job)
+    t._get=AsyncMock(return_value=[{'conv_key':'fan:action-id','suggestions':['old']}])
+    sender=SimpleNamespace(regenerate=AsyncMock(return_value={'suggestions':['i loved that walk']}))
+    control._senders['instagram']=sender
+    await dispatcher.tick()
+    sender.regenerate.assert_awaited_once_with('fan:action-id',seed='c1',brief='say you enjoyed the walk')
+    assert t._get.await_args.args[1]['model_id']=='eq.model'
+    assert t._get.await_args.args[1]['id']=='eq.pending'
+    assert not any(c.args[0]=='social_start_send' for c in t._rpc.await_args_list)
+
+async def test_changed_draft_blocks_say_this_before_paid_generation():
+    job=command(operation='regenerate',pending_id='pending',expected_suggestions=['old'])
+    dispatcher,t,control=setup(job)
+    t._get=AsyncMock(return_value=[{'conv_key':'555','suggestions':['new']}])
+    sender=SimpleNamespace(regenerate=AsyncMock())
+    control._senders['telegram']=sender
+    await dispatcher.tick()
+    sender.regenerate.assert_not_awaited()
+    assert t._rpc.await_args.args[1]['p_status']=='stale'

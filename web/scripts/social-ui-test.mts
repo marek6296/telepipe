@@ -89,3 +89,4 @@ assert.equal(outboxCommands([queued],[{...message("299","approved reply"),role:"
 assert.match(commandExplanation({...command,status:"blocked",reason:"provider_pause"}),/temporarily paused/);
 assert.match(commandExplanation({...command,status:"blocked",reason:"provider_pause"}),/not sent/);
 assert.equal(commandExplanation({...command,reason:""}),"");
+assert.match(commandExplanation({...command,status:'blocked',reason:'generation_empty'}),/Nothing was sent/);

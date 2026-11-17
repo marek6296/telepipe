@@ -50,6 +50,22 @@ class SocialCommands:
                 log.exception('model %s: social command poll failed', self.model_id)
             await asyncio.sleep(1)
 
+    async def regeneration_key(self, command):
+        # Instagram's sender requires the exact pending action key (fan:action),
+        # whereas Telegram/Fanvue use the contact ID. Resolve only the fenced
+        # tenant-owned proposal; never pick a different/newer draft by contact.
+        rows = await self.transport._get('/pending_replies', {
+            'model_id': 'eq.' + self.model_id, 'id': 'eq.' + command['pending_id'],
+            'channel': 'eq.' + command['channel'], 'status': 'eq.awaiting',
+            'select': 'conv_key,suggestions', 'limit': '1'})
+        if not rows or rows[0]['suggestions'] != command.get('expected_suggestions'):
+            return None
+        key = str(rows[0].get('conv_key') or '')
+        external = command['external_id']
+        if key == external or (command['channel'] == 'instagram' and key.split(':', 1)[0] == external and ':' in key):
+            return key
+        return None
+
     async def tick(self):
         command = await self.rpc('claim', worker=self.worker_id)
         if not command:
@@ -73,7 +89,12 @@ class SocialCommands:
                 if not pending:
                     outcome = DeliveryResult.blocked('draft_required')
                 else:
-                    key = command.get('conv_key') or command['external_id']
+                    key = await self.regeneration_key(command)
+                    if key is None:
+                        await self.rpc('finish', command=command['id'], lease=command['lease_token'],
+                                       status='stale', result={}, reason='draft_changed')
+                        await self.control.sync_social_cards()
+                        return
                     output = await sender.regenerate(key, seed=command['id'], brief=command.get('brief') or '')
                     suggestions = [s for s in (output or {}).get('suggestions', []) if isinstance(s, str) and s.strip()]
                     if not suggestions:
