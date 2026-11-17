@@ -19,7 +19,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
   const { skipSocialPending, submitSocialCommand } = transport;
   const params = new URLSearchParams({ channel: contact.channel, externalId: contact.externalId });
   const url = `/api/models/${modelId}/social/thread?${params}`;
-  const resource = useSocialResource<SocialThread>(url, initialThread, mergeThread);
+  const resource = useSocialResource<SocialThread>(url, initialThread, mergeThread, threadPollInterval);
   const thread = resource.data;
   const current = thread?.contact ?? contact;
   const [olderLoading, setOlderLoading] = useState(false);
@@ -189,3 +189,5 @@ function Message({ message, refreshPlayback }: { message: SocialMessage; refresh
     <p className="mt-1 text-right text-[9px] leading-4 text-[var(--app-text-4)]" title={message.occurredAt ? `${message.occurredAt} · original message time` : "Original message time is unknown. Import time is not shown as message time."}>{sourceTime(message.occurredAt)}</p>
   </div></div>;
 }
+
+function threadPollInterval(thread:SocialThread|undefined) { return thread?.commands.some(commandInProgress) ? 1000 : 5000; }

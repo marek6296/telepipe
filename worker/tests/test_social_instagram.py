@@ -46,6 +46,7 @@ async def test_operator_text_uses_reservation_and_exact_text_even_when_off(monke
     db.users['fan']['human_takeover'] = True
     monkeypatch.setattr(api, 'conversation_page', lambda *a, **k: {'data': [raw], 'after': ''})
     monkeypatch.setattr(api, 'conversation', lambda *a, **k: raw)
+    agent._delivery.ingest = AsyncMock(wraps=agent._delivery.ingest)
     seen, sends = [], []
     monkeypatch.setattr(api, 'mark_seen', lambda *a, **k: seen.append(True))
     def send(*args, **kwargs):
@@ -57,6 +58,7 @@ async def test_operator_text_uses_reservation_and_exact_text_even_when_off(monke
                                           AsyncMock(return_value=True))
     assert result.status == 'done'
     assert sends == ['exact owner text'] and seen == [True]
+    assert agent._delivery.ingest.await_count == 1, 'Unchanged provider snapshot must not be reconciled twice during one send'
 
 
 async def test_operator_expired_window_has_no_seen_or_send(monkeypatch):
@@ -143,7 +145,7 @@ async def test_terminal_ig_action_never_restores_unusable_pending(monkeypatch):
     db = OperatorDb(reply_mode='semi')
     agent = InstagramAgent(db, FakeLlm())
     monkeypatch.setattr(api, 'conversation_page', lambda *a, **k: {'data': [raw], 'after': ''})
-    async def expired(cfg, action=None, before_send=None):
+    async def expired(cfg, action=None, before_send=None, **kwargs):
         db.queue['op'].update(state='expired', reason='window_expired')
     agent._delivery.process_one = expired
     result = await agent.deliver_operator(command(channel='instagram', external_id='fan', account_scope=MOJE_ID,
@@ -215,3 +217,19 @@ async def test_approved_marker_keeps_the_exact_displayed_url(monkeypatch, curren
         expected_suggestions=['come chat [[TELEGRAM]]']), AsyncMock(return_value=True))
     assert result.status == ('done' if allowed else 'blocked')
     assert sent == ([canonical] if allowed else [])
+
+async def test_operator_still_imports_changed_snapshot_before_sending(monkeypatch):
+    import copy
+    import instagram_api as api
+    raw = thread(datetime.now(timezone.utc))
+    changed = copy.deepcopy(raw)
+    changed['messages']['data'][0]['message'] = 'new provider message content'
+    db = OperatorDb(reply_mode='off', enabled=False)
+    agent = InstagramAgent(db, FakeLlm())
+    agent._delivery.ingest = AsyncMock(wraps=agent._delivery.ingest)
+    monkeypatch.setattr(api, 'conversation_page', lambda *a, **k: {'data': [raw], 'after': ''})
+    monkeypatch.setattr(api, 'conversation', lambda *a, **k: changed)
+    monkeypatch.setattr(api, 'mark_seen', lambda *a, **k: None)
+    monkeypatch.setattr(api, 'posli_text', lambda *a, **k: {'message_id': 'sent'})
+    await agent.deliver_operator(command(channel='instagram', external_id='fan', account_scope=MOJE_ID), AsyncMock(return_value=True))
+    assert any(call.args[0] == changed for call in agent._delivery.ingest.await_args_list), 'Changed remote history must still be reconciled'

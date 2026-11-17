@@ -48,7 +48,7 @@ class SocialCommands:
             except Exception:
                 # Never print command bodies or provider responses into logs.
                 log.exception('model %s: social command poll failed', self.model_id)
-            await asyncio.sleep(3)
+            await asyncio.sleep(1)
 
     async def tick(self):
         command = await self.rpc('claim', worker=self.worker_id)

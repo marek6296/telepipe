@@ -269,10 +269,11 @@ class InstagramDelivery:
         return not any(a.get('source_mid') == target or (a.get('payload') or {}).get('reply_to_mid') == target
                        for a in terminal)
 
-    async def refresh_action(self, cfg, action, *, state='leased', source_message_id=None):
+    async def refresh_action(self, cfg, action, *, state='leased', source_message_id=None, reconciled_raw=None):
         """Import a fresh provider snapshot, then validate this exact reply target."""
         raw = await asyncio.to_thread(api.conversation, cfg['access_token'], action['target_id'])
-        await self.ingest(raw, cfg, process_media=False)
+        if raw != reconciled_raw:
+            await self.ingest(raw, cfg, process_media=False)
         fresh = api.rozober(raw, cfg['ig_user_id'])
         latest = fresh['spravy'][-1] if fresh['spravy'] else {}
         operator = (action.get('payload') or {}).get('origin') == 'operator'
@@ -327,7 +328,7 @@ class InstagramDelivery:
                    and parse_time(current.get('test_until')) and parse_time(current['test_until']) > utcnow())
         return '' if testing or (block and in_active_window(local, behavior.active_start_min, behavior.active_end_min)) else 'sleeping'
 
-    async def process_one(self, cfg, action=None, before_send=None):
+    async def process_one(self, cfg, action=None, before_send=None, *, reconciled_raw=None):
         action = action or await self.db.rpc('claim')
         if not action:
             return
@@ -363,7 +364,10 @@ class InstagramDelivery:
                 link = reminder = False
             else:
                 raw = await asyncio.to_thread(api.conversation, cfg['access_token'], action['target_id'])
-                await self.ingest(raw, cfg, process_media=False)
+                # deliver_operator already reconciled this snapshot. Still fetch
+                # Meta again, and re-import if ANY provider content changed.
+                if not operator or raw != reconciled_raw:
+                    await self.ingest(raw, cfg, process_media=False)
                 user = await self.db.user(action['igsid']) or {}
                 current = await self.db.action(action['id'])
                 if not current or current['state'] != 'leased':
@@ -386,7 +390,7 @@ class InstagramDelivery:
                     if reason := await self.send_readiness(cfg, action):
                         await self.defer(action, reason, minutes=0)
                         return
-                    if not await self.refresh_action(cfg, action, source_message_id=source_message_id):
+                    if not await self.refresh_action(cfg, action, source_message_id=source_message_id, reconciled_raw=raw if operator else None):
                         return
                     # Versioned conversation key: an old card cannot approve a new message.
                     changed = await self.db.change_action(action, {'state': 'approval', 'lease_until': None})
@@ -434,7 +438,7 @@ class InstagramDelivery:
                 return
             # Final remote freshness read after generation. DB reservation follows immediately.
             if action['kind'] != 'comment':
-                if not await self.refresh_action(cfg, action, source_message_id=source_message_id):
+                if not await self.refresh_action(cfg, action, source_message_id=source_message_id, reconciled_raw=raw if operator else None):
                     return
             correction = {}
             if action['kind'] == 'dm' and cfg.get('typo_enabled') and not action['payload'].get('approved_source_mid') and not link and not reminder:
@@ -556,7 +560,7 @@ class InstagramDelivery:
         if not action:
             return DeliveryResult.blocked('draft_changed', restore_pending=False)
         try:
-            await self.process_one(cfg, action=action, before_send=before_send)
+            await self.process_one(cfg, action=action, before_send=before_send, reconciled_raw=raw)
         except Exception:
             # Durable action state determines whether the exception preceded send.
             current = await self.db.action(action['id']) or {}

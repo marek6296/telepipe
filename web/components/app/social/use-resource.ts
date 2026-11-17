@@ -7,9 +7,11 @@ import { useSocialTransport } from "./transport";
 type Resource<T> = { url: string; data?: T; error: string; loading: boolean };
 
 /** Read-only polling. A response can update only the URL that requested it. */
-export function useSocialResource<T>(url: string, initial?: T, merge?: (previous: T, next: T) => T) {
+export function useSocialResource<T>(url: string, initial?: T, merge?: (previous: T, next: T) => T, pollMs:number|((data:T|undefined)=>number) = 5000) {
   const { transport, active } = useSocialTransport();
   const [state, setState] = useState<Resource<T>>({ url, data: initial, error: "", loading: !initial });
+  const pollInterval = useRef(5000);
+  useEffect(() => { pollInterval.current = typeof pollMs === "function" ? pollMs(state.data) : pollMs; }, [pollMs,state.data]);
   const request = useRef<AbortController | null>(null);
   const scope = useRef<ReturnType<typeof createReadScope> | null>(null);
 
@@ -48,10 +50,11 @@ export function useSocialResource<T>(url: string, initial?: T, merge?: (previous
       else { request.current?.abort(); reader.begin(); }
     };
     visibleRefresh();
+    let lastPoll = 0;
     const timer = window.setInterval(() => {
       // Do not abort a slow healthy request every five seconds.
-      if (document.visibilityState === "visible" && !request.current) void refresh();
-    }, 5000);
+      if (document.visibilityState === "visible" && !request.current && Date.now()-lastPoll >= pollInterval.current) { lastPoll = Date.now(); void refresh(); }
+    }, 1000);
     window.addEventListener("focus", visibleRefresh);
     window.addEventListener("online", visibleRefresh);
     document.addEventListener("visibilitychange", visibleRefresh);
