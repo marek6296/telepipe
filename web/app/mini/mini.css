@@ -15,8 +15,10 @@
 .mini-shell .mini-chat-open .social-workspace-columns, .mini-shell .mini-chat-open .social-conversation-column, .mini-shell .social-conversation, .mini-shell .social-conversation-card { display:flex; flex-direction:column; flex:1; min-height:0; width:100%; }
 .mini-shell .social-conversation-card { border:0; border-radius:0; }
 .mini-shell .social-conversation-card > :not(.social-conversation-body) { flex-shrink:0; }
-.mini-shell .social-conversation-body { min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; }
-.mini-shell .social-history { height:auto; min-height:160px; overflow:visible; }
+.mini-shell .social-conversation-body { display:flex; flex-direction:column; min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; }
+.mini-shell .social-conversation-body > * { flex-shrink:0; }
+/* Give spare height to the conversation, never a blank area below its controls. */
+.mini-shell .social-history { display:flex; flex-direction:column; justify-content:flex-end; flex:1 0 auto; height:auto; min-height:160px; overflow:visible; }
 .mini-shell .social-exact-composer { background:var(--app-surface); padding:10px 16px 12px; }
 .mini-shell .social-exact-composer textarea { min-height:54px; max-height:120px; resize:none; }
 .mini-shell .social-exact-composer label { font-size:10px; }
