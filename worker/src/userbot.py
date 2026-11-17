@@ -2689,10 +2689,14 @@ class UserBot:
                 await self._client.send_read_acknowledge(tg_id)
             except Exception:
                 pass
+            from operator_delivery import composition_pause
+            await composition_pause(text)
             try:
                 await self._sync_native_outgoing(tg_id)
             except Exception:
                 return DeliveryResult.blocked('telegram_sync_failed')
+            if reason := await ready():
+                return DeliveryResult.blocked(reason)
             if not await before_send():
                 return DeliveryResult.blocked('stale_context')
             try:

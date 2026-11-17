@@ -82,3 +82,12 @@ def no_live_instagram_http(request, monkeypatch):
         def blocked(*args, **kwargs):
             raise AssertionError('Instagram test attempted live HTTP; mock the provider boundary')
         monkeypatch.setattr(instagram_api, '_volaj', blocked)
+
+
+@pytest.fixture(autouse=True)
+def no_operator_wait(monkeypatch):
+    # Provider send tests must not wait for real typing; dedicated delay tests
+    # retain the original function reference to exercise its timing contract.
+    from unittest.mock import AsyncMock
+    import operator_delivery
+    monkeypatch.setattr(operator_delivery, "composition_pause", AsyncMock())

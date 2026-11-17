@@ -87,3 +87,11 @@ export function personChannelView(person:SocialPerson, channel:SocialChannel|"al
 export function waitingMessageCount(contacts:SocialContact[],channel:SocialChannel|"all"="all"):number {
   return contacts.filter(c=>channel==="all" || c.channel===channel).reduce((n,c)=>n+(c.waitingMessageCount || 0),0);
 }
+
+/** Pending outbox is UI-only; authoritative history receives a turn after delivery. */
+export function outboxCommands(commands:SocialCommand[],messages:SocialMessage[]):SocialCommand[] {
+  return commands.filter(c=>c.operation!=="regenerate" && c.text && !messages.some(m=>m.role==="assistant" && (
+    c.providerMessageId && m.providerId ? c.providerMessageId===m.providerId
+    : c.status==="done" && ["sent","delivered"].includes(c.deliveryState || "") && m.content===c.text && m.occurredAt && Date.parse(m.occurredAt)>=Date.parse(c.createdAt)-5000
+  ))).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
+}

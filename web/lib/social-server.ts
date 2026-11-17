@@ -103,7 +103,7 @@ export async function socialPending(ctx: SocialContext, contact: SocialContact):
 
 export function mapSocialCommand(row: Row, actionState?: string): SocialCommand {
   const result = row.result && typeof row.result === "object" ? row.result as Row : {};
-  return {id:str(row.id),operation:row.operation as SocialCommand["operation"],channel:row.channel as SocialChannel,externalId:str(row.external_id),text:str(row.text),status:row.status as SocialCommand["status"],deliveryState:actionState || str(result.delivery_state) || null,reason:str(row.reason),createdAt:str(row.created_at)};
+  return {providerMessageId:str(result.provider_message_id)||null,id:str(row.id),operation:row.operation as SocialCommand["operation"],channel:row.channel as SocialChannel,externalId:str(row.external_id),text:str(row.text),status:row.status as SocialCommand["status"],deliveryState:actionState || str(result.delivery_state) || null,reason:str(row.reason),createdAt:str(row.created_at)};
 }
 
 export async function loadSocialThread(modelId: string, key: string, before?: string): Promise<SocialThread> {
@@ -114,7 +114,7 @@ export async function loadSocialThread(modelId: string, key: string, before?: st
   const table = channel === "telegram" ? "dm_messages" : channel === "fanvue" ? "fv_messages" : "ig_messages";
   const externalColumn = channel === "telegram" ? "tg_id" : channel === "fanvue" ? "fan_uuid" : "igsid";
   const timestamp = channel === "telegram" ? "created_at" : "occurred_at";
-  const columns = `id,role,content,created_at${channel !== "telegram" ? ",occurred_at" : ""}${channel === "instagram" ? ",metadata" : ""}`;
+  const columns = `id,role,content,created_at,${channel === "telegram" ? "provider_message_id" : channel === "fanvue" ? "message_uuid" : "mid"}${channel !== "telegram" ? ",occurred_at" : ""}${channel === "instagram" ? ",metadata" : ""}`;
   let messagesQuery = ctx.db.from(table).select(columns).eq("model_id",modelId).eq(externalColumn,contact.externalId);
   if (before) {
     const cursorResult = await ctx.db.from(table).select(`id,${timestamp}`).eq("model_id",modelId).eq(externalColumn,contact.externalId).eq("id",before).maybeSingle();

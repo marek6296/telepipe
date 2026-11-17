@@ -94,7 +94,7 @@ export function mapSocialMessage(channel: SocialChannel, row: Record<string, unk
   const meta = row.metadata && typeof row.metadata === "object" ? row.metadata as Record<string, unknown> : {};
   const kind = str(meta.kind);
   return {
-    id: str(row.id), channel, role: row.role === "assistant" ? "assistant" : "user", content: str(row.content),
+    id: str(row.id), providerId:nullable(channel === "telegram" ? row.provider_message_id : channel === "fanvue" ? row.message_uuid : row.mid), channel, role: row.role === "assistant" ? "assistant" : "user", content: str(row.content),
     occurredAt: nullable(channel === "telegram" ? row.created_at : row.occurred_at), recordedAt: str(row.created_at),
     attachment: kind && !["dm", "text"].includes(kind) ? {kind, url: safeImageUrl(meta.url)} : null,
   };

@@ -461,6 +461,13 @@ class InstagramDelivery:
                 except api.InstagramError as exc:
                     # Optional acknowledgement failure must not lose an unsent reply.
                     log.warning('Instagram read receipt unavailable (Meta %s)', exc.kod)
+                if operator:
+                    from operator_delivery import composition_pause
+                    await composition_pause(text)
+                    # Reconcile changes arriving during the pause before sending.
+                    after_pause = await asyncio.to_thread(api.conversation, cfg['access_token'], action['target_id'])
+                    if after_pause != raw:
+                        await self.ingest(after_pause, cfg, process_media=False)
                 if reason := await self.send_readiness(cfg, action):
                     await self.db.rpc('release_unsent', action=action['id'], lease=action['lease_token'], reason=reason)
                     return

@@ -47,6 +47,10 @@ async def test_operator_text_uses_reservation_and_exact_text_even_when_off(monke
     monkeypatch.setattr(api, 'conversation_page', lambda *a, **k: {'data': [raw], 'after': ''})
     monkeypatch.setattr(api, 'conversation', lambda *a, **k: raw)
     agent._delivery.ingest = AsyncMock(wraps=agent._delivery.ingest)
+    import operator_delivery
+    async def pause(text):
+        assert seen == [True] and not sends, 'Seen must precede typing pause and send must follow it'
+    monkeypatch.setattr(operator_delivery, 'composition_pause', AsyncMock(side_effect=pause))
     seen, sends = [], []
     monkeypatch.setattr(api, 'mark_seen', lambda *a, **k: seen.append(True))
     def send(*args, **kwargs):
@@ -58,6 +62,7 @@ async def test_operator_text_uses_reservation_and_exact_text_even_when_off(monke
                                           AsyncMock(return_value=True))
     assert result.status == 'done'
     assert sends == ['exact owner text'] and seen == [True]
+    operator_delivery.composition_pause.assert_awaited_once_with('exact owner text')
     assert agent._delivery.ingest.await_count == 1, 'Unchanged provider snapshot must not be reconciled twice during one send'
 
 

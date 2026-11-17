@@ -83,6 +83,7 @@ export type SocialMessage = {
   content: string;
   occurredAt: string | null;
   recordedAt: string;
+  providerId?:string|null;
   attachment: { kind: string; url: string | null } | null;
   media?: SocialMedia[];
 };
@@ -100,6 +101,7 @@ export type SocialPending = {
 };
 
 export type SocialCommand = {
+  providerMessageId?:string|null;
   id: string;
   operation: "approve" | "regenerate" | "send_text";
   channel: SocialChannel;

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { commandInProgress, commandLabel, createReadScope, freezeIntent, mergeMessages, mergeThread, waitingChannels, personChannelView, waitingMessageCount } from "../components/app/social/state.ts";
+import { commandInProgress, commandLabel, createReadScope, freezeIntent, mergeMessages, mergeThread, waitingChannels, personChannelView, waitingMessageCount, outboxCommands } from "../components/app/social/state.ts";
 import type { SocialContact, SocialCommand, SocialCommandInput, SocialMessage, SocialPerson, SocialThread } from "../lib/social-types.ts";
 
 const command = { operation: "approve", status: "done", deliveryState: "queued" } as SocialCommand;
@@ -77,3 +77,11 @@ assert.equal(waitingMessageCount(counted),3);
 assert.equal(waitingMessageCount(counted,"instagram"),2);
 assert.equal(waitingMessageCount(counted,"fanvue"),0);
 assert.equal(waitingMessageCount([{...counted[0],waitingMessageCount:0},counted[1]]),1);
+
+const queued={...command,id:"queued-1",operation:"approve",status:"queued",text:"approved reply",createdAt:"2026-11-17T12:00:00Z"} as SocialCommand;
+assert.equal(outboxCommands([queued],[]).length,1,"Queued owner text is immediately visible without a fake history turn");
+assert.equal(outboxCommands([{...queued,status:"failed"}],[]).length,1,"Failed delivery remains visible");
+assert.equal(outboxCommands([{...queued,status:"done",providerMessageId:"provider-1"}],[{...message("300","approved reply"),role:"assistant",providerId:"provider-1"}]).length,0,"Provider history replaces the optimistic bubble");
+assert.equal(outboxCommands([{...queued,operation:"regenerate"}],[]).length,0,"Regeneration is never shown as an outgoing message");
+
+assert.equal(outboxCommands([queued],[{...message("299","approved reply"),role:"assistant",occurredAt:queued.createdAt}]).length,1,"A new queued reply identical to an earlier message stays visible");

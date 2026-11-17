@@ -115,7 +115,7 @@ async def test_tg_operator_manual_takeover_keeps_flood_and_budget_guards(monkeyp
 
 
 @pytest.mark.usefixtures('fast')
-async def test_tg_operator_can_send_exact_text_while_manual_and_taken_over():
+async def test_tg_operator_can_send_exact_text_while_manual_and_taken_over(monkeypatch):
     from test_reply_flow import build, user_row
     bot, db, _, client, _ = build(user_row(human_takeover=True), [{'role': 'user', 'content': 'hey'}], 'unused')
     db.tg_reply_mode = AsyncMock(return_value={'mode': 'off'})
@@ -124,6 +124,12 @@ async def test_tg_operator_can_send_exact_text_while_manual_and_taken_over():
     bot._denny_strop_ok = AsyncMock(return_value=True)
     bot._semi_post_update = AsyncMock()
     client.send_message = AsyncMock(return_value=SimpleNamespace(id=123))
+    import operator_delivery
+    client.send_read_acknowledge = AsyncMock()
+    async def pause(text):
+        assert client.send_read_acknowledge.await_count == 1
+        client.send_message.assert_not_awaited()
+    monkeypatch.setattr(operator_delivery,'composition_pause',AsyncMock(side_effect=pause))
     result = await bot.deliver_operator(command(), AsyncMock(return_value=True))
     assert result.status == 'done'
     client.send_message.assert_awaited_once_with(555, 'exact owner text', parse_mode=None)

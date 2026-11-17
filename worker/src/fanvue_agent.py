@@ -1713,6 +1713,8 @@ class FanvueAgent:
         if not await before_send():
             return DeliveryResult.blocked('stale_context')
         await self._api.chat_messages(key, limit=1, mark_read=True)
+        from operator_delivery import composition_pause
+        await composition_pause(text)
         if not await before_send():
             return DeliveryResult.blocked('stale_context')
         async def fresh_before_send():
