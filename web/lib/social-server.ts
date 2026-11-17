@@ -57,6 +57,9 @@ export async function loadSocialSnapshot(modelId: string, input: {search?: strin
     getTelegramConnection(model),
   ]);
   const inbox = checked(inboxResult,"Could not load the inbox.") as {contacts:Row[];total:number};
+  const contacts = (inbox?.contacts || []).map(mapSocialContact);
+  const counts = checked(await db.rpc("social_waiting_message_counts",{p_model:modelId,p_owner:ctx.userId,p_contacts:contacts.map(c=>({channel:c.channel,externalId:c.externalId,accountScope:c.accountScope}))}),"Could not load waiting message counts.") as Record<string,number>;
+  contacts.forEach(contact=>{contact.waitingMessageCount=Math.max(0,Number(counts?.[contact.key] || 0));});
   const settings = checked(settingsResult,"Could not load reply settings.");
   const fv = checked(fvResult,"Could not load Fanvue connection.");
   const ig = checked(igResult,"Could not load Instagram connection.");
@@ -74,7 +77,7 @@ export async function loadSocialSnapshot(modelId: string, input: {search?: strin
       lastSyncAt:channel === "instagram" ? ig?.sync_completed_at || null : running ? model.heartbeat_at : null,
       notice:circuit ? "Instagram is temporarily paused by a delivery safeguard." : config?.last_error ? "Connection needs attention. Open channel settings." : !running ? "Agent is offline. Replies will wait until it is running." : null};
   });
-  return {modelId,modelName:model.name,channels,people:groupSocialPeople((inbox?.contacts || []).map(mapSocialContact)),total:Number(inbox?.total || 0),offset:query.offset,pageSize:30,loadedAt:new Date().toISOString(),
+  return {modelId,modelName:model.name,channels,people:groupSocialPeople(contacts),total:Number(inbox?.total || 0),offset:query.offset,pageSize:30,loadedAt:new Date().toISOString(),
     agent:{running,status:model.status,paused:settings?.ai_paused === true || Date.parse(settings?.paused_until || "") > Date.now(),timezone:behavior?.active_tz || "America/Los_Angeles",schedule:behavior ? `${time(behavior.active_start_min)}–${time(behavior.active_end_min)}` : "Configured daily schedule"}};
 }
 

@@ -114,5 +114,26 @@ try {
     assert.equal((await one('select has_function_privilege($1,\'social_media_claim(uuid,text,text,text,text,text,text,timestamptz,text)\',\'EXECUTE\') ok',[role])).ok,false);
   }
   assert.equal((await one("select public from storage.buckets where id='social-media'")).public,false);
+  await db.exec(await read('20261117020000_social_waiting_message_counts.sql'));
+  await db.query("insert into dm_users(model_id,tg_id) values($1,9999)",[m]);
+  const requested=[{channel:'telegram',externalId:'9999',accountScope:scope}];
+  const counts=()=>rpc('social_waiting_message_counts',[m,owner,requested]);
+  await rpc('social_ingest_telegram',[m,9999,100,scope,'user','one',new Date().toISOString(),'native']);
+  await rpc('social_ingest_telegram',[m,9999,101,scope,'user','two',new Date().toISOString(),'native']);
+  assert.equal((await counts())['telegram:9999'],2);
+  assert.equal((await counts())['telegram:9999'],2,'reading counts never marks a conversation seen');
+  await rpc('social_ingest_telegram',[m,9999,99,scope,'assistant','late old reply',new Date(Date.now()-86400000).toISOString(),'native']);
+  assert.equal((await counts())['telegram:9999'],2,'old imported reply does not hide newer messages');
+  await assert.rejects(()=>rpc('social_waiting_message_counts',[m,foreignOwner,requested]));
+  await rpc('social_ingest_telegram',[m,9999,102,scope,'assistant','reply',new Date(Date.now()+1000).toISOString(),'native']);
+  assert.equal((await counts())['telegram:9999'],0);
+  for(const [channel,table,ext,account] of [['instagram','ig_messages','igsid','ig-account'],['fanvue','fv_messages','fan_uuid','fanvue:creator']]) {
+    const list=[{channel,externalId:'fan',accountScope:account}];
+    const before=await rpc('social_waiting_message_counts',[m,owner,list]);
+    assert.ok(before[channel+':fan']>0);
+    await db.query(`insert into ${table}(model_id,${ext},role,content,occurred_at) values($1,'fan','assistant','reply',now()+interval '1 hour')`,[m]);
+    assert.equal((await rpc('social_waiting_message_counts',[m,owner,list]))[channel+':fan'],0);
+  }
+  for(const role of ['anon','authenticated']) assert.equal((await one("select has_function_privilege($1,'social_waiting_message_counts(uuid,uuid,jsonb)','EXECUTE') ok",[role])).ok,false);
   console.log('Private media and semantic source revision SQL contracts passed');
 } finally { await db.close(); }

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { commandInProgress, commandLabel, createReadScope, freezeIntent, mergeMessages, mergeThread, waitingChannels, personChannelView } from "../components/app/social/state.ts";
+import { commandInProgress, commandLabel, createReadScope, freezeIntent, mergeMessages, mergeThread, waitingChannels, personChannelView, waitingMessageCount } from "../components/app/social/state.ts";
 import type { SocialContact, SocialCommand, SocialCommandInput, SocialMessage, SocialPerson, SocialThread } from "../lib/social-types.ts";
 
 const command = { operation: "approve", status: "done", deliveryState: "queued" } as SocialCommand;
@@ -71,3 +71,9 @@ assert.equal(personChannelView(linkedPerson,"fanvue").preview,"FV preview");
 assert.equal(personChannelView(linkedPerson,"fanvue").waitingCount,0);
 assert.equal(personChannelView(linkedPerson,"telegram").name,"Don");
 assert.equal(linkedPerson.contacts.length,3,"Filtering preserves all identity links");
+
+const counted=[{...contact("instagram",true),waitingMessageCount:2},{...contact("telegram",true),waitingMessageCount:1},contact("fanvue")];
+assert.equal(waitingMessageCount(counted),3);
+assert.equal(waitingMessageCount(counted,"instagram"),2);
+assert.equal(waitingMessageCount(counted,"fanvue"),0);
+assert.equal(waitingMessageCount([{...counted[0],waitingMessageCount:0},counted[1]]),1);

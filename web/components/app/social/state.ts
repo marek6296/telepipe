@@ -83,3 +83,7 @@ export function personChannelView(person:SocialPerson, channel:SocialChannel|"al
     lastActivityAt:contact ? contact.lastActivityAt : person.lastActivityAt,
     waitingCount:contact ? Number(Boolean(contact.pendingId)) : person.waitingCount};
 }
+
+export function waitingMessageCount(contacts:SocialContact[],channel:SocialChannel|"all"="all"):number {
+  return contacts.filter(c=>channel==="all" || c.channel===channel).reduce((n,c)=>n+(c.waitingMessageCount || 0),0);
+}
