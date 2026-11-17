@@ -1,4 +1,4 @@
-import type { SocialChannel, SocialContact, SocialCommand, SocialCommandInput, SocialMessage, SocialThread } from "@/lib/social-types";
+import type { SocialChannel, SocialContact, SocialCommand, SocialCommandInput, SocialMessage, SocialPerson, SocialThread } from "@/lib/social-types";
 
 export function commandInProgress(command: SocialCommand): boolean {
   return ["queued", "working", "sending"].includes(command.status)
@@ -73,4 +73,13 @@ export function sourceTime(iso: string | null): string {
 /** All channels with an incoming turn still awaiting a reply or approval. */
 export function waitingChannels(contacts:SocialContact[]):Set<SocialChannel> {
   return new Set(contacts.filter(contact=>contact.needsReply || Boolean(contact.pendingId)).map(contact=>contact.channel));
+}
+
+/** A platform filter changes the preview and destination, not identity links. */
+export function personChannelView(person:SocialPerson, channel:SocialChannel|"all") {
+  const contact=channel === "all" ? null : person.contacts.find(item=>item.channel===channel) ?? null;
+  return {contact,name:contact ? contact.username ? `@${contact.username.replace(/^@/,"")}` : contact.displayName : person.name,
+    preview:contact ? contact.lastMessageText : person.preview,
+    lastActivityAt:contact ? contact.lastActivityAt : person.lastActivityAt,
+    waitingCount:contact ? Number(Boolean(contact.pendingId)) : person.waitingCount};
 }

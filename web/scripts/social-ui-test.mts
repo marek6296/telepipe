@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { commandInProgress, commandLabel, createReadScope, freezeIntent, mergeMessages, mergeThread, waitingChannels } from "../components/app/social/state.ts";
-import type { SocialContact, SocialCommand, SocialCommandInput, SocialMessage, SocialThread } from "../lib/social-types.ts";
+import { commandInProgress, commandLabel, createReadScope, freezeIntent, mergeMessages, mergeThread, waitingChannels, personChannelView } from "../components/app/social/state.ts";
+import type { SocialContact, SocialCommand, SocialCommandInput, SocialMessage, SocialPerson, SocialThread } from "../lib/social-types.ts";
 
 const command = { operation: "approve", status: "done", deliveryState: "queued" } as SocialCommand;
 assert.equal(commandLabel(command), "Approved · queued", "An accepted IG approval is not a delivered message");
@@ -56,3 +56,18 @@ assert.equal(waitingChannels([contact("instagram",true),contact("telegram",true)
 assert.deepEqual([...waitingChannels([contact("instagram"),contact("telegram",true)])],["telegram"],"Replying clears only that channel");
 assert.equal(waitingChannels([contact("instagram"),contact("telegram"),contact("fanvue")]).size,0);
 assert.deepEqual([...waitingChannels([contact("fanvue",false,"draft")])],["fanvue"]);
+
+const linkedPerson={name:"Don",preview:"TG preview",lastActivityAt:"2026-11-17T12:00:00Z",waitingCount:2,contacts:[
+ {...contact("telegram",true),displayName:"Don",username:"",lastMessageText:"TG preview",lastActivityAt:"2026-11-17T12:00:00Z"},
+ {...contact("instagram",true,"ig-draft"),displayName:"Don Wahl",username:"donwahl65",lastMessageText:"IG preview",lastActivityAt:"2026-11-17T11:00:00Z"},
+ {...contact("fanvue"),displayName:"Don",username:"fashionable-snipe-762",lastMessageText:"FV preview",lastActivityAt:"2026-11-16T11:00:00Z"}
+]} as SocialPerson;
+assert.equal(personChannelView(linkedPerson,"all").name,"Don");
+assert.equal(personChannelView(linkedPerson,"instagram").name,"@donwahl65");
+assert.equal(personChannelView(linkedPerson,"instagram").preview,"IG preview");
+assert.equal(personChannelView(linkedPerson,"instagram").contact,linkedPerson.contacts[1]);
+assert.equal(personChannelView(linkedPerson,"fanvue").name,"@fashionable-snipe-762");
+assert.equal(personChannelView(linkedPerson,"fanvue").preview,"FV preview");
+assert.equal(personChannelView(linkedPerson,"fanvue").waitingCount,0);
+assert.equal(personChannelView(linkedPerson,"telegram").name,"Don");
+assert.equal(linkedPerson.contacts.length,3,"Filtering preserves all identity links");
