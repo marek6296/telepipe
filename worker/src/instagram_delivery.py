@@ -423,7 +423,9 @@ class InstagramDelivery:
                         if operator and action['payload'].get('operator_operation') == 'approve' else action.get('text'))
                     raw_text = '[[PHOTO]]' if action['kind'] == 'photo' else approved_raw if action['payload'].get('approved_source_mid') else await self.agent._napis(user, action['igsid'], cfg)
                     from instagram_interactions import prepare_response
-                    offer = await self.offer_state(cfg, user)
+                    # Operator text is fixed; local temporal quotas are enforced
+                    # by reserve and may defer it. Keep hard consent/age/URL gates.
+                    offer = await self.offer_state(cfg, user, ignore_budgets=operator)
                     prepared = prepare_response(raw_text or '', cfg, offer)
                     if operator and (prepared['kind'] != 'dm' or not prepared['text'] or prepared['text'] != action['text']):
                         await self.db.change_action(action, {'state': 'blocked', 'reason': 'text_not_allowed'})
@@ -552,7 +554,7 @@ class InstagramDelivery:
             # freezes the exact text/URL shown in the web UI, while the reviewed
             # raw array lets us recover its meaning without inventing a new one.
             from instagram_interactions import prepare_response
-            offer = await self.offer_state(cfg, user)
+            offer = await self.offer_state(cfg, user, ignore_budgets=True)
             intent = None
             for candidate in command.get('expected_suggestions') or []:
                 if not isinstance(candidate, str):
@@ -588,6 +590,10 @@ class InstagramDelivery:
                                                  'action_id': action['id'], 'delivery_state': 'sent'})
         if state in ('sending', 'uncertain') or not state:
             return DeliveryResult.uncertain()
+        if (state in ('pending','blocked') and not current.get('reserved_at')
+                and current.get('reason') in ('action_gap','account_limit','dm_limit','conversation_limit','active_chats_limit','new_contact_limit','url_limit','url_global_limit','reminder_limit')
+                and (current.get('payload') or {}).get('command_id') == command['id']):
+            return DeliveryResult('deferred', current['reason'], {'action_id': action['id']})
         if (command.get('pending_id') and state in ('pending', 'ready', 'leased', 'blocked')
                 and not current.get('reserved_at')
                 and (current.get('payload') or {}).get('command_id') == command['id']):
@@ -602,7 +608,7 @@ class InstagramDelivery:
             await self.db.change_action(current, {'state': 'cancelled'}, state=state)
         return DeliveryResult.blocked(current.get('reason') or 'delivery_blocked', restore_pending=False)
 
-    async def offer_state(self, cfg, user):
+    async def offer_state(self, cfg, user, *, ignore_budgets=False):
         from instagram_interactions import link_budgets, link_targets
         restrictions = await self.db.hub.restrictions('instagram', user.get('igsid', ''), cfg['ig_user_id'])
         allowed = not (user.get('no_links') or user.get('no_initiate') or restrictions.get('no_links')
@@ -617,16 +623,16 @@ class InstagramDelivery:
         targets = link_targets(cfg)
         has_link = bool(user.get('link_sent_at'))
         eligible = allowed and adult and not has_link
-        telegram_link = bool(eligible and 'telegram' in targets and budgets['telegram'])
-        bio_link = bool(eligible and 'bio_link' in targets and budgets['bio_link'])
-        reminder_ok = not parse_time(user.get('last_reminder_at')) or utcnow()-parse_time(user['last_reminder_at']) >= timedelta(days=1)
+        telegram_link = bool(eligible and 'telegram' in targets and (ignore_budgets or budgets['telegram']))
+        bio_link = bool(eligible and 'bio_link' in targets and (ignore_budgets or budgets['bio_link']))
+        reminder_ok = ignore_budgets or not parse_time(user.get('last_reminder_at')) or utcnow()-parse_time(user['last_reminder_at']) >= timedelta(days=1)
         primary = 'telegram' if cfg.get('funnel_target') == 'both' else cfg.get('funnel_target')
         spent = not budgets.get('bio_link' if 'bio_link' in targets else 'telegram', False)
         return {'fanvue_customer': fanvue_customer,
                 'fanvue_return': bool(fanvue_customer and can_return and adult and reminder_ok),
                 'link': telegram_link if primary == 'telegram' else bio_link,
                 'telegram_link': telegram_link, 'bio_link': bio_link,
-                'highlights': bool(eligible and spent and cfg.get('highlights_link') and reminder_ok),
+                'highlights': bool(eligible and (ignore_budgets or spent) and cfg.get('highlights_link') and reminder_ok),
                 'remind': bool(allowed and adult and has_link and reminder_ok),
                 'photo': bool(cfg.get('photos_enabled') and not user.get('photo_sent_at') and allowed and adult),
                 'age_unknown': user.get('age_state', 'unknown') == 'unknown'}

@@ -112,7 +112,7 @@ async def test_operator_does_not_depend_on_automatic_schedule(monkeypatch):
     db.behavior.assert_not_awaited()
 
 
-async def test_safe_budget_failure_restores_original_ig_approval_action(monkeypatch):
+async def test_temporary_budget_failure_defers_without_seen_or_send(monkeypatch):
     import instagram_api as api
     raw = thread(datetime.now(timezone.utc))
     db = OperatorDb(reply_mode='semi')
@@ -128,9 +128,9 @@ async def test_safe_budget_failure_restores_original_ig_approval_action(monkeypa
     db.rpc = rpc
     result = await agent.deliver_operator(command(channel='instagram', external_id='fan', account_scope=MOJE_ID,
                                                   pending_id='pending', operation='approve'), AsyncMock(return_value=True))
-    assert result.status == 'blocked' and result.result['safe_to_retry']
-    assert db.queue['op']['state'] == 'approval'
-    assert 'command_id' not in db.queue['op']['payload']
+    assert result.status == 'deferred' and result.result['action_id'] == 'op'
+    assert db.queue['op']['state'] == 'pending'
+    assert db.queue['op']['payload']['command_id'] == 'c1'
 
 
 async def test_operator_action_updates_compare_command_ownership():
@@ -262,3 +262,51 @@ async def test_read_rate_limit_still_pauses_delivery():
     agent = InstagramAgent(db, FakeLlm())
     await agent._delivery.provider_error(api.InstagramError('limit', kod=4), during_read=True)
     assert db.nastavenia.get('circuit_until')
+
+async def test_delayed_manual_reply_reuses_exact_action_without_second_insert():
+    from types import SimpleNamespace
+    from instagram_tenant import TenantInstagramDb
+    db=TenantInstagramDb.__new__(TenantInstagramDb)
+    db._t=SimpleNamespace(_post=AsyncMock())
+    action={'id':'existing','state':'approval','reserved_at':None,'igsid':'fan','source_mid':'mid',
+        'payload':{'command_id':'c1','account_id':MOJE_ID,'origin':'operator'}}
+    db.action=AsyncMock(return_value=action)
+    db.change_action=AsyncMock(return_value=[{**action,'state':'leased'}])
+    job=command(channel='instagram',external_id='fan',account_scope=MOJE_ID,result={'deferred_action_id':'existing'})
+    result=await db.prepare_operator_action(job,'thread','mid',datetime.now(timezone.utc).isoformat())
+    assert result['id']=='existing' and result['state']=='leased'
+    db._t._post.assert_not_awaited()
+    db.action.return_value={**action,'reserved_at':datetime.now(timezone.utc).isoformat()}
+    assert await db.prepare_operator_action(job,'thread','mid',datetime.now(timezone.utc).isoformat()) is None
+
+@pytest.mark.parametrize('reason,raw_text,shown',[
+ ('url_limit','come chat [[LINK]]','come chat https://t.me/simona_here'),
+ ('reminder_limit','[[REMIND]] you already have it above','you already have it above'),
+])
+async def test_temporal_promo_budget_waits_for_exact_approved_reply(monkeypatch,reason,raw_text,shown):
+    import instagram_api as api
+    raw=thread(datetime.now(timezone.utc))
+    db=OperatorDb(reply_mode='semi',telegram_handle='simona_here',funnel_target='telegram')
+    agent=InstagramAgent(db,FakeLlm())
+    await db.ensure_user('fan')
+    db.users['fan'].update(age_state='adult_self_declared',last_reminder_at=datetime.now(timezone.utc).isoformat())
+    if reason=='reminder_limit':db.users['fan']['link_sent_at']=datetime.now(timezone.utc).isoformat()
+    # This recent invitation consumes the ordinary offer budget.
+    db.queue['prior']={'id':'prior','dedupe_key':'prior','igsid':'other','kind':'dm','state':'sent','reserved_at':datetime.now(timezone.utc).isoformat(),
+        'contains_link':True,'payload':{'link_target':'telegram'}}
+    original=db.rpc
+    async def rpc(name,**kwargs):
+        if name=='reserve':
+            db.queue[kwargs['action']].update(state='pending',reason=reason,reserved_at=None)
+            return {'ok':False,'reason':reason}
+        return await original(name,**kwargs)
+    db.rpc=rpc
+    monkeypatch.setattr(api,'conversation_page',lambda *a,**k:{'data':[raw],'after':''})
+    monkeypatch.setattr(api,'conversation',lambda *a,**k:raw)
+    seen=AsyncMock();send=AsyncMock()
+    monkeypatch.setattr(api,'mark_seen',seen);monkeypatch.setattr(api,'posli_text',send)
+    result=await agent.deliver_operator(command(operation='approve',channel='instagram',external_id='fan',account_scope=MOJE_ID,
+        pending_id='pending',text=shown,expected_suggestions=[raw_text]),AsyncMock(return_value=True))
+    assert result.status=='deferred' and result.reason==reason
+    assert db.queue['op']['text']==shown
+    seen.assert_not_called();send.assert_not_called()

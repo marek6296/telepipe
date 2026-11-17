@@ -318,3 +318,25 @@ async def test_changed_draft_blocks_say_this_before_paid_generation():
     await dispatcher.tick()
     sender.regenerate.assert_not_awaited()
     assert t._rpc.await_args.args[1]['p_status']=='stale'
+
+async def test_temporary_limit_keeps_same_command_in_durable_wait_queue():
+    job=command(channel='instagram')
+    dispatcher,t,control=setup(job)
+    control._senders['instagram']=SimpleNamespace(deliver_operator=AsyncMock(return_value=DeliveryResult('deferred','action_gap',{'action_id':'ig-action'})))
+    await dispatcher.tick()
+    names=[call.args[0] for call in t._rpc.await_args_list]
+    assert 'social_defer' in names and 'social_finish' not in names
+    call=next(c for c in t._rpc.await_args_list if c.args[0]=='social_defer')
+    assert call.args[1]['p_command']=='c1' and call.args[1]['p_action']=='ig-action'
+    assert call.args[1]['p_lease']=='lease' and call.args[1]['p_worker']=='replica'
+
+async def test_failed_defer_is_not_guessed_as_queued():
+    dispatcher,t,control=setup(command(channel='instagram'))
+    async def rpc(name,args):
+        if name=='social_claim':return command(channel='instagram')
+        return False
+    t._rpc.side_effect=rpc
+    control._senders['instagram']=SimpleNamespace(deliver_operator=AsyncMock(return_value=DeliveryResult('deferred','action_gap',{'action_id':'ig'})))
+    await dispatcher.tick()
+    assert t._rpc.await_args.args[0]=='social_finish'
+    assert t._rpc.await_args.args[1]['p_status']=='blocked'

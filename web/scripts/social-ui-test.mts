@@ -90,3 +90,5 @@ assert.match(commandExplanation({...command,status:"blocked",reason:"provider_pa
 assert.match(commandExplanation({...command,status:"blocked",reason:"provider_pause"}),/not sent/);
 assert.equal(commandExplanation({...command,reason:""}),"");
 assert.match(commandExplanation({...command,status:'blocked',reason:'generation_empty'}),/Nothing was sent/);
+
+assert.match(commandExplanation({...command,status:'queued',reason:'waiting_action_gap'}),/send automatically/);

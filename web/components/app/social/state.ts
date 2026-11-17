@@ -97,6 +97,7 @@ export function outboxCommands(commands:SocialCommand[],messages:SocialMessage[]
 }
 
 export function commandExplanation(command:SocialCommand):string {
+  if(command.status==="queued" && command.reason.startsWith("waiting_"))return "Waiting for Instagram’s delivery limits. This reply will send automatically; you can leave this chat.";
   const reasons:Record<string,string>={
     generation_empty:"No new preview was created. Refresh the conversation and try Say this again. Nothing was sent.",
     voice_preview_expired:"This voice preview expired. Generate a new voice reply.",

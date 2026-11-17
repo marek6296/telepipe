@@ -303,6 +303,16 @@ class TenantInstagramDb:
                 return None
             changed = await self.change_action(action, {**patch, 'payload': {**action['payload'], **payload}}, state='approval')
             return changed[0] if changed else None
+        deferred_id = (command.get('result') or {}).get('deferred_action_id')
+        if deferred_id:
+            action = await self.action(deferred_id)
+            if (not action or action['state'] != 'approval' or action.get('reserved_at')
+                    or action['igsid'] != command['external_id'] or action['source_mid'] != source_mid
+                    or (action.get('payload') or {}).get('command_id') != command['id']
+                    or (action.get('payload') or {}).get('account_id') != command['account_scope']):
+                return None
+            changed = await self.change_action(action, {**patch, 'payload': {**action['payload'], **payload}}, state='approval')
+            return changed[0] if changed else None
         stamp = parse_time(source_at)
         if not stamp:
             return None
