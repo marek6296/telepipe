@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { ArrowUpRight, Camera, ChevronDown, Heart, Loader2, Send } from "lucide-react";
 import { useSocialTransport } from "./transport";
 import type { SocialChannelState, SocialMode } from "@/lib/social-types";
@@ -11,16 +11,17 @@ import { CHANNEL_NAMES, sourceTime } from "./state";
 const ICONS = { telegram: Send, instagram: Camera, fanvue: Heart };
 const MODES: { value: SocialMode; label: string }[] = [{ value: "off", label: "Manual" }, { value: "semi", label: "Semi" }, { value: "auto", label: "Auto" }];
 
-export function ChannelCards({ modelId, channels, refresh }: { modelId: string; channels: SocialChannelState[]; refresh: () => void }) {
+export function ChannelCards({ modelId, channels, refresh, headerActions }: { modelId: string; channels: SocialChannelState[]; refresh: () => void; headerActions?:ReactNode }) {
+  const { mini } = useSocialTransport();
   return <>
-    <details className="app-card group sm:hidden">
-      <summary className="cursor-pointer list-none px-4 py-3.5 [&::-webkit-details-marker]:hidden">
-        <span className="flex items-center justify-between gap-3 text-[12px] font-medium">Channels &amp; reply modes<ChevronDown className="h-3.5 w-3.5 text-[var(--app-text-4)] transition-transform group-open:rotate-180" /></span>
+    <div className={cn("relative",!mini && "sm:hidden")}><details className="app-card group">
+      <summary className={cn("cursor-pointer list-none px-4 py-3.5 [&::-webkit-details-marker]:hidden",mini && "mini-channel-summary")}>
+        <span className="flex items-center justify-between gap-3 text-[12px] font-medium"><span>{mini ? "Channels & modes" : "Channels & reply modes"}</span><ChevronDown className={cn("h-3.5 w-3.5 text-[var(--app-text-4)] transition-transform group-open:rotate-180",mini && "absolute right-3 top-4")} /></span>
         <span className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--app-text-3)]">{channels.map(channel => <span key={channel.channel} className="inline-flex items-center gap-1.5"><span className={cn("h-1 w-1 rounded-full", channel.available && channel.connected ? "bg-[var(--app-up)]" : "bg-[var(--app-text-4)]")} />{CHANNEL_NAMES[channel.channel]} · {channel.available ? channel.connected ? MODES.find(mode => mode.value === channel.mode)?.label : "Offline" : "Unavailable"}</span>)}</span>
       </summary>
       <div className="grid gap-3 border-t border-[var(--app-border)] p-3">{channels.map(channel => <ChannelCard key={channel.channel} modelId={modelId} state={channel} refresh={refresh} />)}</div>
-    </details>
-    <div className="hidden gap-3 sm:grid sm:grid-cols-3">{channels.map(channel => <ChannelCard key={channel.channel} modelId={modelId} state={channel} refresh={refresh} />)}</div>
+    </details>{headerActions && <div className="mini-channel-status absolute right-8 top-2">{headerActions}</div>}</div>
+    <div className={mini ? "hidden" : "hidden gap-3 sm:grid sm:grid-cols-3"}>{channels.map(channel => <ChannelCard key={channel.channel} modelId={modelId} state={channel} refresh={refresh} />)}</div>
   </>;
 }
 
