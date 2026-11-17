@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSocialPersonBrief, linkSocialContacts, setSocialMode, setSocialTakeover, skipSocialPending, submitSocialCommand, unlinkSocialContact } from "@/app/app/m/[id]/social/actions";
+import { fanvueOwnerMedia, getSocialPersonBrief, linkSocialContacts, setSocialMode, setSocialTakeover, skipSocialPending, submitSocialCommand, unlinkSocialContact } from "@/app/app/m/[id]/social/actions";
 import { miniError, miniJson, miniRequestGuard, miniSession } from "@/lib/telegram-mini-server";
 import { MiniAuthError } from "@/lib/telegram-mini-policy";
 import type { SocialChannel, SocialCommandInput, SocialMode } from "@/lib/social-types";
@@ -16,6 +16,7 @@ export async function POST(request:Request) {
     const modelId=body.modelId;
     let result;
     switch (body.action) {
+      case "fanvue_media": result=await fanvueOwnerMedia(modelId,body.scope as string,body.input); break;
       case "brief": result=await getSocialPersonBrief(modelId,body.contactKey as string,body.refresh===true); break;
       case "command": result=await submitSocialCommand(modelId,body.input as SocialCommandInput); break;
       case "mode": result=await setSocialMode(modelId,body.channel as SocialChannel,body.mode as SocialMode); break;

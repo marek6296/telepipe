@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {mediaBundle,uploadFile,mediaJob} from '../lib/fanvue-owner-policy.ts';
+const id='11111111-1111-4111-8111-111111111111';
+assert.deepEqual(mediaBundle([id],300),{mediaUuids:[id],priceCents:300});
+assert.throws(()=>mediaBundle([],0));assert.throws(()=>mediaBundle([id],299));assert.throws(()=>mediaBundle([id],3.5));assert.throws(()=>mediaBundle([id,id],0));assert.throws(()=>mediaBundle([id],-1));
+assert.equal(uploadFile({name:'a.mov',size:100,type:'video/quicktime'}).mediaType,'video');
+assert.throws(()=>uploadFile({name:'a.html',size:100,type:'text/html'}));assert.throws(()=>uploadFile({name:'x',size:2e9,type:'video/mp4'}));
+assert.throws(()=>mediaJob({id,action:'part',uploadKey:'other',from:1,to:8}));
+assert.equal(mediaJob({id,action:'list',page:2}).page,2);
+console.log('PASS: Fanvue bundle cents, duplicate IDs, upload bounds and job allowlist');

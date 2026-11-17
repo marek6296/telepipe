@@ -23,7 +23,7 @@ export function commandLabel(command: SocialCommand): string {
 }
 
 export function freezeIntent(input: SocialCommandInput): SocialCommandInput {
-  return Object.freeze({ ...input, expectedSuggestions: input.expectedSuggestions ? [...input.expectedSuggestions] : undefined });
+  return Object.freeze({ ...input, ...(input.mediaUuids ? {mediaUuids:Object.freeze([...input.mediaUuids]) as unknown as string[]}:{}), expectedSuggestions: input.expectedSuggestions ? [...input.expectedSuggestions] : undefined });
 }
 
 export function mergeMessages(previous: SocialMessage[], incoming: SocialMessage[]): SocialMessage[] {
@@ -98,6 +98,11 @@ export function outboxCommands(commands:SocialCommand[],messages:SocialMessage[]
 
 export function commandExplanation(command:SocialCommand):string {
   const reasons:Record<string,string>={
+    media_not_ready:"Some selected Fanvue media is not ready. Wait for processing in Vault, then try again.",
+    media_unavailable:"Could not verify the selected Fanvue media. Refresh Vault before trying again.",
+    invalid_media:"Choose a valid Fanvue media bundle and a Free or paid unlock price.",
+    fanvue_rejected_400:"Fanvue rejected the message. Check the selected media and unlock price.",
+    fanvue_rejected_403:"Fanvue did not allow this message. Check the account connection and media permissions.",
     provider_pause:"Instagram is temporarily paused after a connection error. This reply was not sent. Try again after the connection recovers.",
     window_expired:"Instagram's reply window has expired. Wait for a new message from this person.",
     instagram_disconnected:"Reconnect Instagram before replying.",

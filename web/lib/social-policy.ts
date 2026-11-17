@@ -1,3 +1,4 @@
+import {mediaBundle} from "./fanvue-owner-policy.ts";
 import type { SocialChannel, SocialCommandInput, SocialContact, SocialFilter, SocialMessage, SocialPending, SocialPerson } from "./social-types";
 
 export class SocialError extends Error {
@@ -41,12 +42,12 @@ export function validateSocialCommand(input: unknown, contact: SocialContact, pe
   if (!input || typeof input !== "object" || Array.isArray(input)) throw new SocialError("Invalid request.");
   const raw = input as Record<string, unknown>;
   if (typeof raw.requestId !== "string" || !UUID.test(raw.requestId)) throw new SocialError("Invalid request ID. Refresh and try again.");
-  if (!["approve", "regenerate", "send_text"].includes(str(raw.operation))) throw new SocialError("Unknown action.");
+  if (!["approve", "regenerate", "send_text", "send_media"].includes(str(raw.operation))) throw new SocialError("Unknown action.");
   if (raw.contactKey !== contact.key) throw new SocialError("The selected conversation changed. Refresh it.", 409);
   if (raw.expectedAccountScope !== contact.accountScope || raw.expectedSourceId !== contact.lastMessageId || raw.identityId !== contact.identityId
       || raw.identityUpdatedAt !== contact.identityUpdatedAt) throw new SocialError("This conversation changed. Review the latest messages first.", 409);
   const expected = raw.expectedSuggestions;
-  const needsPending = raw.operation !== "send_text" || raw.pendingId != null;
+  const needsPending = !["send_text","send_media"].includes(str(raw.operation)) || raw.pendingId != null;
   if (needsPending && (!pending || raw.pendingId !== pending.id || !Array.isArray(expected)
       || JSON.stringify(expected) !== JSON.stringify(pending.suggestions)))
     throw new SocialError("These suggestions are no longer current. Refresh the conversation.", 409);
@@ -55,13 +56,19 @@ export function validateSocialCommand(input: unknown, contact: SocialContact, pe
   const brief = raw.brief === undefined ? "" : raw.brief;
   if (typeof text !== "string" || typeof brief !== "string" || text.includes("\0") || brief.includes("\0"))
     throw new SocialError("Enter plain text.");
-  if (raw.operation !== "regenerate" && !text.trim()) throw new SocialError("Write a message first.");
+  if (!["regenerate","send_media"].includes(str(raw.operation)) && !text.trim()) throw new SocialError("Write a message first.");
   if (Array.from(text).length > 4000 || brief.length > 2000) throw new SocialError("This message is too long.");
   if (contact.channel === "instagram" && new TextEncoder().encode(text).length > 1000)
     throw new SocialError("Instagram messages must fit within 1,000 bytes. Shorten this reply.");
   if (raw.operation === "approve" && !(pending?.previews || pending?.suggestions || []).includes(text))
     throw new SocialError("Approve a displayed suggestion, or send your own text.", 409);
+  let media: {mediaUuids:string[];priceCents:number}|undefined;
+  if(raw.operation==="send_media") {
+    if(contact.channel!=="fanvue")throw new SocialError("Media bundles are only available on Fanvue.");
+    try {media=mediaBundle(raw.mediaUuids,raw.priceCents);}catch(error){throw new SocialError(error instanceof Error?error.message:"Invalid media bundle.");}
+  } else if((raw.mediaUuids as unknown[] | undefined)?.length || raw.priceCents)throw new SocialError("Invalid media action.");
   return {
+    ...media,
     requestId: raw.requestId, operation: raw.operation as SocialCommandInput["operation"], contactKey: contact.key,
     ...(needsPending ? {pendingId: pending!.id, expectedSuggestions: [...pending!.suggestions]} : {}),
     expectedSourceId: contact.lastMessageId, expectedAccountScope: contact.accountScope, identityId: contact.identityId, identityUpdatedAt: contact.identityUpdatedAt,
