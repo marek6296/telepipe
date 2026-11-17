@@ -69,3 +69,9 @@
 .mini-channel-filters button[aria-pressed="true"] { border-color:var(--channel-color); background:color-mix(in srgb,var(--channel-color) 17%,var(--app-bg)); box-shadow:inset 0 -2px 0 var(--channel-color); }
 .mini-channel-icon { display:block; width:19px; height:19px; background:currentColor; mask-size:contain; mask-repeat:no-repeat; mask-position:center; }
 .mini-shell[data-theme="light"] .mini-channel-filters button[data-channel="all"] { --channel-color:#242424; }
+
+.mini-person-channel { display:inline-flex; align-items:center; color:var(--app-text-4); }
+.mini-person-channel .mini-channel-icon { width:16px; height:16px; }
+.mini-person-channel[data-latest="true"][data-channel="instagram"] { color:#ef5da8; }
+.mini-person-channel[data-latest="true"][data-channel="fanvue"] { color:#49f264; }
+.mini-person-channel[data-latest="true"][data-channel="telegram"] { color:#38a8ed; }
