@@ -1,7 +1,7 @@
 const UUID=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const MAX_FILE_BYTES=1610612736;
 export function mediaBundle(ids:unknown,price:unknown){
- if(!Array.isArray(ids)||ids.length<1||ids.length>20||ids.some(id=>typeof id!=='string'||!UUID.test(id))||new Set(ids).size!==ids.length)throw Error('Select 1–20 different photos or videos.');
+ if(!Array.isArray(ids)||ids.length<1||ids.length>20||ids.some(id=>typeof id!=='string'||!UUID.test(id))||new Set(ids).size!==ids.length)throw Error('Select 1–20 different photos, videos or audio.');
  if(!Number.isInteger(price)||Number(price)<0||(Number(price)>0&&Number(price)<300)||Number(price)>2147483647)throw Error('Use Free or an unlock price of at least $3.00.');
  return {mediaUuids:[...ids] as string[],priceCents:Number(price)};
 }
@@ -9,8 +9,8 @@ export function uploadFile(v:{name?:unknown;size?:unknown;type?:unknown}){
  if(typeof v.name!=='string'||!v.name.trim()||v.name.length>200||/[\x00-\x1f/\\]/.test(v.name))throw Error('Invalid filename.');
  if(!Number.isInteger(v.size)||Number(v.size)<=0||Number(v.size)>MAX_FILE_BYTES)throw Error('Each file must be under 1.5 GiB.');
  const type=typeof v.type==='string'?v.type:'';
- if(!/^(image\/(jpeg|png|webp|heic|heif)|video\/(mp4|quicktime|webm|x-m4v))$/.test(type))throw Error('Choose a supported photo or video (JPEG, PNG, WebP, HEIC, MP4, MOV or WebM).');
- return {name:v.name,size:Number(v.size),type,mediaType:type.startsWith('image/')?'image':'video'};
+ if(!/^(image\/(jpeg|png|webp|heic|heif)|video\/(mp4|quicktime|webm|x-m4v)|audio\/(mpeg|mp3|mp4|x-m4a|aac|wav|x-wav|ogg|webm))$/.test(type))throw Error('Choose a supported photo, video or audio (JPEG, PNG, WebP, HEIC, MP4, MOV or WebM).');
+ return {name:v.name,size:Number(v.size),type,mediaType:type.startsWith('image/')?'image':type.startsWith('video/')?'video':'audio'};
 }
 export type MediaJob={id:string;action:'list'|'init'|'part'|'complete'|'status';page?:number;folder?:string;file?:ReturnType<typeof uploadFile>;uploadKey?:string;from?:number;to?:number;parts?:{PartNumber:number;ETag:string}[]};
 export function mediaJob(value:unknown):MediaJob {

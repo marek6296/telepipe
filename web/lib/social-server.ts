@@ -12,7 +12,7 @@ import type { SocialChannel, SocialChannelState, SocialCommand, SocialContact, S
 
 type Row = Record<string, unknown>;
 export const CONTACT_COLUMNS = "model_id,channel,external_id,account_scope,identity_id,person_id,identity_status,candidate_id,identity_updated_at,display_name,username,avatar_url,ai_enabled,human_takeover,summary,spent_cents,last_incoming_at,last_reply_at,last_message_id,last_message_role,last_message_text,last_message_at,last_activity_at,pending_id,needs_reply";
-export const COMMAND_COLUMNS = "id,idempotency_key,media_uuids,price_cents,operation,channel,external_id,account_scope,pending_id,expected_suggestions,expected_source_id,identity_id,identity_updated_at,text,brief,status,result,reason,created_at";
+export const COMMAND_COLUMNS = "id,idempotency_key,voice_preview_id,media_uuids,price_cents,operation,channel,external_id,account_scope,pending_id,expected_suggestions,expected_source_id,identity_id,identity_updated_at,text,brief,status,result,reason,created_at";
 const PENDING_COLUMNS = "id,channel,conv_key,suggestions,incoming_preview,hint,created_at,updated_at";
 
 /** Service access is created only after verified authentication + strict ownership. */
@@ -103,7 +103,7 @@ export async function socialPending(ctx: SocialContext, contact: SocialContact):
 
 export function mapSocialCommand(row: Row, actionState?: string): SocialCommand {
   const result = row.result && typeof row.result === "object" ? row.result as Row : {};
-  return {mediaUuids:Array.isArray(row.media_uuids)?row.media_uuids as string[]:[],priceCents:Number(row.price_cents || 0),providerMessageId:str(result.provider_message_id)||null,id:str(row.id),operation:row.operation as SocialCommand["operation"],channel:row.channel as SocialChannel,externalId:str(row.external_id),text:str(row.text),status:row.status as SocialCommand["status"],deliveryState:actionState || str(result.delivery_state) || null,reason:str(row.reason),createdAt:str(row.created_at)};
+  return {voicePreviewId:str(row.voice_preview_id)||undefined,mediaUuids:Array.isArray(row.media_uuids)?row.media_uuids as string[]:[],priceCents:Number(row.price_cents || 0),providerMessageId:str(result.provider_message_id)||null,id:str(row.id),operation:row.operation as SocialCommand["operation"],channel:row.channel as SocialChannel,externalId:str(row.external_id),text:str(row.text),status:row.status as SocialCommand["status"],deliveryState:actionState || str(result.delivery_state) || null,reason:str(row.reason),createdAt:str(row.created_at)};
 }
 
 export async function loadSocialThread(modelId: string, key: string, before?: string): Promise<SocialThread> {

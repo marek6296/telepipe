@@ -101,11 +101,12 @@ export type SocialPending = {
 };
 
 export type SocialCommand = {
+  voicePreviewId?:string;
   mediaUuids?:string[];
   priceCents?:number;
   providerMessageId?:string|null;
   id: string;
-  operation: "approve" | "regenerate" | "send_text" | "send_media";
+  operation: "approve" | "regenerate" | "send_text" | "send_media" | "send_voice";
   channel: SocialChannel;
   externalId: string;
   text: string;
@@ -128,10 +129,11 @@ export type SocialThread = {
 };
 
 export type SocialCommandInput = {
+  voicePreviewId?:string;
   mediaUuids?:string[];
   priceCents?:number;
   requestId: string;
-  operation: "approve" | "regenerate" | "send_text" | "send_media";
+  operation: "approve" | "regenerate" | "send_text" | "send_media" | "send_voice";
   contactKey: string;
   pendingId?: string;
   expectedSuggestions?: string[];
@@ -150,3 +152,7 @@ export type SocialBriefResult = {brief?:SocialBrief;error?:string};
 
 export type FanvueMediaItem={uuid:string;name:string;kind:string;status:string;thumb:string};
 export type FanvueMediaJobResult={job?:{id:string;status:string;output:Record<string,unknown>;error:string};error?:string};
+
+export type SocialVoicePreview={id:string;status:'queued'|'working'|'ready'|'failed';text:string;spoken:string;ambience:string;playbackUrl:string|null;error:string;expiresAt:string};
+export type SocialVoiceRequest={id:string;contactKey:string;input?:SocialCommandInput;regenerate?:boolean};
+export type SocialVoiceResult={preview?:SocialVoicePreview;error?:string};

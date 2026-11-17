@@ -20,6 +20,7 @@ export async function submitSocialCommand(modelId: string, input: SocialCommandI
       if (c.operation !== input.operation || c.channel !== channel || c.external_id !== externalId || c.account_scope !== input.expectedAccountScope
         || c.pending_id !== (input.pendingId || null) || JSON.stringify(c.expected_suggestions) !== JSON.stringify(input.expectedSuggestions || null)
         || c.expected_source_id !== input.expectedSourceId || c.identity_id !== input.identityId
+        || (c.voice_preview_id || undefined)!==input.voicePreviewId
         || JSON.stringify(c.media_uuids || []) !== JSON.stringify(input.mediaUuids || []) || Number(c.price_cents || 0) !== Number(input.priceCents || 0)
         || c.identity_updated_at !== input.identityUpdatedAt || c.text !== (input.text || "") || c.brief !== (input.brief || ""))
         throw new SocialError("This request ID belongs to a different action. Refresh before retrying.",409);
@@ -28,7 +29,7 @@ export async function submitSocialCommand(modelId: string, input: SocialCommandI
     const contact = await socialContact(ctx,input.contactKey);
     const pending = await socialPending(ctx,contact);
     const valid = validateSocialCommand(input,contact,pending);
-    const {data,error} = valid.operation==="send_media" ? await ctx.db.rpc("social_enqueue_fanvue_media",{
+    const {data,error} = valid.operation==="send_voice" ? await ctx.db.rpc("social_enqueue_voice",{p_model:modelId,p_owner:ctx.userId,p_key:valid.requestId,p_preview:valid.voicePreviewId,p_price:valid.priceCents || 0,p_channel:contact.channel,p_external:contact.externalId,p_scope:contact.accountScope,p_source:valid.expectedSourceId,p_text:valid.text}) : valid.operation==="send_media" ? await ctx.db.rpc("social_enqueue_fanvue_media",{
       p_model:modelId,p_owner:ctx.userId,p_key:valid.requestId,p_external:contact.externalId,p_scope:contact.accountScope,p_source:valid.expectedSourceId,
       p_identity:valid.identityId,p_revision:valid.identityUpdatedAt,p_text:valid.text || "",p_media:valid.mediaUuids,p_price:valid.priceCents,p_pending:valid.pendingId || null,p_suggestions:valid.expectedSuggestions || null,
     }) : await ctx.db.rpc("social_enqueue",{p_model:modelId,p_requested_by:ctx.userId,p_key:valid.requestId,p_operation:valid.operation,
@@ -132,4 +133,8 @@ export async function fanvueOwnerMedia(modelId:string,scope:string,input:unknown
   const {ownerMediaRequest}=await import('@/lib/fanvue-owner-server');
   return await ownerMediaRequest(modelId,scope,input);
  } catch(error){return {error:socialErrorMessage(error)};}
+}
+
+export async function socialVoicePreview(modelId:string,request:import('@/lib/social-types').SocialVoiceRequest):Promise<import('@/lib/social-types').SocialVoiceResult>{
+ try{const {loadVoicePreview}=await import('@/lib/social-voice-server');return await loadVoicePreview(modelId,request);}catch(error){return {error:socialErrorMessage(error)};}
 }

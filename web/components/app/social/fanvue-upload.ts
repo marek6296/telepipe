@@ -28,7 +28,7 @@ function putPart(url:string,bytes:Blob,signal:AbortSignal,onProgress:(bytes:numb
  });
 }
 export async function uploadFanvueFile(transport:SocialTransport,modelId:string,scope:string,file:File,signal:AbortSignal,onProgress:(percent:number,label:string)=>void):Promise<FanvueMediaItem>{
- const type=file.type || (/\.mov$/i.test(file.name)?'video/quicktime':/\.heic$/i.test(file.name)?'image/heic':'');
+ const type=file.type || (/\.mov$/i.test(file.name)?'video/quicktime':/\.heic$/i.test(file.name)?'image/heic':/\.mp3$/i.test(file.name)?'audio/mpeg':/\.m4a$/i.test(file.name)?'audio/mp4':/\.wav$/i.test(file.name)?'audio/wav':/\.ogg$/i.test(file.name)?'audio/ogg':'');
  const info=uploadFile({name:file.name,size:file.size,type});
  const uploadKey=crypto.randomUUID();
  // Keep the init request ID so later parts can only use this owner's persisted upload.

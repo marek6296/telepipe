@@ -5,6 +5,7 @@ import { Check, Loader2, RefreshCw, Send, SkipForward, Sparkles } from "lucide-r
 import { useSocialTransport } from "./transport";
 import type { SocialChannelState, SocialCommandInput, SocialContact, SocialMessage, SocialThread } from "@/lib/social-types";
 import { cn } from "@/lib/utils";
+import { VoiceReply } from "./voice-reply";
 import { PersonBrief } from "./person-brief";
 import { FanvueAttachments } from "./fanvue-attachments";
 import { PersonPanel } from "./person-panel";
@@ -100,7 +101,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
         return false;
       } else {
         updateDraft(contact.key, previous => ({ ...previous, retry: null, activity: {input, command: result.command}, notice: result.command ? commandLabel(result.command) : result.message || "Request accepted.",
-          text: ["send_text","send_media"].includes(input.operation) && previous.text.trim() === input.text ? "" : previous.text }));
+          text: ["send_text","send_media","send_voice"].includes(input.operation) && previous.text.trim() === input.text ? "" : previous.text }));
         if (result.command) resource.update(previous => ({ ...previous, commands: [result.command!, ...previous.commands.filter(command => command.id !== result.command!.id)] }));
         refreshAll();
         return true;
@@ -123,6 +124,18 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
       ...(text !== undefined ? { text } : {}), ...(brief !== undefined ? { brief } : {}) });
     if (operation === "regenerate") regeneratingRevision.current = previewRevision;
     void submit(input);
+  }
+
+  function voiceInput(text:string):SocialCommandInput|null {
+    if(!thread || blocked)return null;
+    return {requestId:crypto.randomUUID(),operation:"send_text",contactKey:current.key,expectedAccountScope:current.accountScope,expectedSourceId:current.lastMessageId,identityId:current.identityId,identityUpdatedAt:current.identityUpdatedAt,text,
+      ...(thread.pending?{pendingId:thread.pending.id,expectedSuggestions:thread.pending.suggestions}:{})};
+  }
+  async function sendVoice(preview:import("@/lib/social-types").SocialVoicePreview,priceCents:number){
+    const input=voiceInput(preview.spoken);if(!input)return false;
+    const accepted=await submit(freezeIntent({...input,operation:"send_voice",voicePreviewId:preview.id,priceCents}));
+    if(accepted)updateDraft(contact.key,previous=>({...previous,text:previous.text.trim()===preview.text.trim()?"":previous.text}));
+    return accepted;
   }
 
   async function sendMedia(mediaUuids:string[],priceCents:number,text:string) {
@@ -165,7 +178,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
         <div className="mb-3 flex items-center justify-between gap-2"><h3 className="flex items-center gap-1.5 text-[12px] font-medium"><Sparkles className="h-3.5 w-3.5" />Suggested replies</h3>{!mini && <span className="text-[10px] text-[var(--app-text-4)]">Review, then approve</span>}</div>
         {!mini && <p className="mb-3 text-[10.5px] leading-5 text-[var(--app-text-3)]">These are the exact messages she will send. Nothing is sent until you approve.</p>}
         {!mini && thread.pending.incomingPreview && <p className="mb-3 line-clamp-2 border-l border-[var(--app-border-strong)] pl-2.5 text-[11px] leading-5 text-[var(--app-text-3)]">{thread.pending.incomingPreview}</p>}
-        <div className="space-y-2">{thread.pending.suggestions.map((rawSuggestion, index) => { const suggestion = thread.pending!.previews ? thread.pending!.previews[index] : rawSuggestion; const selected = draft.activity?.input.operation === "approve" && draft.activity.input.pendingId === thread.pending!.id && draft.activity.input.text === suggestion && !progressError; return <div key={`${thread.pending!.id}-${index}-${rawSuggestion}`} className="social-suggestion rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3"><p className="whitespace-pre-wrap break-words text-[12px] leading-5">{suggestion || "This suggestion cannot be sent as text. Regenerate a new reply."}</p><div className="social-suggestion-action mt-2 flex justify-end"><button aria-label={mini ? (selected && progressText ? `Reply ${index + 1}: ${progressText}` : `Send reply ${index + 1}`) : undefined} title={mini ? `Send reply ${index + 1}` : undefined} type="button" onClick={() => command("approve", suggestion || "")} disabled={blocked || !suggestion} className="app-btn app-btn-ghost min-h-8 px-2.5 text-[10.5px]">{selected && progressBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : mini ? <Send className="h-4 w-4" /> : <Check className="h-3 w-3" />}{!mini && (selected && progressText ? progressText : `Approve reply ${index + 1}`)}</button></div></div>; })}</div>
+        <div className="space-y-2">{thread.pending.suggestions.map((rawSuggestion, index) => { const suggestion = thread.pending!.previews ? thread.pending!.previews[index] : rawSuggestion; const selected = draft.activity?.input.operation === "approve" && draft.activity.input.pendingId === thread.pending!.id && draft.activity.input.text === suggestion && !progressError; return <div key={`${thread.pending!.id}-${index}-${rawSuggestion}`} className="social-suggestion rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3"><p className="whitespace-pre-wrap break-words text-[12px] leading-5">{suggestion || "This suggestion cannot be sent as text. Regenerate a new reply."}</p><div className="social-suggestion-action mt-2 flex justify-end">{current.channel!=="instagram"&&suggestion&&<VoiceReply key={`voice:${thread.pending!.id}:${index}:${suggestion}`} modelId={modelId} channel={current.channel} text={suggestion} disabled={blocked} prepare={()=>voiceInput(suggestion)} onSend={sendVoice} />}<button aria-label={mini ? (selected && progressText ? `Reply ${index + 1}: ${progressText}` : `Send reply ${index + 1}`) : undefined} title={mini ? `Send reply ${index + 1}` : undefined} type="button" onClick={() => command("approve", suggestion || "")} disabled={blocked || !suggestion} className="app-btn app-btn-ghost min-h-8 px-2.5 text-[10.5px]">{selected && progressBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : mini ? <Send className="h-4 w-4" /> : <Check className="h-3 w-3" />}{!mini && (selected && progressText ? progressText : `Approve reply ${index + 1}`)}</button></div></div>; })}</div>
         {thread.pending.suggestions.length === 0 && <p className="text-[11px] text-[var(--app-text-3)]">No text suggestions yet. Regenerate a draft or write your own reply.</p>}
         {!mini && thread.pending.hint && <p className="mt-2 text-[10.5px] text-[var(--app-text-4)]">{thread.pending.hint}</p>}
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-2"><button type="button" disabled={blocked} onClick={() => command("regenerate")} className="inline-flex min-h-8 items-center gap-1.5 text-[11px] text-[var(--app-text-2)] disabled:opacity-40"><RefreshCw className="h-3 w-3" />Regenerate</button><button type="button" disabled={blocked} onClick={() => void skip()} className="ml-auto inline-flex min-h-8 items-center gap-1 text-[11px] text-[var(--app-text-3)] disabled:opacity-40">{skipLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <SkipForward className="h-3 w-3" />}Skip</button></div>
@@ -190,7 +203,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
         {draft.retry && !draft.submitting && <button type="button" onClick={() => void submit(draft.retry!)} className="app-btn app-btn-ghost mt-2 min-h-8 px-3 text-[11px]">Retry the same request</button>}
       </div>}
       <form onSubmit={event => { event.preventDefault(); if (draft.text.trim()) command("send_text", draft.text.trim()); }} className="social-exact-composer border-t border-[var(--app-border)] p-4">
-        <label htmlFor={`reply-${current.channel}`} className="mb-2 flex items-center justify-between gap-2 text-[11px] font-medium"><span className="flex items-center gap-1">Write my own · {CHANNEL_NAMES[current.channel]}{current.channel==="fanvue"&&<FanvueAttachments key={`${current.key}:${current.accountScope}`} modelId={modelId} contact={current} disabled={blocked} initialCaption={draft.text} onSend={sendMedia} />}</span><span className="truncate font-normal text-[var(--app-text-4)]">To {current.displayName || current.username || current.externalId}</span></label>
+        <label htmlFor={`reply-${current.channel}`} className="mb-2 flex items-center justify-between gap-2 text-[11px] font-medium"><span className="flex items-center gap-1">Write my own · {CHANNEL_NAMES[current.channel]}{current.channel!=="instagram"&&<VoiceReply key={`manual-voice:${current.key}:${draft.text}`} modelId={modelId} channel={current.channel} text={draft.text} disabled={blocked} prepare={()=>voiceInput(draft.text)} onSend={sendVoice} />}{current.channel==="fanvue"&&<FanvueAttachments key={`${current.key}:${current.accountScope}`} modelId={modelId} contact={current} disabled={blocked} initialCaption={draft.text} onSend={sendMedia} />}</span><span className="truncate font-normal text-[var(--app-text-4)]">To {current.displayName || current.username || current.externalId}</span></label>
         <textarea id={`reply-${current.channel}`} value={draft.text} onChange={event => changeDraft({ text: event.target.value })} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); if (draft.text.trim()) command("send_text", draft.text.trim()); } }} rows={mini ? 1 : 3} maxLength={12000} placeholder={mini ? "Message…" : "Write the exact message to send…"} className="app-input resize-y text-[12px]! leading-5!" />
 
         <div className="social-composer-actions mt-3 flex items-center justify-between gap-3"><p className="max-w-[65%] text-[10px] leading-4 text-[var(--app-text-4)]">{!channelState?.connected ? "Connect this channel before replying." : waitingForCommand ? "A request is in progress. Its delivery status appears above." : channelState.mode === "auto" ? "Your exact text is sent unchanged and takes over this conversation. AI pauses here until you resume it." : "Your text is sent unchanged. Ctrl / ⌘ + Enter to send."}</p><button type="submit" disabled={blocked || !draft.text.trim()} className="app-btn app-btn-primary min-h-9 shrink-0 px-3 text-[11px]">{progressBusy && draft.activity?.input.operation === "send_text" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}{progressBusy && draft.activity?.input.operation === "send_text" ? progressText : mini ? "Send" : "Send exact text"}</button></div>

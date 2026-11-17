@@ -98,6 +98,13 @@ export function outboxCommands(commands:SocialCommand[],messages:SocialMessage[]
 
 export function commandExplanation(command:SocialCommand):string {
   const reasons:Record<string,string>={
+    voice_preview_expired:"This voice preview expired. Generate a new voice reply.",
+    voice_preview_changed:"This voice belongs to an older reply. Generate a fresh preview.",
+    voice_environment_changed:"Her current location changed. Generate a new voice preview for the current setting.",
+    voice_preview_unavailable:"The voice preview is unavailable. Generate it again before sending.",
+    voice_upload_failed:"The voice could not be uploaded to Fanvue. Nothing was sent.",
+    voice_processing_failed:"Fanvue could not process the voice note. Nothing was sent.",
+    voice_still_processing:"Fanvue is still processing the voice. Wait a moment before trying this preview again.",
     media_not_ready:"Some selected Fanvue media is not ready. Wait for processing in Vault, then try again.",
     media_unavailable:"Could not verify the selected Fanvue media. Refresh Vault before trying again.",
     invalid_media:"Choose a valid Fanvue media bundle and a Free or paid unlock price.",

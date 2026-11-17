@@ -1,6 +1,7 @@
-import type { SocialChannel, SocialCommandInput, SocialMode, SocialResult, SocialBriefResult, FanvueMediaJobResult } from "@/lib/social-types";
+import type { SocialChannel, SocialCommandInput, SocialMode, SocialResult, SocialBriefResult, FanvueMediaJobResult, SocialVoiceRequest, SocialVoiceResult } from "@/lib/social-types";
 
 export interface SocialTransport {
+  socialVoicePreview(modelId:string,request:SocialVoiceRequest):Promise<SocialVoiceResult>;
   fanvueOwnerMedia(modelId:string,scope:string,input:unknown):Promise<FanvueMediaJobResult>;
   getSocialPersonBrief(modelId:string,contactKey:string,refresh?:boolean):Promise<SocialBriefResult>;
   read<T>(url: string, signal?: AbortSignal): Promise<T>;
@@ -38,6 +39,7 @@ export function createMiniTransport({token, onExpired, fetcher = fetch}: {token?
     catch (error) { return {error:error instanceof Error ? error.message : "The response was interrupted. Retry the same request.", retryable:!(error instanceof TransportError) || error.status >= 500}; }
   }
   return {
+    socialVoicePreview:async(modelId,input)=>{try{return await request<SocialVoiceResult>("/api/mini/actions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({modelId,action:"voice_preview",input})});}catch(error){return {error:error instanceof Error?error.message:"Could not load voice preview."};}},
     fanvueOwnerMedia:async(modelId,scope,input)=>{
       try{return await request<FanvueMediaJobResult>("/api/mini/actions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({modelId,action:"fanvue_media",scope,input})});}
       catch(error){return {error:error instanceof Error?error.message:"Could not complete media request."};}
