@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { commandInProgress, commandLabel, createReadScope, freezeIntent, mergeMessages, mergeThread } from "../components/app/social/state.ts";
-import type { SocialCommand, SocialCommandInput, SocialMessage, SocialThread } from "../lib/social-types.ts";
+import { commandInProgress, commandLabel, createReadScope, freezeIntent, mergeMessages, mergeThread, waitingChannels } from "../components/app/social/state.ts";
+import type { SocialContact, SocialCommand, SocialCommandInput, SocialMessage, SocialThread } from "../lib/social-types.ts";
 
 const command = { operation: "approve", status: "done", deliveryState: "queued" } as SocialCommand;
 assert.equal(commandLabel(command), "Approved · queued", "An accepted IG approval is not a delivered message");
@@ -49,3 +49,10 @@ assert.equal(commandInProgress({...command,status:"done",deliveryState:"sending"
 assert.equal(commandLabel({...command,status:"done",deliveryState:"sending"}),"Sending");
 assert.equal(commandInProgress({...command,status:"done",deliveryState:"sent"}),false);
 assert.equal(commandInProgress({...command,status:"uncertain"}),false);
+
+const contact=(channel:SocialContact["channel"],needsReply=false,pendingId:string|null=null)=>({channel,needsReply,pendingId}) as SocialContact;
+assert.deepEqual([...waitingChannels([contact("instagram",true),contact("telegram",true),contact("fanvue")])],["instagram","telegram"]);
+assert.equal(waitingChannels([contact("instagram",true),contact("telegram",true),contact("fanvue",true)]).size,3);
+assert.deepEqual([...waitingChannels([contact("instagram"),contact("telegram",true)])],["telegram"],"Replying clears only that channel");
+assert.equal(waitingChannels([contact("instagram"),contact("telegram"),contact("fanvue")]).size,0);
+assert.deepEqual([...waitingChannels([contact("fanvue",false,"draft")])],["fanvue"]);

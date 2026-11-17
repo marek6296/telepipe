@@ -1,4 +1,4 @@
-import type { SocialCommand, SocialCommandInput, SocialMessage, SocialThread } from "@/lib/social-types";
+import type { SocialChannel, SocialContact, SocialCommand, SocialCommandInput, SocialMessage, SocialThread } from "@/lib/social-types";
 
 export function commandInProgress(command: SocialCommand): boolean {
   return ["queued", "working", "sending"].includes(command.status)
@@ -68,4 +68,9 @@ export function sourceTime(iso: string | null): string {
   if (!Number.isFinite(date.getTime())) return "Time unknown";
   // Stable during SSR hydration; always label the timezone explicitly.
   return `${new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(date)} UTC`;
+}
+
+/** All channels with an incoming turn still awaiting a reply or approval. */
+export function waitingChannels(contacts:SocialContact[]):Set<SocialChannel> {
+  return new Set(contacts.filter(contact=>contact.needsReply || Boolean(contact.pendingId)).map(contact=>contact.channel));
 }

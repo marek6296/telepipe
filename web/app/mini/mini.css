@@ -72,6 +72,6 @@
 
 .mini-person-channel { display:inline-flex; align-items:center; color:var(--app-text-4); }
 .mini-person-channel .mini-channel-icon { width:16px; height:16px; }
-.mini-person-channel[data-latest="true"][data-channel="instagram"] { color:#ef5da8; }
-.mini-person-channel[data-latest="true"][data-channel="fanvue"] { color:#49f264; }
-.mini-person-channel[data-latest="true"][data-channel="telegram"] { color:#38a8ed; }
+.mini-person-channel[data-waiting="true"][data-channel="instagram"] { color:#ef5da8; }
+.mini-person-channel[data-waiting="true"][data-channel="fanvue"] { color:#49f264; }
+.mini-person-channel[data-waiting="true"][data-channel="telegram"] { color:#38a8ed; }
