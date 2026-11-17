@@ -366,6 +366,9 @@ class TenantRunner:
             from social_commands import SocialCommands
             dispatcher = SocialCommands(self._transport, cfg.model_id, g.replica_name, control)
             self._cleanup.append(asyncio.create_task(dispatcher.run()))
+            from fanvue_owner_media import FanvueOwnerMedia
+            owner_media = FanvueOwnerMedia(self._transport, cfg.model_id, g.replica_name, control)
+            self._cleanup.append(asyncio.create_task(owner_media.run()))
             if bot_ready:
                 from social_notifications import SocialNotifications
                 notifications = SocialNotifications(self._transport, cfg.model_id, g.replica_name, control)

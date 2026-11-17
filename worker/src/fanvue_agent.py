@@ -1677,6 +1677,19 @@ class FanvueAgent:
         from social_commands import DeliveryResult
         from instagram_interactions import URL
         key, text = command['external_id'], command['text']
+        media = command.get('media_uuids') or []
+        price = command.get('price_cents') or 0
+        if command['operation'] == 'send_media':
+            from fanvue_owner_media import ready_media
+            if not media or not isinstance(price, int) or (price != 0 and price < 300):
+                return DeliveryResult.blocked('invalid_media')
+            try:
+                if not await ready_media(self._api, media):
+                    return DeliveryResult.blocked('media_not_ready')
+            except Exception:
+                return DeliveryResult.blocked('media_unavailable')
+        elif media or price:
+            return DeliveryResult.blocked('invalid_media')
         initial = await self._db.settings()
         creator = initial.get('creator_uuid')
         async def ready():
@@ -1704,7 +1717,7 @@ class FanvueAgent:
         if not await before_send():
             return DeliveryResult.blocked('stale_context')
         settings = await self._db.settings()
-        if command['operation'] == 'send_text' and settings.get('reply_mode', 'auto') == 'auto':
+        if command['operation'] in ('send_text', 'send_media') and settings.get('reply_mode', 'auto') == 'auto':
             await self._db.update_fan(key, {'human_takeover': True})
             if self._control is not None:
                 await self._control._db.supersede_open('fanvue', key)
@@ -1724,10 +1737,12 @@ class FanvueAgent:
                 except Exception:
                     return False
             return not await ready() and await before_send()
-        outcome = await self._api.send_operator(key, text, before_send=fresh_before_send)
+        outcome = await self._api.send_operator(key, text, before_send=fresh_before_send, **({'media_uuids': media, 'price_cents': price} if media else {}))
         if outcome.status == 'done':
             try:
-                await self._db.add_message(key, 'assistant', text, outcome.result.get('provider_message_id') or '')
+                await self._db.add_message(key, 'assistant', (text + f'\n[Sent {len(media)} media; unlock price ${price / 100:.2f}]' if media else text), outcome.result.get('provider_message_id') or '')
+                for media_id in media:
+                    await self._db.record_send(media_id, key, price)
                 await self._db.update_fan(key, {'msg_count': int(row.get('msg_count') or 0) + 1})
             except Exception:
                 log.warning('Fanvue operator send succeeded; history update failed')

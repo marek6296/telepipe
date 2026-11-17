@@ -10,6 +10,7 @@ istej tabuľky `fanvue` a kto príde k vypršanému tokenu prvý, ten ho obnoví
 from __future__ import annotations
 
 import base64
+import asyncio
 import logging
 import time
 from datetime import datetime, timedelta, timezone
@@ -302,6 +303,14 @@ class Fanvue:
         await self._client.aclose()
 
     async def _access_token(self, *, fresh: bool = False) -> str:
+        # Owner upload metadata runs beside chat sync on the same OAuth client.
+        # Refresh tokens rotate: only one task may consume the stored token.
+        if not hasattr(self, '_access_lock'):
+            self._access_lock = asyncio.Lock()
+        async with self._access_lock:
+            return await self._access_token_locked(fresh=fresh)
+
+    async def _access_token_locked(self, *, fresh: bool = False) -> str:
         now = datetime.now(timezone.utc)
         # Minútová rezerva, nech token nevyprší uprostred volania.
         if not fresh and self._token and self._expires and self._expires - timedelta(seconds=60) > now:
@@ -510,7 +519,7 @@ class Fanvue:
             log.warning("Fanvue správa zlyhala: %s", exc)
             return ""
 
-    async def send_operator(self, user_uuid: str, text: str, *, before_send=None):
+    async def send_operator(self, user_uuid: str, text: str, *, before_send=None, media_uuids=None, price_cents=0):
         """Preserve unknown outcomes for the durable operator queue; never retry."""
         from social_commands import DeliveryResult
         # Authentication failure happens before the provider send, hence is safe.
@@ -522,7 +531,7 @@ class Fanvue:
             return DeliveryResult.blocked('stale_context')
         try:
             response = await self._client.post(f'/chats/{user_uuid}/message',
-                                                json={'text': text}, headers=headers)
+                                                json={'text': text, **({'mediaUuids': list(media_uuids), **({'price': price_cents} if price_cents else {})} if media_uuids else {})}, headers=headers)
         except Exception:
             return DeliveryResult.uncertain()
         if 400 <= response.status_code < 500:
@@ -530,7 +539,7 @@ class Fanvue:
         if not 200 <= response.status_code < 300:
             return DeliveryResult.uncertain()
         try:
-            provider_id = str((response.json() or {}).get('uuid') or '')
+            provider_id = str((response.json() or {}).get('messageUuid') or (response.json() or {}).get('uuid') or '')
         except Exception:
             provider_id = ''
         return DeliveryResult.sent(provider_id)
