@@ -160,6 +160,12 @@ class TenantInstagramDb:
             'select': 'last_message_id', 'limit': '1'})
         return int(rows[0].get('last_message_id') or 0) if rows else 0
 
+    async def preview_source(self, igsid):
+        """Newest observed provider event, for read-only preview eligibility."""
+        rows = await self._get(IG_MESSAGES, {'model_id': self._mine, 'igsid': f'eq.{igsid}',
+            'select': 'mid,role', 'order': 'occurred_at.desc.nullslast,id.desc', 'limit': '1'})
+        return rows[0] if rows else {}
+
     async def native_reply(self, igsid, account, occurred_at):
         return await self._t._rpc('social_native_reply', {
             'p_model': self.model_id, 'p_channel': 'instagram', 'p_external': igsid,

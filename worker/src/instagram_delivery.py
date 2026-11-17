@@ -56,6 +56,10 @@ class InstagramDelivery:
         if not (active or cfg.get('sync_enabled')):
             return False
         if parse_time(cfg.get('circuit_until')) and parse_time(cfg['circuit_until']) > utcnow():
+            if active and cfg.get('reply_mode') == 'semi' and cfg.get('circuit_reason') == 'meta_4':
+                # The inbound event is already imported. A text preview performs
+                # no provider writes; rate backoff must not hold it behind GETs.
+                await self.process_one(cfg, preview_only=True)
             return True
         self.agent._moje_id = cfg['ig_user_id']
         if not cfg.get('sync_started_at'):
@@ -334,7 +338,51 @@ class InstagramDelivery:
                    and parse_time(current.get('test_until')) and parse_time(current['test_until']) > utcnow())
         return '' if testing or (block and in_active_window(local, behavior.active_start_min, behavior.active_end_min)) else 'sleeping'
 
-    async def process_one(self, cfg, action=None, before_send=None, *, reconciled_raw=None):
+    async def prepare_synced_preview(self, cfg, action):
+        """Publish only a source-fenced preview during Meta's read rate backoff.
+
+        This never grants delivery permission: approval still uses the full
+        remote refresh/reservation/seen/send path. Native/new inbound imports
+        invalidate this proposal through the ordinary pending source fence.
+        """
+        account = cfg.get('ig_user_id')
+        if (cfg.get('reply_mode') != 'semi' or action['kind'] != 'dm'
+                or action.get('payload', {}).get('origin') == 'operator'
+                or action.get('payload', {}).get('approved_source_mid')
+                or action.get('payload', {}).get('account_id') != cfg.get('ig_user_id')
+                or not self.agent._control):
+            return False
+        async def eligible():
+            settings = await self.db.settings()
+            user = await self.db.user(action['igsid']) or {}
+            source = await self.db.preview_source(action['igsid'])
+            current = await self.db.action(action['id'])
+            return (settings.get('connected') and settings.get('enabled')
+                and settings.get('reply_mode') == 'semi' and settings.get('ig_user_id') == account
+                and in_window(action.get('source_at')) and user.get('ai_enabled', True)
+                and not user.get('human_takeover')
+                and source.get('role') == 'user' and source.get('mid') == action.get('source_mid')
+                and current and current['state'] == 'leased'
+                and current.get('lease_token') == action.get('lease_token'))
+        if not await eligible():
+            return False
+        source_id = await self.db.latest_message_id(action['igsid'])
+        user = await self.db.user(action['igsid']) or {}
+        proposals, history = await self.agent._navrhy(user, action['igsid'], cfg)
+        if not proposals or not await eligible() or await self.db.latest_message_id(action['igsid']) != source_id:
+            return False
+        if not await self.db.change_action(action, {'state': 'approval', 'lease_until': None}):
+            return False
+        import prehlad
+        ok = await self.agent._control.post_approval(channel='instagram', conv_key=f'{action["igsid"]}:{action["id"]}',
+            display_name=user.get('username') or action['igsid'],
+            incoming_preview=prehlad.blok_rozhovoru(history, now_local=utcnow()),
+            suggestions=proposals, hint='', source_message_id=source_id)
+        if not ok:
+            await self.db.change_action(action, {'state': 'pending', 'due_at': utcnow().isoformat()}, state='approval')
+        return True
+
+    async def process_one(self, cfg, action=None, before_send=None, *, reconciled_raw=None, preview_only=False):
         action = action or await self.db.rpc('claim')
         if not action:
             return
@@ -343,6 +391,10 @@ class InstagramDelivery:
             # Operator work is owned by social_commands. An expired/recovered
             # action must never escape into an automatic retry path.
             await self.db.change_action(action, {'state': 'cancelled', 'reason': 'operator_dispatch_required'})
+            return
+        if preview_only:
+            if not await self.prepare_synced_preview(cfg, action):
+                await self.defer(action, 'refresh_meta_4')
             return
         # No sending outside the shared local day. The test exception is scoped to
         # one platform ID, expires, and never skips Meta, quota or operator gates.
@@ -513,8 +565,10 @@ class InstagramDelivery:
                     await self.db.hub.record_invite('instagram', action['igsid'],
                         'telegram' if link_target == 'telegram' else 'linkpage', scope=cfg['ig_user_id'])
         except api.InstagramError as exc:
-            await self.defer(action, f'refresh_meta_{exc.kod}')
             await self.provider_error(exc, during_read=True)
+            if exc.kod == 4 and not operator and await self.prepare_synced_preview(cfg, action):
+                return
+            await self.defer(action, f'refresh_meta_{exc.kod}')
 
     async def deliver_operator(self, command, before_send):
         """Prepare a durable action, then run the existing reservation/send path."""
