@@ -1,8 +1,15 @@
 import type { SocialCommand, SocialCommandInput, SocialMessage, SocialThread } from "@/lib/social-types";
 
+export function commandInProgress(command: SocialCommand): boolean {
+  return ["queued", "working", "sending"].includes(command.status)
+    || (command.operation !== "regenerate" && command.status === "done"
+      && ["queued", "ready", "pending", "leased", "approval", "sending"].includes(command.deliveryState ?? ""));
+}
+
 export function commandLabel(command: SocialCommand): string {
   if (command.status === "done") {
     if (command.operation === "regenerate") return "Drafts updated";
+    if (command.deliveryState === "sending") return "Sending";
     if (command.deliveryState === "sent" || command.deliveryState === "delivered") return "Sent";
     if (["queued", "ready", "pending", "leased", "approval"].includes(command.deliveryState ?? "")) return "Approved · queued";
     if (command.deliveryState === "uncertain") return "Delivery unconfirmed";

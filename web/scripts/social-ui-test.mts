@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { commandLabel, createReadScope, freezeIntent, mergeMessages, mergeThread } from "../components/app/social/state.ts";
+import { commandInProgress, commandLabel, createReadScope, freezeIntent, mergeMessages, mergeThread } from "../components/app/social/state.ts";
 import type { SocialCommand, SocialCommandInput, SocialMessage, SocialThread } from "../lib/social-types.ts";
 
 const command = { operation: "approve", status: "done", deliveryState: "queued" } as SocialCommand;
@@ -43,3 +43,9 @@ oldScope.dispose();
 assert.equal(oldScope.accepts(secondRead), false, "Switching recipient or unmounting invalidates in-flight reads");
 assert.equal(oldScope.accepts(oldScope.begin()), false, "An old action callback cannot revive the unmounted reader");
 console.log("PASS: Social UI delivery labels, immutable retry intents and history merge");
+
+assert.equal(commandInProgress({...command,status:"sending"}),true);
+assert.equal(commandInProgress({...command,status:"done",deliveryState:"sending"}),true);
+assert.equal(commandLabel({...command,status:"done",deliveryState:"sending"}),"Sending");
+assert.equal(commandInProgress({...command,status:"done",deliveryState:"sent"}),false);
+assert.equal(commandInProgress({...command,status:"uncertain"}),false);

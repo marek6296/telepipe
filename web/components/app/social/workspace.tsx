@@ -13,6 +13,7 @@ import { useSocialTransport } from "./transport";
 export type ComposerDraft = {
   text: string; brief: string; submitting: boolean; error: string; notice: string;
   retry: SocialCommandInput | null;
+  activity?: {input: SocialCommandInput; command?: import("@/lib/social-types").SocialCommand} | null;
 };
 export const EMPTY_DRAFT: ComposerDraft = { text: "", brief: "", submitting: false, error: "", notice: "", retry: null };
 export type UpdateDraft = (key: string, change: (previous: ComposerDraft) => ComposerDraft) => void;

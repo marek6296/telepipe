@@ -7,7 +7,7 @@ import type { SocialChannelState, SocialCommandInput, SocialContact, SocialMessa
 import { cn } from "@/lib/utils";
 import { PersonPanel } from "./person-panel";
 import { MessageMedia } from "./message-media";
-import { CHANNEL_NAMES, commandLabel, freezeIntent, mergeMessages, mergeThread, sourceTime } from "./state";
+import { CHANNEL_NAMES, commandInProgress, commandLabel, freezeIntent, mergeMessages, mergeThread, sourceTime } from "./state";
 import { useSocialResource } from "./use-resource";
 import type { ComposerDraft, UpdateDraft } from "./workspace";
 
@@ -33,8 +33,13 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
   const regeneratingRevision = useRef<string | null>(null);
   const previewRevision = thread?.pending ? `${thread.pending.id}:${thread.pending.updatedAt}` : null;
   const lastId = thread?.messages.at(-1)?.id;
-  const waitingForCommand = thread?.commands.some(item => ["queued", "working", "sending"].includes(item.status)
-    || (item.operation !== "regenerate" && item.status === "done" && ["queued", "ready", "pending", "leased", "approval"].includes(item.deliveryState ?? ""))) ?? false;
+  const waitingForCommand = thread?.commands.some(commandInProgress) ?? false;
+  const activeCommand = thread?.commands.find(item => item.id === draft.activity?.command?.id)
+    ?? draft.activity?.command ?? thread?.commands.find(commandInProgress);
+  const progressBusy = draft.submitting || Boolean(activeCommand && commandInProgress(activeCommand));
+  const progressError = Boolean(draft.error || (activeCommand && (["failed", "uncertain", "blocked", "stale"].includes(activeCommand.status)
+    || ["uncertain", "blocked", "cancelled", "expired", "skipped"].includes(activeCommand.deliveryState ?? ""))));
+  const progressText = draft.submitting ? "Submitting…" : draft.error || (activeCommand ? commandLabel(activeCommand) : draft.notice);
   const canSend = Boolean(thread && channelState?.available && channelState.connected && !resource.error);
   const blocked = !canSend || waitingForCommand || draft.submitting || skipLoading || Boolean(draft.retry);
 
@@ -79,14 +84,14 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
   async function submit(input: SocialCommandInput) {
     if (actionBusy.current || draft.submitting) return;
     actionBusy.current = true;
-    changeDraft({ submitting: true, error: "", notice: "", retry: input });
+    changeDraft({ submitting: true, error: "", notice: "", retry: input, activity: {input} });
     try {
       const result = await submitSocialCommand(modelId, input);
       if (result.error) {
-        changeDraft({ error: result.error, retry: result.retryable ? input : null });
+        changeDraft({ error: result.error, retry: result.retryable ? input : null, activity: {input} });
         if (!result.retryable) { regeneratingRevision.current = null; refreshAll(); }
       } else {
-        updateDraft(contact.key, previous => ({ ...previous, retry: null, notice: result.command ? commandLabel(result.command) : result.message || "Request accepted.",
+        updateDraft(contact.key, previous => ({ ...previous, retry: null, activity: {input, command: result.command}, notice: result.command ? commandLabel(result.command) : result.message || "Request accepted.",
           text: input.operation === "send_text" && previous.text.trim() === input.text ? "" : previous.text }));
         if (result.command) resource.update(previous => ({ ...previous, commands: [result.command!, ...previous.commands.filter(command => command.id !== result.command!.id)] }));
         refreshAll();
@@ -112,7 +117,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
 
   async function skip() {
     if (!thread?.pending || actionBusy.current || blocked) return;
-    actionBusy.current = true; setSkipLoading(true); changeDraft({ error: "", notice: "" });
+    actionBusy.current = true; setSkipLoading(true); changeDraft({ error: "", notice: "", activity: null });
     const pending = thread.pending;
     try {
       const result = await skipSocialPending(modelId, pending.id, [...pending.suggestions]);
@@ -141,7 +146,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
         <div className="mb-3 flex items-center justify-between gap-2"><h3 className="flex items-center gap-1.5 text-[12px] font-medium"><Sparkles className="h-3.5 w-3.5" />Suggested replies</h3><span className="text-[10px] text-[var(--app-text-4)]">Review, then approve</span></div>
         <p className="mb-3 text-[10.5px] leading-5 text-[var(--app-text-3)]">These are the exact messages she will send. Nothing is sent until you approve.</p>
         {thread.pending.incomingPreview && <p className="mb-3 line-clamp-2 border-l border-[var(--app-border-strong)] pl-2.5 text-[11px] leading-5 text-[var(--app-text-3)]">{thread.pending.incomingPreview}</p>}
-        <div className="space-y-2">{thread.pending.suggestions.map((rawSuggestion, index) => { const suggestion = thread.pending!.previews ? thread.pending!.previews[index] : rawSuggestion; return <div key={`${thread.pending!.id}-${index}-${rawSuggestion}`} className="rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3"><p className="whitespace-pre-wrap break-words text-[12px] leading-5">{suggestion || "This suggestion cannot be sent as text. Regenerate a new reply."}</p><div className="mt-2 flex justify-end"><button type="button" onClick={() => command("approve", suggestion || "")} disabled={blocked || !suggestion} className="app-btn app-btn-ghost min-h-8 px-2.5 text-[10.5px]"><Check className="h-3 w-3" />Approve reply {index + 1}</button></div></div>; })}</div>
+        <div className="space-y-2">{thread.pending.suggestions.map((rawSuggestion, index) => { const suggestion = thread.pending!.previews ? thread.pending!.previews[index] : rawSuggestion; const selected = draft.activity?.input.operation === "approve" && draft.activity.input.pendingId === thread.pending!.id && draft.activity.input.text === suggestion && !progressError; return <div key={`${thread.pending!.id}-${index}-${rawSuggestion}`} className="rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3"><p className="whitespace-pre-wrap break-words text-[12px] leading-5">{suggestion || "This suggestion cannot be sent as text. Regenerate a new reply."}</p><div className="mt-2 flex justify-end"><button type="button" onClick={() => command("approve", suggestion || "")} disabled={blocked || !suggestion} className="app-btn app-btn-ghost min-h-8 px-2.5 text-[10.5px]">{selected && progressBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />}{selected && progressText ? progressText : `Approve reply ${index + 1}`}</button></div></div>; })}</div>
         {thread.pending.suggestions.length === 0 && <p className="text-[11px] text-[var(--app-text-3)]">No text suggestions yet. Regenerate a draft or write your own reply.</p>}
         {thread.pending.hint && <p className="mt-2 text-[10.5px] text-[var(--app-text-4)]">{thread.pending.hint}</p>}
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-2"><button type="button" disabled={blocked} onClick={() => command("regenerate")} className="inline-flex min-h-8 items-center gap-1.5 text-[11px] text-[var(--app-text-2)] disabled:opacity-40"><RefreshCw className="h-3 w-3" />Regenerate</button><button type="button" disabled={blocked} onClick={() => void skip()} className="ml-auto inline-flex min-h-8 items-center gap-1 text-[11px] text-[var(--app-text-3)] disabled:opacity-40">{skipLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <SkipForward className="h-3 w-3" />}Skip</button></div>
@@ -152,20 +157,21 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2"><span className="text-[10px] text-[var(--app-text-4)]">Creates previews only.</span><button type="submit" disabled={blocked || !draft.brief.trim()} className="app-btn app-btn-ghost min-h-9 px-3 text-[11px]">{draft.submitting || waitingForCommand ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}Preview in her voice</button></div>
         </form>
       </div>}
-      {(draft.error || draft.retry || draft.notice) && <div className="border-t border-[var(--app-border)] px-4 py-3">
-        {draft.error && <p role="alert" className="mt-2 text-[11px] leading-5 text-[#fca5a5]">{draft.error}</p>}
-        {draft.retry && !draft.submitting && <button type="button" onClick={() => void submit(draft.retry!)} className="app-btn app-btn-ghost mt-2 min-h-8 px-3 text-[11px]">Retry the same request</button>}
-        {draft.notice && <p role="status" className="mt-2 text-[11px] text-[var(--app-text-3)]">{draft.notice}</p>}
-      </div>}
-
       {thread && thread.commands.length > 0 && <div className="border-t border-[var(--app-border)] px-4 py-3"><h3 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--app-text-4)]">Recent requests</h3><ul className="space-y-2">{thread.commands.slice(0, 5).map(item => <li key={item.id} className="text-[10.5px]"><div className="flex justify-between gap-2"><span className={cn(["failed", "uncertain", "blocked", "stale"].includes(item.status) ? "text-[#fca5a5]" : "text-[var(--app-text-2)]")}>{commandLabel(item)}</span><span className="text-[var(--app-text-4)]">{sourceTime(item.createdAt)}</span></div>{item.text && <p className="mt-0.5 line-clamp-2 break-words text-[var(--app-text-3)]">{item.text}</p>}{item.reason && <p className="mt-0.5 break-words text-[var(--app-text-4)]">{item.reason}</p>}{(item.status === "uncertain" || item.deliveryState === "uncertain") && <p className="mt-1 text-[#fca5a5]">Check the channel before sending again. This request will not be resent automatically.</p>}</li>)}</ul></div>}
       {mini && thread && <details className="border-t border-[var(--app-border)] p-4"><summary className="cursor-pointer text-[12px] font-medium">Person &amp; conversation controls</summary><div className="mt-3"><PersonPanel key={current.key} modelId={modelId} thread={thread} selectContact={selectContact} refresh={refreshAll} /></div></details>}
       </div>
+      {(progressText || draft.retry) && <div className="shrink-0 border-t border-[var(--app-border-strong)] bg-[var(--app-surface)] px-4 py-3">
+        <p role={progressError ? "alert" : "status"} aria-live={progressError ? "assertive" : "polite"} aria-atomic="true" className={cn("flex items-center gap-2 text-[12px] font-medium", progressError ? "text-[#fca5a5]" : "text-[var(--app-text)]")}>
+          {progressBusy ? <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin" /> : !progressError && <Check aria-hidden="true" className="h-4 w-4 shrink-0" />}{progressText}
+        </p>
+        {progressBusy && <p className="mt-1 text-[10.5px] text-[var(--app-text-3)]">Please wait — your request is in progress.</p>}
+        {draft.retry && !draft.submitting && <button type="button" onClick={() => void submit(draft.retry!)} className="app-btn app-btn-ghost mt-2 min-h-8 px-3 text-[11px]">Retry the same request</button>}
+      </div>}
       <form onSubmit={event => { event.preventDefault(); if (draft.text.trim()) command("send_text", draft.text.trim()); }} className="social-exact-composer border-t border-[var(--app-border)] p-4">
         <label htmlFor={`reply-${current.channel}`} className="mb-2 flex items-center justify-between gap-2 text-[11px] font-medium"><span>Write my own · {CHANNEL_NAMES[current.channel]}</span><span className="truncate font-normal text-[var(--app-text-4)]">To {current.displayName || current.username || current.externalId}</span></label>
         <textarea id={`reply-${current.channel}`} value={draft.text} onChange={event => changeDraft({ text: event.target.value })} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); if (draft.text.trim()) command("send_text", draft.text.trim()); } }} rows={mini ? 2 : 3} maxLength={12000} placeholder="Write the exact message to send…" className="app-input resize-y text-[12px]! leading-5!" />
 
-        <div className="mt-3 flex items-center justify-between gap-3"><p className="max-w-[65%] text-[10px] leading-4 text-[var(--app-text-4)]">{!channelState?.connected ? "Connect this channel before replying." : waitingForCommand ? "A request is in progress. Its delivery status appears below." : channelState.mode === "auto" ? "Your exact text is sent unchanged and takes over this conversation. AI pauses here until you resume it." : "Your text is sent unchanged. Ctrl / ⌘ + Enter to send."}</p><button type="submit" disabled={blocked || !draft.text.trim()} className="app-btn app-btn-primary min-h-9 shrink-0 px-3 text-[11px]">{draft.submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}Send exact text</button></div>
+        <div className="mt-3 flex items-center justify-between gap-3"><p className="max-w-[65%] text-[10px] leading-4 text-[var(--app-text-4)]">{!channelState?.connected ? "Connect this channel before replying." : waitingForCommand ? "A request is in progress. Its delivery status appears above." : channelState.mode === "auto" ? "Your exact text is sent unchanged and takes over this conversation. AI pauses here until you resume it." : "Your text is sent unchanged. Ctrl / ⌘ + Enter to send."}</p><button type="submit" disabled={blocked || !draft.text.trim()} className="app-btn app-btn-primary min-h-9 shrink-0 px-3 text-[11px]">{progressBusy && draft.activity?.input.operation === "send_text" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}{progressBusy && draft.activity?.input.operation === "send_text" ? progressText : "Send exact text"}</button></div>
       </form>
     </section>
     {!mini && thread && <PersonPanel key={current.key} modelId={modelId} thread={thread} selectContact={selectContact} refresh={refreshAll} />}
