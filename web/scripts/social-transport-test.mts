@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { connectMiniSession } from "../components/app/social/mini-session.ts";
+import { connectMiniSession, notificationTarget } from "../components/app/social/mini-session.ts";
 import { createMiniTransport } from "../components/app/social/transport-core.ts";
 const calls: {url:string; options:RequestInit}[] = [];
 let status = 200;
@@ -39,3 +39,13 @@ await connectMiniSession({bot:"bot-b",fetcher:fetchLaunch});
 assert.equal(launches[1].url,"/api/mini/models?bot=bot-b","Cookie-only reload remains bound to launch bot");
 await assert.rejects(() => connectMiniSession({bot:null,initData:"signed",fetcher:fetchLaunch}));
 console.log("PASS: Mini launch always verifies current initData and binds cookie fallback to bot");
+
+const ownerSession={models:[{id:"bot-a",name:"Simona"}],selectedModelId:"bot-a"};
+for(const contact of ["instagram:123", "telegram:456", "fanvue:fan-uuid"])
+  assert.deepEqual(notificationTarget(ownerSession,"bot-a",contact),{id:"bot-a",contact});
+assert.equal(notificationTarget(ownerSession,"bot-a",null),null,"Normal menu launch keeps the model picker");
+assert.equal(notificationTarget(ownerSession,"foreign","instagram:123"),null);
+assert.equal(notificationTarget({...ownerSession,models:[]},"bot-a","instagram:123"),null);
+for(const invalid of ["instagram:","other:123","instagram:bad id","https://evil.invalid","x".repeat(600)])
+  assert.equal(notificationTarget(ownerSession,"bot-a",invalid),null);
+console.log("PASS: notification launch selects only its verified model and valid channel/contact");

@@ -8,7 +8,7 @@ import { SocialWorkspace, type SocialNavigation } from "./workspace";
 import { SocialTransportProvider } from "./transport";
 import { createMiniTransport, SESSION_EXPIRED } from "./transport-core";
 import { telegramWebApp, useTelegramShell } from "./telegram-shell";
-import { connectMiniSession, type MiniModel as Model, type MiniSession as Session } from "./mini-session";
+import { connectMiniSession, notificationTarget, type MiniModel as Model, type MiniSession as Session } from "./mini-session";
 
 type MiniTransport = ReturnType<typeof createMiniTransport>;
 // Strict-mode remounts share the bootstrap promise: signed initData is one use.
@@ -40,7 +40,12 @@ export function MiniApp() {
     }
     initialSession.promise.then(result => {
       if (!alive) return;
-      setLaunch({bot:params.get("bot"),contact:params.get("contact")});
+      const target = notificationTarget(result,bot,params.get("contact"));
+      setLaunch({bot,contact:target?.contact ?? null});
+      if (target) {
+        setVisited([{...target,navigation:createRef<SocialNavigation>()}]);
+        setSelected(target.id);
+      }
       try { setLastModel(localStorage.getItem("telepipe-mini-model")); } catch { /* Storage is optional in embedded browsers. */ }
       setSession(result);
       setTransport(createMiniTransport({token:result.token,onExpired:() => setExpired(true)}));

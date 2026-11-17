@@ -12,3 +12,10 @@ export async function connectMiniSession({bot,initData,fetcher = fetch}: {bot:st
   if (!response.ok) throw new Error(body.error || "Close this window and reopen Social sites from your Telegram bot.");
   return body;
 }
+
+/** Notification URLs are navigation hints, never authorization. */
+export function notificationTarget(session:MiniSession, bot:string|null, contact:string|null):{id:string;contact:string}|null {
+  if (!bot || session.selectedModelId!==bot || !session.models.some(model=>model.id===bot)
+    || !contact || contact.length>512 || !/^(telegram|instagram|fanvue):[^\s]+$/.test(contact)) return null;
+  return {id:bot,contact};
+}
