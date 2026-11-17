@@ -49,3 +49,7 @@ assert.equal(notificationTarget({...ownerSession,models:[]},"bot-a","instagram:1
 for(const invalid of ["instagram:","other:123","instagram:bad id","https://evil.invalid","x".repeat(600)])
   assert.equal(notificationTarget(ownerSession,"bot-a",invalid),null);
 console.log("PASS: notification launch selects only its verified model and valid channel/contact");
+
+const multiModel={...ownerSession,models:[...ownerSession.models,{id:"model-b",name:"Nina"}]};
+assert.deepEqual(notificationTarget(multiModel,"bot-a","telegram:456","model-b"),{id:"model-b",contact:"telegram:456"},"Reload after switching models must not open that contact under the bot's original model");
+assert.equal(notificationTarget(multiModel,"bot-a","telegram:456","foreign"),null);

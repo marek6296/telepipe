@@ -40,8 +40,8 @@ export function MiniApp() {
     }
     initialSession.promise.then(result => {
       if (!alive) return;
-      const target = notificationTarget(result,bot,params.get("contact"));
-      setLaunch({bot,contact:target?.contact ?? null});
+      const target = notificationTarget(result,bot,params.get("contact"),params.get("model") || bot);
+      setLaunch({bot:target?.id ?? bot,contact:target?.contact ?? null});
       if (target) {
         setVisited([{...target,navigation:createRef<SocialNavigation>()}]);
         setSelected(target.id);

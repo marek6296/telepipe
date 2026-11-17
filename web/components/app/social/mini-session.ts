@@ -14,8 +14,8 @@ export async function connectMiniSession({bot,initData,fetcher = fetch}: {bot:st
 }
 
 /** Notification URLs are navigation hints, never authorization. */
-export function notificationTarget(session:MiniSession, bot:string|null, contact:string|null):{id:string;contact:string}|null {
-  if (!bot || session.selectedModelId!==bot || !session.models.some(model=>model.id===bot)
+export function notificationTarget(session:MiniSession, bot:string|null, contact:string|null, model:string|null=bot):{id:string;contact:string}|null {
+  if (!bot || session.selectedModelId!==bot || !model || !session.models.some(item=>item.id===model)
     || !contact || contact.length>512 || !/^(telegram|instagram|fanvue):[^\s]+$/.test(contact)) return null;
-  return {id:bot,contact};
+  return {id:model,contact};
 }
