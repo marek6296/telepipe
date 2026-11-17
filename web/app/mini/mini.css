@@ -84,3 +84,6 @@
 
 .mini-channel-count { margin-left:3px; font-size:9px; font-weight:600; }
 .mini-shell .mini-channel-summary { padding-top:4px; }
+
+.mini-shell .mini-inbox-filters { margin-top:8px; gap:3px; }
+.mini-shell .mini-inbox-filters button { min-height:30px; padding:5px 2px; font-size:10px; text-align:center; white-space:nowrap; }
