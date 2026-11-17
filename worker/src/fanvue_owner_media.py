@@ -31,13 +31,20 @@ async def call(api, method, path, **kwargs):
     return response.json()
 
 
-async def ready_media(api, ids):
+async def ready_media(api, ids, db=None):
     if not ids or len(ids) > 20 or len(set(ids)) != len(ids):
         return False
     body = await call(api, 'GET', '/media/bulk', params={'mediaUuids': ','.join(ids), 'variants': 'thumbnail,main'})
     rows = {str(r.get('uuid')): r for r in media_rows(body)}
-    return all(i in rows and rows[i].get('status') == 'ready'
+    valid = all(i in rows and rows[i].get('status') == 'ready'
                and str(rows[i].get('mediaType') or rows[i].get('type') or '').lower() in ('image', 'video') for i in ids)
+    if valid and db is not None:
+        # Uploaded items may not have reached the background Vault sync yet.
+        # Seed only provider fields so send receipts have a parent; preserve
+        # the owner's caption, price, folder and AI-selection settings.
+        await db.upsert_media([{'media_uuid': i, 'kind': media_item(rows[i])['kind'],
+                                'thumb_url': media_item(rows[i])['thumb']} for i in ids])
+    return valid
 
 
 class FanvueOwnerMedia:

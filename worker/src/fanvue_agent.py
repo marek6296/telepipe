@@ -1684,7 +1684,7 @@ class FanvueAgent:
             if not media or not isinstance(price, int) or (price != 0 and price < 300):
                 return DeliveryResult.blocked('invalid_media')
             try:
-                if not await ready_media(self._api, media):
+                if not await ready_media(self._api, media, db=self._db):
                     return DeliveryResult.blocked('media_not_ready')
             except Exception:
                 return DeliveryResult.blocked('media_unavailable')

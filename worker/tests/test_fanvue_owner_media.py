@@ -77,3 +77,11 @@ async def test_owner_metadata_and_chat_share_one_rotating_token_refresh(monkeypa
     assert tokens==['new-access','new-access']
     post.assert_awaited_once()
     assert state['refresh_token']=='new-refresh'
+
+async def test_new_uploaded_media_gets_parent_before_send_receipt():
+    client=api({'data':{A:{'uuid':A,'status':'ready','mediaType':'video'}}})
+    db=SimpleNamespace(upsert_media=AsyncMock())
+    assert await ready_media(client,[A],db=db)
+    saved=db.upsert_media.call_args.args[0][0]
+    assert saved['media_uuid']==A and saved['kind']=='video'
+    assert 'price_cents' not in saved and 'active' not in saved and 'caption' not in saved
