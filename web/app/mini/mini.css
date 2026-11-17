@@ -60,3 +60,12 @@
 .mini-shell .social-composer-actions { margin:0; }
 .mini-shell .social-composer-actions > p { display:none; }
 .mini-shell .social-composer-actions button { min-height:42px; }
+
+.mini-channel-filters { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:6px; margin-top:10px; }
+.mini-channel-filters button { --channel-color:#fff; display:flex; align-items:center; justify-content:center; min-height:40px; border:1px solid var(--app-border-strong); border-radius:8px; color:var(--channel-color); background:var(--app-bg); font-size:12px; font-weight:600; }
+.mini-channel-filters button[data-channel="instagram"] { --channel-color:#ef5da8; }
+.mini-channel-filters button[data-channel="fanvue"] { --channel-color:#49f264; }
+.mini-channel-filters button[data-channel="telegram"] { --channel-color:#38a8ed; }
+.mini-channel-filters button[aria-pressed="true"] { border-color:var(--channel-color); background:color-mix(in srgb,var(--channel-color) 17%,var(--app-bg)); box-shadow:inset 0 -2px 0 var(--channel-color); }
+.mini-channel-icon { display:block; width:19px; height:19px; background:currentColor; mask-size:contain; mask-repeat:no-repeat; mask-position:center; }
+.mini-shell[data-theme="light"] .mini-channel-filters button[data-channel="all"] { --channel-color:#242424; }
