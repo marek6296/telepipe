@@ -12,7 +12,7 @@ import type { SocialChannel, SocialChannelState, SocialCommand, SocialContact, S
 
 type Row = Record<string, unknown>;
 export const CONTACT_COLUMNS = "model_id,channel,external_id,account_scope,identity_id,person_id,identity_status,candidate_id,identity_updated_at,display_name,username,avatar_url,ai_enabled,human_takeover,summary,spent_cents,last_incoming_at,last_reply_at,last_message_id,last_message_role,last_message_text,last_message_at,last_activity_at,pending_id,needs_reply";
-export const COMMAND_COLUMNS = "id,idempotency_key,voice_preview_id,media_uuids,price_cents,operation,channel,external_id,account_scope,pending_id,expected_suggestions,expected_source_id,identity_id,identity_updated_at,text,brief,status,result,reason,created_at";
+export const COMMAND_COLUMNS = "id,ui_dismissed_at,idempotency_key,voice_preview_id,media_uuids,price_cents,operation,channel,external_id,account_scope,pending_id,expected_suggestions,expected_source_id,identity_id,identity_updated_at,text,brief,status,result,reason,created_at";
 const PENDING_COLUMNS = "id,channel,conv_key,suggestions,incoming_preview,hint,created_at,updated_at";
 
 /** Service access is created only after verified authentication + strict ownership. */
@@ -103,7 +103,17 @@ export async function socialPending(ctx: SocialContext, contact: SocialContact):
 
 export function mapSocialCommand(row: Row, actionState?: string): SocialCommand {
   const result = row.result && typeof row.result === "object" ? row.result as Row : {};
-  return {voicePreviewId:str(row.voice_preview_id)||undefined,mediaUuids:Array.isArray(row.media_uuids)?row.media_uuids as string[]:[],priceCents:Number(row.price_cents || 0),providerMessageId:str(result.provider_message_id)||null,id:str(row.id),operation:row.operation as SocialCommand["operation"],channel:row.channel as SocialChannel,externalId:str(row.external_id),text:str(row.text),status:row.status as SocialCommand["status"],deliveryState:actionState || str(result.delivery_state) || null,reason:str(row.reason),createdAt:str(row.created_at)};
+  return {dismissedAt:str(row.ui_dismissed_at)||null,voicePreviewId:str(row.voice_preview_id)||undefined,mediaUuids:Array.isArray(row.media_uuids)?row.media_uuids as string[]:[],priceCents:Number(row.price_cents || 0),providerMessageId:str(result.provider_message_id)||null,id:str(row.id),operation:row.operation as SocialCommand["operation"],channel:row.channel as SocialChannel,externalId:str(row.external_id),text:str(row.text),status:row.status as SocialCommand["status"],deliveryState:actionState || str(result.delivery_state) || null,reason:str(row.reason),createdAt:str(row.created_at)};
+}
+
+export function ownerDraftForContact(commands:Row[],contact:SocialContact):SocialPending|null {
+  const row=commands.find(c=>c.operation==="regenerate" && c.status==="done" && c.channel===contact.channel && c.external_id===contact.externalId && !c.pending_id
+    && c.expected_source_id===contact.lastMessageId && c.account_scope===contact.accountScope && c.identity_id===contact.identityId
+    && (c.identity_updated_at===contact.identityUpdatedAt || Date.parse(str(c.identity_updated_at))===Date.parse(contact.identityUpdatedAt || ""))
+    && Date.parse(str(c.created_at))>Date.now()-30*60*1000 && Array.isArray((c.result as Row)?.owner_suggestions));
+  if(!row || row.ui_dismissed_at)return null;
+  const suggestions=((row.result as Row).owner_suggestions as unknown[]).filter((x):x is string=>typeof x==="string" && Boolean(x.trim()));
+  return suggestions.length ? {id:str(row.id),channel:contact.channel,convKey:contact.externalId,suggestions,previews:suggestions,incomingPreview:"",hint:"",createdAt:str(row.created_at),updatedAt:str(row.finished_at)||str(row.created_at)} : null;
 }
 
 export async function loadSocialThread(modelId: string, key: string, before?: string): Promise<SocialThread> {
@@ -138,7 +148,7 @@ export async function loadSocialThread(modelId: string, key: string, before?: st
   const actions = actionIds.length ? checked(await ctx.db.from("instagram_actions").select("id,state").eq("model_id",modelId).in("id",actionIds),"Could not load Instagram delivery status.") : [];
   const page = rows.slice(0,50);
   const media = await loadSocialMedia(ctx,contact,page.map(r => str(r.id)));
-  return {contact,messages:page.map(r => ({...mapSocialMessage(channel,r),media:media[str(r.id)]?.media || [],content:media[str(r.id)]?.originalContent ?? str(r.content)})).reverse(),hasMore:rows.length>50,nextBefore:rows.length>50 ? str(page.at(-1)?.id) : null,pending,
+  return {contact,messages:page.map(r => ({...mapSocialMessage(channel,r),media:media[str(r.id)]?.media || [],content:media[str(r.id)]?.originalContent ?? str(r.content)})).reverse(),hasMore:rows.length>50,nextBefore:rows.length>50 ? str(page.at(-1)?.id) : null,pending,ownerDraft:ownerDraftForContact(commands,contact),
     commands:commands.map(c => mapSocialCommand(c,actions?.find(a => a.id === (c.result as Row)?.action_id)?.state)),
     linkedContacts:(checked(linkedResult,"Could not load linked accounts.") as unknown as Row[]).map(mapSocialContact),
     candidate:candidateResult.data ? mapSocialContact(checked(candidateResult,"Could not load a suggested account.") as unknown as Row) : null,loadedAt:new Date().toISOString()};

@@ -51,3 +51,6 @@ assert.equal(groups.length,2);
 assert.equal(groups[0].contacts.length,2);
 assert.equal(groups[1].contacts.length,1,"A matching name or candidate is not a verified group");
 console.log("Social sites policy, tenant, stale-draft and timestamp checks passed.");
+const standalone=validateSocialCommand({...base,operation:'regenerate',pendingId:undefined,expectedSuggestions:undefined,text:'',brief:'opýtaj sa ako sa má'}, {...contact,pendingId:null},null);
+assert.equal(standalone.operation,'regenerate');assert.equal(standalone.pendingId,undefined);
+assert.throws(()=>validateSocialCommand({...base,operation:'regenerate',pendingId:undefined,expectedSuggestions:undefined},contact,pending as never));

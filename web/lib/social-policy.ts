@@ -47,7 +47,7 @@ export function validateSocialCommand(input: unknown, contact: SocialContact, pe
   if (raw.expectedAccountScope !== contact.accountScope || raw.expectedSourceId !== contact.lastMessageId || raw.identityId !== contact.identityId
       || raw.identityUpdatedAt !== contact.identityUpdatedAt) throw new SocialError("This conversation changed. Review the latest messages first.", 409);
   const expected = raw.expectedSuggestions;
-  const needsPending = !["send_text","send_media","send_voice"].includes(str(raw.operation)) || raw.pendingId != null;
+  const needsPending = raw.operation === "approve" || raw.pendingId != null;
   if (needsPending && (!pending || raw.pendingId !== pending.id || !Array.isArray(expected)
       || JSON.stringify(expected) !== JSON.stringify(pending.suggestions)))
     throw new SocialError("These suggestions are no longer current. Refresh the conversation.", 409);

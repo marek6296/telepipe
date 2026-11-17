@@ -138,3 +138,14 @@ export async function fanvueOwnerMedia(modelId:string,scope:string,input:unknown
 export async function socialVoicePreview(modelId:string,request:import('@/lib/social-types').SocialVoiceRequest):Promise<import('@/lib/social-types').SocialVoiceResult>{
  try{const {loadVoicePreview}=await import('@/lib/social-voice-server');return await loadVoicePreview(modelId,request);}catch(error){return {error:socialErrorMessage(error)};}
 }
+
+export async function dismissSocialCommand(modelId:string,contactKey:string,commandId:string):Promise<SocialResult>{
+ try{
+  const ctx=await socialContext(modelId);
+  if(!UUID.test(commandId || ""))throw new SocialError("Invalid request.");
+  const contact=await socialContact(ctx,contactKey);
+  const result=await ctx.db.rpc("social_dismiss_command",{p_model:modelId,p_owner:ctx.userId,p_command:commandId,p_channel:contact.channel,p_external:contact.externalId,p_scope:contact.accountScope});
+  if(result.error || result.data!==true)throw new SocialError("Only a confirmed unsent attempt or an unused owner draft can be removed. Refresh the conversation.",409);
+  return {message:"Removed from chat."};
+ }catch(error){return {error:socialErrorMessage(error)};}
+}

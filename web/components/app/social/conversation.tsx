@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Loader2, RefreshCw, Send, SkipForward, Sparkles } from "lucide-react";
+import { Check, Loader2, RefreshCw, Send, SkipForward, Sparkles, X } from "lucide-react";
 import { useSocialTransport } from "./transport";
 import type { SocialChannelState, SocialCommandInput, SocialContact, SocialMessage, SocialThread } from "@/lib/social-types";
 import { cn } from "@/lib/utils";
@@ -10,7 +10,7 @@ import { PersonBrief } from "./person-brief";
 import { FanvueAttachments } from "./fanvue-attachments";
 import { PersonPanel } from "./person-panel";
 import { MessageMedia } from "./message-media";
-import { CHANNEL_NAMES, commandInProgress, commandLabel, commandExplanation, freezeIntent, mergeMessages, mergeThread, outboxCommands, sourceTime } from "./state";
+import { CHANNEL_NAMES, commandInProgress, commandLabel, commandExplanation, freezeIntent, mergeMessages, mergeThread, outboxCommands, sourceTime, canDismissCommand } from "./state";
 import { useSocialResource } from "./use-resource";
 import type { ComposerDraft, UpdateDraft } from "./workspace";
 
@@ -28,13 +28,16 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
   const [olderLoading, setOlderLoading] = useState(false);
   const [olderError, setOlderError] = useState("");
   const [skipLoading, setSkipLoading] = useState(false);
+  const [dismissing,setDismissing]=useState<string|null>(null);
   const olderController = useRef<AbortController | null>(null);
   const actionBusy = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const lastSeenMessage = useRef<string | null>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const regeneratingRevision = useRef<string | null>(null);
-  const previewRevision = thread?.pending ? `${thread.pending.id}:${thread.pending.updatedAt}` : null;
+  const shownDraft=thread?.pending ?? thread?.ownerDraft;
+  const isOwnerDraft=Boolean(shownDraft && !thread?.pending);
+  const previewRevision=shownDraft ? `${shownDraft.id}:${shownDraft.updatedAt}` : null;
   const localIntent = draft.activity?.input;
   const commandRows = thread?.commands || [];
   const optimistic = localIntent && (draft.submitting || Boolean(draft.retry)) && localIntent.operation!=="regenerate" && !commandRows.some(c=>c.id===localIntent.requestId)
@@ -42,12 +45,14 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
   const outbox = outboxCommands([...commandRows,...optimistic],thread?.messages || []);
   const lastId = outbox.at(-1)?.id || thread?.messages.at(-1)?.id;
   const waitingForCommand = thread?.commands.some(commandInProgress) ?? false;
-  const activeCommand = thread?.commands.find(item => item.id === draft.activity?.command?.id)
+  const activityCommand = thread?.commands.find(item => item.id === draft.activity?.command?.id)
     ?? draft.activity?.command ?? thread?.commands.find(commandInProgress);
+  const activityHidden=Boolean(activityCommand && (activityCommand.dismissedAt || activityCommand.operation!=="regenerate" && canDismissCommand(activityCommand) && !outbox.some(c=>c.id===activityCommand.id)));
+  const activeCommand=activityHidden ? undefined : activityCommand;
   const progressBusy = draft.submitting || Boolean(activeCommand && commandInProgress(activeCommand));
   const progressError = Boolean(draft.error || (activeCommand && (["failed", "uncertain", "blocked", "stale"].includes(activeCommand.status)
     || ["uncertain", "blocked", "cancelled", "expired", "skipped"].includes(activeCommand.deliveryState ?? ""))));
-  const progressText = draft.submitting ? "Submitting…" : draft.error || (activeCommand ? [commandLabel(activeCommand),commandExplanation(activeCommand)].filter(Boolean).join(" · ") : draft.notice);
+  const progressText = activityHidden ? "" : draft.submitting ? "Submitting…" : draft.error || (activeCommand ? [commandLabel(activeCommand),commandExplanation(activeCommand)].filter(Boolean).join(" · ") : draft.notice);
   const canSend = Boolean(thread && channelState?.available && channelState.connected && !resource.error);
   const blocked = !canSend || waitingForCommand || draft.submitting || skipLoading || Boolean(draft.retry);
 
@@ -112,10 +117,21 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
     } finally { actionBusy.current = false; changeDraft({ submitting: false }); }
   }
 
+  async function dismissAttempt(id:string){
+    if(dismissing)return;setDismissing(id);
+    try{
+      const result=await transport.dismissSocialCommand(modelId,current.key,id);
+      if(result.error){changeDraft({error:result.error});return;}
+      resource.update(previous=>({...previous,commands:previous.commands.map(c=>c.id===id?{...c,dismissedAt:new Date().toISOString()}:c),ownerDraft:previous.ownerDraft?.id===id?null:previous.ownerDraft}));
+      if(draft.activity?.command?.id===id || draft.activity?.input.requestId===id)changeDraft({activity:null,error:"",notice:"",retry:null});
+      refreshAll();
+    }catch{changeDraft({error:"Could not remove the attempt. Try again."});}finally{setDismissing(null);}
+  }
+
   function command(operation: SocialCommandInput["operation"], text?: string, brief?: string) {
     if (!thread || blocked) return;
     const pending = thread.pending;
-    if (operation !== "send_text" && !pending) return;
+    if(operation==="approve" && !pending){if(!isOwnerDraft)return;operation="send_text";}
     const input = freezeIntent({ requestId: crypto.randomUUID(), operation, contactKey: thread.contact.key, expectedAccountScope: thread.contact.accountScope,
       expectedSourceId: thread.contact.lastMessageId, identityId: thread.contact.identityId,
       identityUpdatedAt: thread.contact.identityUpdatedAt,
@@ -147,13 +163,14 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
   }
 
   async function skip() {
+    if(isOwnerDraft && shownDraft){await dismissAttempt(shownDraft.id);return;}
     if (!thread?.pending || actionBusy.current || blocked) return;
     actionBusy.current = true; setSkipLoading(true); changeDraft({ error: "", notice: "", activity: null });
     const pending = thread.pending;
     try {
       const result = await skipSocialPending(modelId, pending.id, [...pending.suggestions]);
       if (result.error) changeDraft({ error: result.error });
-      else { changeDraft({ notice: "Draft skipped." }); refreshAll(); }
+      else { if(thread.ownerDraft)await dismissAttempt(thread.ownerDraft.id);changeDraft({ notice: "Draft skipped." }); refreshAll(); }
     } catch { changeDraft({ error: "Could not skip this draft. Refresh and try again." }); }
     finally { actionBusy.current = false; setSkipLoading(false); }
   }
@@ -172,16 +189,17 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
           {olderError && <p role="alert" className="mb-3 text-center text-[11px] text-[#fca5a5]">{olderError}</p>}
           {thread.messages.length === 0 ? <div className="flex h-full items-center justify-center text-center text-[12px] text-[var(--app-text-3)]">No imported messages for this account yet.</div> : <div className="space-y-3">{thread.messages.map(message => <Message key={message.id} message={message} refreshPlayback={async mediaId => (await resource.refresh())?.messages.find(row => row.id === message.id)?.media?.find(item => item.id === mediaId)?.playbackUrl} />)}</div>}
         </>}
-      {thread && outbox.length>0 && <div className="mt-3 space-y-3">{outbox.map(item=><div key={item.id} className="flex justify-end"><div className="max-w-[88%] rounded-xl rounded-br-sm bg-[#252525] px-3 py-2.5 text-[12px] leading-5"><p className="whitespace-pre-wrap break-words">{item.text || (item.mediaUuids?.length?`${item.mediaUuids.length} media · ${item.priceCents?`$${(item.priceCents/100).toFixed(2)} unlock`:"Free"}`:"")}</p>{item.operation==="send_media"&&Boolean(item.mediaUuids?.length)&&item.text&&<p className="mt-1 text-[10px] text-[var(--app-text-3)]">{item.mediaUuids!.length} media · {item.priceCents?`$${(item.priceCents/100).toFixed(2)} unlock`:"Free"}</p>}<p className="mt-1 flex items-center justify-end gap-1.5 text-[10px] text-[var(--app-text-3)]">{commandInProgress(item) && <Loader2 className="h-3 w-3 animate-spin" />}{optimistic.some(c=>c.id===item.id) ? draft.error ? "Not confirmed · check request" : "Submitting…" : commandLabel(item)}</p>{["failed","blocked","stale","uncertain"].includes(item.status) && <p role="alert" className="mt-1 text-[10px] text-[#fca5a5]">{item.status==="uncertain" ? "Delivery unconfirmed. Check the channel before retrying." : commandExplanation(item) || "Not sent. Review this conversation before trying again."}</p>}</div></div>)}</div>}
+      {thread && outbox.length>0 && <div className="mt-3 space-y-3">{outbox.map(item=><div key={item.id} className="flex justify-end"><div className="max-w-[88%] rounded-xl rounded-br-sm bg-[#252525] px-3 py-2.5 text-[12px] leading-5">{canDismissCommand(item)&&<button type="button" aria-label="Remove unsent attempt from chat" title="Remove from chat" disabled={dismissing===item.id} onClick={()=>void dismissAttempt(item.id)} className="float-right ml-2 -mr-1 -mt-1 flex h-8 w-8 items-center justify-center text-[var(--app-text-3)]">{dismissing===item.id?<Loader2 className="h-3.5 w-3.5 animate-spin"/>:<X className="h-3.5 w-3.5"/>}</button>}<p className="whitespace-pre-wrap break-words">{item.text || (item.mediaUuids?.length?`${item.mediaUuids.length} media · ${item.priceCents?`$${(item.priceCents/100).toFixed(2)} unlock`:"Free"}`:"")}</p>{item.operation==="send_media"&&Boolean(item.mediaUuids?.length)&&item.text&&<p className="mt-1 text-[10px] text-[var(--app-text-3)]">{item.mediaUuids!.length} media · {item.priceCents?`$${(item.priceCents/100).toFixed(2)} unlock`:"Free"}</p>}<p className="mt-1 flex items-center justify-end gap-1.5 text-[10px] text-[var(--app-text-3)]">{commandInProgress(item) && <Loader2 className="h-3 w-3 animate-spin" />}{optimistic.some(c=>c.id===item.id) ? draft.error ? "Not confirmed · check request" : "Submitting…" : canDismissCommand(item) ? "Not sent" : commandLabel(item)}</p>{["failed","blocked","stale","uncertain"].includes(item.status) && <p role="alert" className="mt-1 text-[10px] text-[#fca5a5]">{item.status==="uncertain" ? "Delivery unconfirmed. Check the channel before retrying." : commandExplanation(item) || "Not sent. Review this conversation before trying again."}</p>}</div></div>)}</div>}
       </div>
-      {thread?.pending && !commandRows.some(c=>c.operation!=="regenerate" && commandInProgress(c)) && <div ref={previewRef} className="social-suggestions border-t border-[var(--app-border)] bg-white/[0.015] p-4">
+      {thread && !commandRows.some(c=>c.operation!=="regenerate" && commandInProgress(c)) && <div ref={previewRef} className="social-suggestions border-t border-[var(--app-border)] bg-white/[0.015] p-4">
         <div className="mb-3 flex items-center justify-between gap-2"><h3 className="flex items-center gap-1.5 text-[12px] font-medium"><Sparkles className="h-3.5 w-3.5" />Suggested replies</h3>{!mini && <span className="text-[10px] text-[var(--app-text-4)]">Review, then approve</span>}</div>
         {!mini && <p className="mb-3 text-[10.5px] leading-5 text-[var(--app-text-3)]">These are the exact messages she will send. Nothing is sent until you approve.</p>}
-        {!mini && thread.pending.incomingPreview && <p className="mb-3 line-clamp-2 border-l border-[var(--app-border-strong)] pl-2.5 text-[11px] leading-5 text-[var(--app-text-3)]">{thread.pending.incomingPreview}</p>}
-        <div className="space-y-2">{thread.pending.suggestions.map((rawSuggestion, index) => { const suggestion = thread.pending!.previews ? thread.pending!.previews[index] : rawSuggestion; const selected = draft.activity?.input.operation === "approve" && draft.activity.input.pendingId === thread.pending!.id && draft.activity.input.text === suggestion && !progressError; return <div key={`${thread.pending!.id}-${index}-${rawSuggestion}`} className="social-suggestion rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3"><p className="whitespace-pre-wrap break-words text-[12px] leading-5">{suggestion || "This suggestion cannot be sent as text. Regenerate a new reply."}</p><div className="social-suggestion-action mt-2 flex justify-end">{current.channel!=="instagram"&&suggestion&&<VoiceReply key={`voice:${thread.pending!.id}:${index}:${suggestion}`} modelId={modelId} channel={current.channel} text={suggestion} disabled={blocked} prepare={()=>voiceInput(suggestion)} onSend={sendVoice} />}<button aria-label={mini ? (selected && progressText ? `Reply ${index + 1}: ${progressText}` : `Send reply ${index + 1}`) : undefined} title={mini ? `Send reply ${index + 1}` : undefined} type="button" onClick={() => command("approve", suggestion || "")} disabled={blocked || !suggestion} className="app-btn app-btn-ghost min-h-8 px-2.5 text-[10.5px]">{selected && progressBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : mini ? <Send className="h-4 w-4" /> : <Check className="h-3 w-3" />}{!mini && (selected && progressText ? progressText : `Approve reply ${index + 1}`)}</button></div></div>; })}</div>
-        {thread.pending.suggestions.length === 0 && <p className="text-[11px] text-[var(--app-text-3)]">No text suggestions yet. Regenerate a draft or write your own reply.</p>}
-        {!mini && thread.pending.hint && <p className="mt-2 text-[10.5px] text-[var(--app-text-4)]">{thread.pending.hint}</p>}
+        {!mini && shownDraft?.incomingPreview && <p className="mb-3 line-clamp-2 border-l border-[var(--app-border-strong)] pl-2.5 text-[11px] leading-5 text-[var(--app-text-3)]">{shownDraft.incomingPreview}</p>}
+        {shownDraft ? <><div className="space-y-2">{shownDraft.suggestions.map((rawSuggestion, index) => { const suggestion = shownDraft!.previews ? shownDraft!.previews[index] : rawSuggestion; const selected = (draft.activity?.input.operation === "approve" || isOwnerDraft && draft.activity?.input.operation === "send_text") && (isOwnerDraft || draft.activity!.input.pendingId === shownDraft!.id) && draft.activity.input.text === suggestion && !progressError; return <div key={`${shownDraft!.id}-${index}-${rawSuggestion}`} className="social-suggestion rounded-lg border border-[var(--app-border)] bg-[var(--app-bg)] p-3"><p className="whitespace-pre-wrap break-words text-[12px] leading-5">{suggestion || "This suggestion cannot be sent as text. Regenerate a new reply."}</p><div className="social-suggestion-action mt-2 flex justify-end">{current.channel!=="instagram"&&suggestion&&<VoiceReply key={`voice:${shownDraft!.id}:${index}:${suggestion}`} modelId={modelId} channel={current.channel} text={suggestion} disabled={blocked} prepare={()=>voiceInput(suggestion)} onSend={sendVoice} />}<button aria-label={mini ? (selected && progressText ? `Reply ${index + 1}: ${progressText}` : `Send reply ${index + 1}`) : undefined} title={mini ? `Send reply ${index + 1}` : undefined} type="button" onClick={() => command("approve", suggestion || "")} disabled={blocked || !suggestion} className="app-btn app-btn-ghost min-h-8 px-2.5 text-[10.5px]">{selected && progressBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : mini ? <Send className="h-4 w-4" /> : <Check className="h-3 w-3" />}{!mini && (selected && progressText ? progressText : `Approve reply ${index + 1}`)}</button></div></div>; })}</div>
+        {shownDraft.suggestions.length === 0 && <p className="text-[11px] text-[var(--app-text-3)]">No text suggestions yet. Regenerate a draft or write your own reply.</p>}
+        {!mini && shownDraft.hint && <p className="mt-2 text-[10.5px] text-[var(--app-text-4)]">{shownDraft.hint}</p>}
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-2"><button type="button" disabled={blocked} onClick={() => command("regenerate")} className="inline-flex min-h-8 items-center gap-1.5 text-[11px] text-[var(--app-text-2)] disabled:opacity-40"><RefreshCw className="h-3 w-3" />Regenerate</button><button type="button" disabled={blocked} onClick={() => void skip()} className="ml-auto inline-flex min-h-8 items-center gap-1 text-[11px] text-[var(--app-text-3)] disabled:opacity-40">{skipLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <SkipForward className="h-3 w-3" />}Skip</button></div>
+</> : <button type="button" disabled={blocked || !current.lastMessageId} onClick={()=>command("regenerate")} className="app-btn app-btn-ghost min-h-10 w-full text-xs">{draft.submitting || waitingForCommand ? <Loader2 className="h-4 w-4 animate-spin"/>:<Sparkles className="h-4 w-4"/>}Generate suggestions</button>}
         <details className="social-say-this" open={mini ? undefined : true}>
           {mini && <summary className="flex min-h-10 cursor-pointer items-center gap-2 text-[12px] font-medium"><Sparkles className="h-3.5 w-3.5" />Say this<span className="ml-auto text-[var(--app-text-3)]">＋</span></summary>}
         <form onSubmit={event => { event.preventDefault(); if (draft.brief.trim()) command("regenerate", undefined, draft.brief.trim()); }} className="mt-3 rounded-lg border border-[var(--app-border-strong)] bg-[var(--app-bg)] p-3">
@@ -199,6 +217,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
         <p role={progressError ? "alert" : "status"} aria-live={progressError ? "assertive" : "polite"} aria-atomic="true" className={cn("flex items-center gap-2 text-[12px] font-medium", progressError ? "text-[#fca5a5]" : "text-[var(--app-text)]")}>
           {progressBusy ? <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin" /> : !progressError && <Check aria-hidden="true" className="h-4 w-4 shrink-0" />}{progressText}
         </p>
+        {activeCommand && canDismissCommand(activeCommand) && <button type="button" disabled={dismissing===activeCommand.id} onClick={()=>void dismissAttempt(activeCommand.id)} className="app-btn app-btn-quiet mt-1 min-h-8 px-2 text-[10px]"><X className="h-3 w-3"/>Remove from chat</button>}
         {progressBusy && <p className="mt-1 text-[10.5px] text-[var(--app-text-3)]">Please wait — your request is in progress.</p>}
         {draft.retry && !draft.submitting && <button type="button" onClick={() => void submit(draft.retry!)} className="app-btn app-btn-ghost mt-2 min-h-8 px-3 text-[11px]">Retry the same request</button>}
       </div>}

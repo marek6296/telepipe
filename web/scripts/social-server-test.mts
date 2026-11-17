@@ -119,3 +119,18 @@ fixtures.media={"42":{originalContent:"Caption",media:[{id:actionId,kind:"audio"
 const withMedia=await server.loadSocialThread(modelId,"telegram:123") as {messages:{content:string;media:{transcript:string}[]}[]};
 assert.equal(withMedia.messages[0].content,"Caption","Human UI retains the original caption without duplicating analysis text");
 assert.equal(withMedia.messages[0].media[0].transcript,"hello");
+
+reset();owner='someone-else';
+assert.match((await actions.dismissSocialCommand(modelId,'instagram:123',actionId) as {error:string}).error,/not available/);
+assert.ok(!calls.some(c=>c.table==='social_dismiss_command'));
+reset();
+fixtures.social_contact_summaries={channel:'instagram',external_id:'123',account_scope:'account',last_message_id:'42',identity_id:null,identity_updated_at:null};
+await actions.dismissSocialCommand(modelId,'instagram:123',actionId);
+assert.ok(calls.some(c=>c.table==='social_dismiss_command' && (c.args[0] as {p_external:string}).p_external==='123'));
+const draftContact={channel:'instagram',externalId:'123',accountScope:'account',lastMessageId:'42',identityId:null,identityUpdatedAt:null};
+const ownerRow={id:actionId,operation:'regenerate',status:'done',pending_id:null,channel:'instagram',external_id:'123',expected_source_id:'42',account_scope:'account',identity_id:null,identity_updated_at:null,created_at:new Date().toISOString(),result:{owner_suggestions:['hey you']}};
+assert.ok(await server.ownerDraftForContact([ownerRow],draftContact));
+assert.equal(await server.ownerDraftForContact([ownerRow],{...draftContact,lastMessageId:'43'}),null);
+assert.equal(await server.ownerDraftForContact([{...ownerRow,ui_dismissed_at:new Date().toISOString()}],draftContact),null);
+console.log('PASS: owner-scoped presentation dismissal and source-bound independent suggestions');
+assert.equal(await server.ownerDraftForContact([{...ownerRow,id:'latest',ui_dismissed_at:new Date().toISOString()},ownerRow],draftContact),null,'Skipping the latest owner draft must not resurface an older one');

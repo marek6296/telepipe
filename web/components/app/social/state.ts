@@ -88,11 +88,16 @@ export function waitingMessageCount(contacts:SocialContact[],channel:SocialChann
   return contacts.filter(c=>channel==="all" || c.channel===channel).reduce((n,c)=>n+(c.waitingMessageCount || 0),0);
 }
 
-/** Pending outbox is UI-only; authoritative history receives a turn after delivery. */
+/** Definite unsent attempts can be hidden; uncertain/provider-active sends cannot. */
+export function canDismissCommand(c:SocialCommand):boolean {
+  return ["blocked","failed","stale"].includes(c.status) && !["sending","uncertain","sent","delivered"].includes(c.deliveryState || "") && !c.providerMessageId;
+}
+/** Authoritative provider history, never attempts, supplies the agent context. */
 export function outboxCommands(commands:SocialCommand[],messages:SocialMessage[]):SocialCommand[] {
-  return commands.filter(c=>c.operation!=="regenerate" && c.text && !messages.some(m=>m.role==="assistant" && (
+  return commands.filter(c=>!c.dismissedAt && c.operation!=="regenerate" && (c.text || c.mediaUuids?.length) && !messages.some(m=>m.role==="assistant" && (
     c.providerMessageId && m.providerId ? c.providerMessageId===m.providerId
-    : c.status==="done" && ["sent","delivered"].includes(c.deliveryState || "") && m.content===c.text && m.occurredAt && Date.parse(m.occurredAt)>=Date.parse(c.createdAt)-5000
+    : (c.status==="done" && ["sent","delivered"].includes(c.deliveryState || "") || canDismissCommand(c) && !["send_media","send_voice"].includes(c.operation) && Boolean(m.providerId))
+      && m.content===c.text && m.occurredAt && Date.parse(m.occurredAt)>=Date.parse(c.createdAt)-(canDismissCommand(c)?0:5000)
   ))).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
 }
 

@@ -1,6 +1,7 @@
 import type { SocialChannel, SocialCommandInput, SocialMode, SocialResult, SocialBriefResult, FanvueMediaJobResult, SocialVoiceRequest, SocialVoiceResult } from "@/lib/social-types";
 
 export interface SocialTransport {
+  dismissSocialCommand:(modelId:string,contactKey:string,commandId:string)=>Promise<SocialResult>;
   socialVoicePreview(modelId:string,request:SocialVoiceRequest):Promise<SocialVoiceResult>;
   fanvueOwnerMedia(modelId:string,scope:string,input:unknown):Promise<FanvueMediaJobResult>;
   getSocialPersonBrief(modelId:string,contactKey:string,refresh?:boolean):Promise<SocialBriefResult>;
@@ -50,6 +51,7 @@ export function createMiniTransport({token, onExpired, fetcher = fetch}: {token?
     },
     read:<T>(url: string, signal?: AbortSignal) => request<T>(url,{signal}),
     refresh:() => request<{expiresAt:string}>("/api/mini/refresh",{method:"POST"}),
+    dismissSocialCommand:(modelId,contactKey,commandId)=>action(modelId,"dismiss",{contactKey,commandId}),
     submitSocialCommand:(modelId,input) => action(modelId,"command",{input}),
     setSocialMode:(modelId,channel,mode) => action(modelId,"mode",{channel,mode}),
     setSocialTakeover:(modelId,contactKey,takeover) => action(modelId,"takeover",{contactKey,takeover}),

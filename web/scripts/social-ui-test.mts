@@ -92,3 +92,9 @@ assert.equal(commandExplanation({...command,reason:""}),"");
 assert.match(commandExplanation({...command,status:'blocked',reason:'generation_empty'}),/Nothing was sent/);
 
 assert.match(commandExplanation({...command,status:'queued',reason:'waiting_action_gap'}),/send automatically/);
+// A later confirmed echo replaces the old failed attempt, never an uncertain one.
+const failedAttempt={...command,id:'old-failed',operation:'send_text',status:'blocked',reason:'provider_pause',text:'hello',createdAt:'2026-11-17T20:00:00Z',deliveryState:null} as SocialCommand;
+const realEcho={id:'echo',role:'assistant',content:'hello',providerId:'real-id',occurredAt:'2026-11-17T20:05:00Z'} as SocialMessage;
+assert.equal(outboxCommands([failedAttempt],[realEcho]).length,0);
+assert.equal(outboxCommands([{...failedAttempt,status:'uncertain'}],[realEcho]).length,1);
+assert.equal(outboxCommands([{...failedAttempt,dismissedAt:'2026-11-17T20:06:00Z'}],[]).length,0);

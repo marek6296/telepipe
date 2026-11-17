@@ -101,6 +101,7 @@ export type SocialPending = {
 };
 
 export type SocialCommand = {
+  dismissedAt?:string|null;
   voicePreviewId?:string;
   mediaUuids?:string[];
   priceCents?:number;
@@ -117,6 +118,7 @@ export type SocialCommand = {
 };
 
 export type SocialThread = {
+  ownerDraft?:SocialPending|null;
   contact: SocialContact;
   messages: SocialMessage[];
   hasMore: boolean;
