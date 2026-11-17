@@ -27,3 +27,15 @@ class TestAkoCasto:
     def test_obcas_ano(self):
         vzdy = random.Random(); vzdy.random = lambda: 0.0
         assert L.should_speak("haha thats so true i was thinking about it all day", vzdy)
+
+async def test_preview_conversion_produces_playable_mp3():
+    import io
+    import wave
+    # Real encoder boundary: a mocked subprocess hid a missing asyncio import.
+    source=io.BytesIO()
+    with wave.open(source,'wb') as stream:
+        stream.setnchannels(1);stream.setsampwidth(2);stream.setframerate(16000)
+        stream.writeframes(b'\0\0'*16000)
+    mp3=await L.to_mp3(source.getvalue())
+    assert mp3 and len(mp3)>1000
+    assert mp3.startswith(b'ID3') or mp3[:2] in (b'\xff\xfb',b'\xff\xf3')

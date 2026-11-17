@@ -25,6 +25,7 @@ Kontrakt endpointu (POST, JSON):
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 import random
