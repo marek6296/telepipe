@@ -1,6 +1,7 @@
-import type { SocialChannel, SocialCommandInput, SocialMode, SocialResult } from "@/lib/social-types";
+import type { SocialChannel, SocialCommandInput, SocialMode, SocialResult, SocialBriefResult } from "@/lib/social-types";
 
 export interface SocialTransport {
+  getSocialPersonBrief(modelId:string,contactKey:string,refresh?:boolean):Promise<SocialBriefResult>;
   read<T>(url: string, signal?: AbortSignal): Promise<T>;
   submitSocialCommand(modelId: string, input: SocialCommandInput): Promise<SocialResult>;
   setSocialMode(modelId: string, channel: SocialChannel, mode: SocialMode): Promise<SocialResult>;
@@ -36,6 +37,10 @@ export function createMiniTransport({token, onExpired, fetcher = fetch}: {token?
     catch (error) { return {error:error instanceof Error ? error.message : "The response was interrupted. Retry the same request.", retryable:!(error instanceof TransportError) || error.status >= 500}; }
   }
   return {
+    getSocialPersonBrief:async(modelId,contactKey,refresh=false)=>{
+      try{return await request<SocialBriefResult>("/api/mini/actions",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({modelId,action:"brief",contactKey,refresh})});}
+      catch(error){return {error:error instanceof Error?error.message:"Could not load the summary. Try again."};}
+    },
     read:<T>(url: string, signal?: AbortSignal) => request<T>(url,{signal}),
     refresh:() => request<{expiresAt:string}>("/api/mini/refresh",{method:"POST"}),
     submitSocialCommand:(modelId,input) => action(modelId,"command",{input}),

@@ -140,3 +140,6 @@ export type SocialCommandInput = {
 };
 
 export type SocialResult = { error?: string; message?: string; command?: SocialCommand; retryable?: boolean };
+
+export type SocialBrief = {summary:string;generatedAt:string|null;coverage:string;truncated:boolean;generating:boolean;accounts:{channel:SocialChannel;name:string}[]};
+export type SocialBriefResult = {brief?:SocialBrief;error?:string};

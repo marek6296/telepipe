@@ -114,3 +114,11 @@ export async function skipSocialPending(modelId: string, pendingId: string, expe
     return {message:"Suggestion skipped."};
   } catch (error) { return {error:socialErrorMessage(error)}; }
 }
+
+export async function getSocialPersonBrief(modelId:string,contactKey:string,refresh=false):Promise<import('@/lib/social-types').SocialBriefResult> {
+  try {
+    if(typeof refresh!=='boolean')throw new SocialError('Invalid summary request.');
+    const {personBrief}=await import('@/lib/social-brief-server');
+    return await personBrief(modelId,contactKey,refresh);
+  } catch(error) {return {error:socialErrorMessage(error)};}
+}
