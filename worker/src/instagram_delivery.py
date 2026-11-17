@@ -84,12 +84,18 @@ class InstagramDelivery:
                 await self.process_one(cfg)
             self.round += 1
         except api.InstagramError as exc:
-            await self.provider_error(exc)
+            await self.provider_error(exc, during_read=True)
             return exc.kod != 190
         return True
 
-    async def provider_error(self, exc):
+    async def provider_error(self, exc, *, during_read=False):
         # Never persist a provider URL or token from exception text.
+        if during_read and exc.kod == 0:
+            # Network/decoding failures on GET have no uncertain send outcome.
+            # The normal poll interval retries reads; owner sends independently
+            # refresh the target thread and keep all send-side gates.
+            await self.db.save({'poll_error': 'Temporary connection problem; retrying history sync'})
+            return
         patch = {'poll_error': f'Meta error {exc.kod}; delivery paused'}
         if exc.kod == 190:
             patch.update(connected=False, last_error='Instagram access revoked. Reconnect.')
@@ -506,7 +512,7 @@ class InstagramDelivery:
                         'telegram' if link_target == 'telegram' else 'linkpage', scope=cfg['ig_user_id'])
         except api.InstagramError as exc:
             await self.defer(action, f'refresh_meta_{exc.kod}')
-            await self.provider_error(exc)
+            await self.provider_error(exc, during_read=True)
 
     async def deliver_operator(self, command, before_send):
         """Prepare a durable action, then run the existing reservation/send path."""

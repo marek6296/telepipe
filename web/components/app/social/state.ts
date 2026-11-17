@@ -95,3 +95,17 @@ export function outboxCommands(commands:SocialCommand[],messages:SocialMessage[]
     : c.status==="done" && ["sent","delivered"].includes(c.deliveryState || "") && m.content===c.text && m.occurredAt && Date.parse(m.occurredAt)>=Date.parse(c.createdAt)-5000
   ))).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
 }
+
+export function commandExplanation(command:SocialCommand):string {
+  const reasons:Record<string,string>={
+    provider_pause:"Instagram is temporarily paused after a connection error. This reply was not sent. Try again after the connection recovers.",
+    window_expired:"Instagram's reply window has expired. Wait for a new message from this person.",
+    instagram_disconnected:"Reconnect Instagram before replying.",
+    stale_context:"The conversation changed before sending. Review the latest messages and choose a fresh reply.",
+    draft_changed:"The suggestions changed. Review the current suggestions.",
+    global_pause:"Replies are paused. Resume the agent before sending.",
+    dm_limit:"Instagram's message limit has been reached. Try later.",
+    history_unavailable:"Conversation history could not be refreshed. Try again once the connection recovers.",
+  };
+  return reasons[command.reason] || "";
+}

@@ -7,7 +7,7 @@ import type { SocialChannelState, SocialCommandInput, SocialContact, SocialMessa
 import { cn } from "@/lib/utils";
 import { PersonPanel } from "./person-panel";
 import { MessageMedia } from "./message-media";
-import { CHANNEL_NAMES, commandInProgress, commandLabel, freezeIntent, mergeMessages, mergeThread, outboxCommands, sourceTime } from "./state";
+import { CHANNEL_NAMES, commandInProgress, commandLabel, commandExplanation, freezeIntent, mergeMessages, mergeThread, outboxCommands, sourceTime } from "./state";
 import { useSocialResource } from "./use-resource";
 import type { ComposerDraft, UpdateDraft } from "./workspace";
 
@@ -44,7 +44,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
   const progressBusy = draft.submitting || Boolean(activeCommand && commandInProgress(activeCommand));
   const progressError = Boolean(draft.error || (activeCommand && (["failed", "uncertain", "blocked", "stale"].includes(activeCommand.status)
     || ["uncertain", "blocked", "cancelled", "expired", "skipped"].includes(activeCommand.deliveryState ?? ""))));
-  const progressText = draft.submitting ? "Submitting…" : draft.error || (activeCommand ? commandLabel(activeCommand) : draft.notice);
+  const progressText = draft.submitting ? "Submitting…" : draft.error || (activeCommand ? [commandLabel(activeCommand),commandExplanation(activeCommand)].filter(Boolean).join(" · ") : draft.notice);
   const canSend = Boolean(thread && channelState?.available && channelState.connected && !resource.error);
   const blocked = !canSend || waitingForCommand || draft.submitting || skipLoading || Boolean(draft.retry);
 
@@ -146,7 +146,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
           {olderError && <p role="alert" className="mb-3 text-center text-[11px] text-[#fca5a5]">{olderError}</p>}
           {thread.messages.length === 0 ? <div className="flex h-full items-center justify-center text-center text-[12px] text-[var(--app-text-3)]">No imported messages for this account yet.</div> : <div className="space-y-3">{thread.messages.map(message => <Message key={message.id} message={message} refreshPlayback={async mediaId => (await resource.refresh())?.messages.find(row => row.id === message.id)?.media?.find(item => item.id === mediaId)?.playbackUrl} />)}</div>}
         </>}
-      {thread && outbox.length>0 && <div className="mt-3 space-y-3">{outbox.map(item=><div key={item.id} className="flex justify-end"><div className="max-w-[88%] rounded-xl rounded-br-sm bg-[#252525] px-3 py-2.5 text-[12px] leading-5"><p className="whitespace-pre-wrap break-words">{item.text}</p><p className="mt-1 flex items-center justify-end gap-1.5 text-[10px] text-[var(--app-text-3)]">{commandInProgress(item) && <Loader2 className="h-3 w-3 animate-spin" />}{optimistic.some(c=>c.id===item.id) ? draft.error ? "Not confirmed · check request" : "Submitting…" : commandLabel(item)}</p>{["failed","blocked","stale","uncertain"].includes(item.status) && <p role="alert" className="mt-1 text-[10px] text-[#fca5a5]">{item.status==="uncertain" ? "Delivery unconfirmed. Check the channel before retrying." : "Not sent. Review this conversation before trying again."}</p>}</div></div>)}</div>}
+      {thread && outbox.length>0 && <div className="mt-3 space-y-3">{outbox.map(item=><div key={item.id} className="flex justify-end"><div className="max-w-[88%] rounded-xl rounded-br-sm bg-[#252525] px-3 py-2.5 text-[12px] leading-5"><p className="whitespace-pre-wrap break-words">{item.text}</p><p className="mt-1 flex items-center justify-end gap-1.5 text-[10px] text-[var(--app-text-3)]">{commandInProgress(item) && <Loader2 className="h-3 w-3 animate-spin" />}{optimistic.some(c=>c.id===item.id) ? draft.error ? "Not confirmed · check request" : "Submitting…" : commandLabel(item)}</p>{["failed","blocked","stale","uncertain"].includes(item.status) && <p role="alert" className="mt-1 text-[10px] text-[#fca5a5]">{item.status==="uncertain" ? "Delivery unconfirmed. Check the channel before retrying." : commandExplanation(item) || "Not sent. Review this conversation before trying again."}</p>}</div></div>)}</div>}
       </div>
       {thread?.pending && !commandRows.some(c=>c.operation!=="regenerate" && commandInProgress(c)) && <div ref={previewRef} className="social-suggestions border-t border-[var(--app-border)] bg-white/[0.015] p-4">
         <div className="mb-3 flex items-center justify-between gap-2"><h3 className="flex items-center gap-1.5 text-[12px] font-medium"><Sparkles className="h-3.5 w-3.5" />Suggested replies</h3>{!mini && <span className="text-[10px] text-[var(--app-text-4)]">Review, then approve</span>}</div>

@@ -238,3 +238,27 @@ async def test_operator_still_imports_changed_snapshot_before_sending(monkeypatc
     monkeypatch.setattr(api, 'posli_text', lambda *a, **k: {'message_id': 'sent'})
     await agent.deliver_operator(command(channel='instagram', external_id='fan', account_scope=MOJE_ID), AsyncMock(return_value=True))
     assert any(call.args[0] == changed for call in agent._delivery.ingest.await_args_list), 'Changed remote history must still be reconciled'
+
+async def test_transient_read_failure_does_not_pause_owner_delivery():
+    import instagram_api as api
+    db = OperatorDb(reply_mode='semi')
+    agent = InstagramAgent(db, FakeLlm())
+    await agent._delivery.provider_error(api.InstagramError('timeout'), during_read=True)
+    assert not db.nastavenia.get('circuit_until'), 'Read timeout must not block owner-approved sends for an hour'
+    assert db.nastavenia['poll_error']
+
+
+async def test_send_timeout_retains_delivery_circuit():
+    import instagram_api as api
+    db = OperatorDb(reply_mode='semi')
+    agent = InstagramAgent(db, FakeLlm())
+    await agent._delivery.provider_error(api.InstagramError('timeout'))
+    assert db.nastavenia.get('circuit_until')
+
+
+async def test_read_rate_limit_still_pauses_delivery():
+    import instagram_api as api
+    db = OperatorDb(reply_mode='semi')
+    agent = InstagramAgent(db, FakeLlm())
+    await agent._delivery.provider_error(api.InstagramError('limit', kod=4), during_read=True)
+    assert db.nastavenia.get('circuit_until')

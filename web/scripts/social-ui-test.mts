@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { commandInProgress, commandLabel, createReadScope, freezeIntent, mergeMessages, mergeThread, waitingChannels, personChannelView, waitingMessageCount, outboxCommands } from "../components/app/social/state.ts";
+import { commandInProgress, commandLabel, commandExplanation, createReadScope, freezeIntent, mergeMessages, mergeThread, waitingChannels, personChannelView, waitingMessageCount, outboxCommands } from "../components/app/social/state.ts";
 import type { SocialContact, SocialCommand, SocialCommandInput, SocialMessage, SocialPerson, SocialThread } from "../lib/social-types.ts";
 
 const command = { operation: "approve", status: "done", deliveryState: "queued" } as SocialCommand;
@@ -85,3 +85,7 @@ assert.equal(outboxCommands([{...queued,status:"done",providerMessageId:"provide
 assert.equal(outboxCommands([{...queued,operation:"regenerate"}],[]).length,0,"Regeneration is never shown as an outgoing message");
 
 assert.equal(outboxCommands([queued],[{...message("299","approved reply"),role:"assistant",occurredAt:queued.createdAt}]).length,1,"A new queued reply identical to an earlier message stays visible");
+
+assert.match(commandExplanation({...command,status:"blocked",reason:"provider_pause"}),/temporarily paused/);
+assert.match(commandExplanation({...command,status:"blocked",reason:"provider_pause"}),/not sent/);
+assert.equal(commandExplanation({...command,reason:""}),"");
