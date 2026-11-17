@@ -87,7 +87,17 @@ class SocialCommands:
             elif command['operation'] == 'regenerate':
                 pending = command.get('pending_id')
                 if not pending:
-                    outcome = DeliveryResult.blocked('draft_required')
+                    from owner_drafts import generate
+                    output = await generate(sender, command)
+                    suggestions = [s for s in (output or {}).get('suggestions', []) if isinstance(s,str) and s.strip()][:3]
+                    if not suggestions:
+                        outcome = DeliveryResult.blocked('generation_empty')
+                    elif await self.rpc('store_owner_draft', worker=self.worker_id, command=command['id'],
+                                        lease=command['lease_token'], suggestions=suggestions):
+                        await self.control.sync_social_cards()
+                        return
+                    else:
+                        outcome = DeliveryResult('stale','draft_changed')
                 else:
                     key = await self.regeneration_key(command)
                     if key is None:

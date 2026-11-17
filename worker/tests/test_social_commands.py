@@ -340,3 +340,18 @@ async def test_failed_defer_is_not_guessed_as_queued():
     await dispatcher.tick()
     assert t._rpc.await_args.args[0]=='social_finish'
     assert t._rpc.await_args.args[1]['p_status']=='blocked'
+
+async def test_owner_requests_suggestions_without_pending_and_never_sends(monkeypatch):
+    import owner_drafts
+    job=command(operation='regenerate',pending_id=None,text='',brief='tell him the walk was lovely')
+    dispatcher,t,control=setup(job)
+    sender=SimpleNamespace(deliver_operator=AsyncMock())
+    control._senders['telegram']=sender
+    generate=AsyncMock(return_value={'suggestions':['the walk was lovely','i loved that walk']})
+    monkeypatch.setattr(owner_drafts,'generate',generate)
+    await dispatcher.tick()
+    generate.assert_awaited_once_with(sender,job)
+    names=[c.args[0] for c in t._rpc.await_args_list]
+    assert names==['social_claim','social_store_owner_draft']
+    sender.deliver_operator.assert_not_awaited()
+    assert t._rpc.await_args.args[1]['p_suggestions']==['the walk was lovely','i loved that walk']

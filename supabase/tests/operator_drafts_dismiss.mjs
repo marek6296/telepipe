@@ -1,0 +1,119 @@
+// Run from repository root with @electric-sql/pglite installed, or PGLITE_MODULE set to its import path.
+const {PGlite}=await import(process.env.PGLITE_MODULE || '@electric-sql/pglite');
+import {readFileSync} from 'node:fs';import assert from 'node:assert/strict';
+const db=new PGlite();
+await db.exec(`create role anon;create role authenticated;create role service_role;create table models(id uuid primary key,account_id uuid,model_type text,claimed_by text,status text,heartbeat_at timestamptz);create table accounts(id uuid primary key);create table conversation_identities(model_id uuid,id uuid,primary key(model_id,id));create table pending_replies(model_id uuid,id uuid,status text,channel text,conv_key text,suggestions jsonb);create table social_contact_summaries(model_id uuid,channel text,external_id text,account_scope text,last_message_id text,identity_id uuid,identity_updated_at timestamptz);`);
+const old=readFileSync('supabase/migrations/20261116220950_social_sites_inbox.sql','utf8');
+await db.exec(old.slice(old.indexOf('create table public.social_commands'),old.indexOf('create unique index instagram_actions')));
+const f=old.indexOf('create function public.social_context_error');await db.exec(old.slice(f,old.indexOf('end $$;',f)+7));
+await db.exec(readFileSync('supabase/migrations/20261117043000_fanvue_owner_media.sql','utf8'));
+await db.exec(`create trigger social_preserve_intent before update on social_commands for each row execute function social_preserve_intent();`);
+const m='11111111-1111-4111-8111-111111111111',o='22222222-2222-4222-8222-222222222222',id='33333333-3333-4333-8333-333333333333',media='44444444-4444-4444-8444-444444444444';
+await db.query('insert into accounts values($1)',[o]);await db.query("insert into models values($1,$2,'persona','worker','active',now())",[m,o]);await db.query("insert into social_contact_summaries values($1,'fanvue','fan','fanvue:creator','42',null,null)",[m]);
+const sql="select social_enqueue_fanvue_media($1,$2,$3,'fan','fanvue:creator','42',null,null,'caption',$4::jsonb,$5) as result";
+const args=[m,o,id,JSON.stringify([media]),1200];const first=(await db.query(sql,args)).rows[0].result;assert.equal(first.operation,'send_media');assert.equal(first.price_cents,1200);assert.deepEqual(first.media_uuids,[media]);
+assert.equal((await db.query(sql,args)).rows[0].result.id,first.id);
+await assert.rejects(db.query(sql,[...args.slice(0,4),0]),/idempotency/);
+await assert.rejects(db.query("update social_commands set price_cents=0 where id=$1",[first.id]),/immutable/);
+await assert.rejects(db.query(sql,[m,o,'55555555-5555-4555-8555-555555555555',JSON.stringify([media]),299]),/invalid/);
+await assert.rejects(db.query(sql,[m,o,'55555555-5555-4555-8555-555555555555',JSON.stringify([media,media]),300]),/invalid/);
+await db.query("insert into social_fanvue_requests(id,model_id,account_scope,action,input) values($1,$2,'fanvue:creator','list','{}')",[id,m]);
+assert.equal((await db.query('select social_claim_fanvue_request($1,$2) as result',[m,'foreign-worker'])).rows[0].result,null);
+const claimed=(await db.query('select social_claim_fanvue_request($1,$2) as result',[m,'worker'])).rows[0].result;assert.equal(claimed.status,'working');
+assert.equal((await db.query("select social_finish_fanvue_request($1,'worker',$2,$3,'{}','') as result",[m,id,claimed.lease_token])).rows[0].result,true);
+assert.equal((await db.query("select has_table_privilege('anon','social_fanvue_requests','SELECT') as allowed")).rows[0].allowed,false);
+await db.exec(readFileSync('supabase/migrations/20261117050000_operator_voice_previews.sql','utf8'));
+console.log('PASS: media intent price/IDs/idempotency/immutability, worker fencing and private grants');
+
+const v1='66666666-6666-4666-8666-666666666666',v2='77777777-7777-4777-8777-777777777777';
+const payload={channel:'fanvue',external_id:'fan',account_scope:'fanvue:creator',expected_source_id:'42',text:'hey how was your day',cache_key:'same'};
+const request=(id,p=payload,regen=false)=>db.query('select social_request_voice($1,$2,$3,$4::jsonb,$5) as result',[m,o,id,JSON.stringify(p),regen]);
+assert.equal((await request(v1)).rows[0].result.status,'queued');
+assert.equal((await request(v2)).rows[0].result.id,v1);
+await assert.rejects(request(v1,{...payload,text:'different'}),/changed/);
+assert.equal((await db.query("select social_claim_voice($1,'foreign') as result",[m])).rows[0].result,null);
+const voice=(await db.query("select social_claim_voice($1,'worker') as result",[m])).rows[0].result;
+assert.equal(voice.id,v1);assert.equal(voice.status,'working');
+const result={spoken:'hey... how was your day?',ambience:'home',ogg_path:`${m}/voice-previews/${v1}.ogg`,mp3_path:`${m}/voice-previews/${v1}.mp3`};
+assert.equal((await db.query("select social_finish_voice($1,'worker',$2,$3,$4::jsonb) as result",[m,v1,voice.lease_token,JSON.stringify(result)])).rows[0].result,true);
+const enqueue=(recipient='fan',price=0,key=v2)=>db.query("select social_enqueue_voice($1,$2,$3,$4,$5,'fanvue',$6,'fanvue:creator','42',$7) as result",[m,o,key,v1,price,recipient,result.spoken]);
+await assert.rejects(enqueue('other'),/expired or conversation changed/);
+await assert.rejects(enqueue('fan',299),/invalid voice price/);
+const sent=(await enqueue()).rows[0].result;assert.equal(sent.operation,'send_voice');assert.equal(sent.voice_preview_id,v1);
+assert.equal((await enqueue()).rows[0].result.id,sent.id);
+await assert.rejects(enqueue('fan',300),/idempotency/);
+await assert.rejects(db.query('update social_commands set voice_preview_id=null where id=$1',[sent.id]),/immutable/);
+await db.query("update social_contact_summaries set last_message_id='43' where model_id=$1",[m]);
+await assert.rejects(enqueue('fan',0,'88888888-8888-4888-8888-888888888888'),/expired or conversation changed/);
+assert.equal((await db.query("select has_table_privilege('authenticated','social_voice_previews','SELECT') as allowed")).rows[0].allowed,false);
+assert.equal((await db.query("select has_function_privilege('anon','social_request_voice(uuid,uuid,uuid,jsonb,boolean)','EXECUTE') as allowed")).rows[0].allowed,false);
+
+await db.query("update social_commands set status='done'");
+await db.exec(`create table instagram_actions(id uuid primary key,model_id uuid,igsid text,state text,reason text,reserved_at timestamptz,provider_id text,payload jsonb,lease_token uuid,lease_until timestamptz);alter table pending_replies add column decision_command_id uuid,add column chosen_text text,add column decided_at timestamptz,add column updated_at timestamptz;`);
+await db.exec(readFileSync('supabase/migrations/20261117221607_social_operator_wait_queue.sql','utf8'));
+await db.query("insert into social_contact_summaries values($1,'instagram','fan','account','42',null,null)",[m]);
+const cid='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',aid='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',lease='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+await db.query("insert into social_commands(id,model_id,requested_by,idempotency_key,operation,channel,external_id,account_scope,expected_source_id,text,status,worker_id,lease_token,lease_until) values($1,$2,$3,$1,'send_text','instagram','fan','account','42','approved text','sending','worker',$4,now()+interval '2 minutes')",[cid,m,o,lease]);
+await db.query("insert into instagram_actions values($1,$2,'fan','pending','action_gap',null,null,$3::jsonb,null,null)",[aid,m,JSON.stringify({origin:'operator',command_id:cid,account_id:'account'})]);
+const defer=(worker='worker',reason='action_gap')=>db.query('select social_defer($1,$2,$3,$4,$5,$6) as result',[m,worker,cid,lease,aid,reason]);
+assert.equal((await defer('foreign')).rows[0].result,false);
+assert.equal((await defer('worker','meta_0')).rows[0].result,false);
+await db.query("update instagram_actions set reserved_at=now() where id=$1",[aid]);assert.equal((await defer()).rows[0].result,false);
+await db.query("update instagram_actions set reserved_at=null where id=$1",[aid]);
+assert.equal((await defer()).rows[0].result,true);
+let deferred=(await db.query('select * from social_commands where id=$1',[cid])).rows[0];
+assert.equal(deferred.status,'queued');assert.equal(deferred.id,cid);assert.equal(deferred.text,'approved text');assert.equal(deferred.result.deferred_action_id,aid);assert.equal(deferred.worker_id,null);
+assert.equal((await db.query("select social_claim($1,'worker') as result",[m])).rows[0].result,null);
+// Another channel is not held behind the delayed Instagram command.
+const tg='dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+await db.query("insert into social_commands(id,model_id,requested_by,idempotency_key,operation,channel,external_id,account_scope,text) values($1,$2,$3,$1,'send_text','telegram','123','primary','hello')",[tg,m,o]);
+assert.equal((await db.query("select social_claim($1,'worker') as result",[m])).rows[0].result.id,tg);
+await db.query("update social_commands set status='done' where id=$1",[tg]);
+await db.query("update social_commands set available_at=now()-interval '1 minute' where id=$1",[cid]);
+let waitClaimed=(await db.query("select social_claim($1,'worker') as result",[m])).rows[0].result;assert.equal(waitClaimed.id,cid);assert.equal(waitClaimed.result.deferred_action_id,aid);assert.equal(waitClaimed.status,'working');
+await assert.rejects(db.query("update social_commands set text='tampered' where id=$1",[cid]),/immutable/);
+assert.equal((await db.query("select has_function_privilege('anon','social_defer(uuid,text,uuid,uuid,uuid,text)','EXECUTE') as allowed")).rows[0].allowed,false);
+
+// Restoring a consumed proposal is atomic with requeue, never a new intent.
+await db.query("update social_commands set status='done' where id=$1",[cid]);
+const proposal='eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',approval='ffffffff-ffff-4fff-8fff-ffffffffffff',action2='99999999-9999-4999-8999-999999999999';
+await db.query("insert into pending_replies(model_id,id,status,channel,conv_key,suggestions,decision_command_id) values($1,$2,'sent','instagram','fan:action','[\"approved\"]',$3)",[m,proposal,approval]);
+await db.query("insert into social_commands(id,model_id,requested_by,idempotency_key,operation,channel,external_id,account_scope,expected_source_id,text,status,worker_id,lease_token,lease_until,pending_id,expected_suggestions) values($1,$2,$3,$1,'approve','instagram','fan','account','42','approved','sending','worker',$4,now()+interval '2 minutes',$5,'[\"approved\"]')",[approval,m,o,lease,proposal]);
+await db.query("insert into instagram_actions values($1,$2,'fan','pending','dm_limit',null,null,$3::jsonb,null,null)",[action2,m,JSON.stringify({origin:'operator',command_id:approval,account_id:'account'})]);
+assert.equal((await db.query("select social_defer($1,'worker',$2,$3,$4,'dm_limit') as result",[m,approval,lease,action2])).rows[0].result,true);
+const pending=(await db.query('select * from pending_replies where id=$1',[proposal])).rows[0];assert.equal(pending.status,'awaiting');assert.equal(pending.decision_command_id,null);
+assert.equal((await db.query('select status from social_commands where id=$1',[approval])).rows[0].status,'queued');
+
+await db.exec(`create table instagram(model_id uuid,funnel_target text,telegram_handle text,bio_link text);`);
+const previewMigration=readFileSync('supabase/migrations/20261116223529_social_instagram_suggestion_previews.sql','utf8');
+await db.exec(previewMigration.slice(0,previewMigration.indexOf('-- Keep the original draft')));
+await db.exec(readFileSync('supabase/migrations/20261117223014_social_owner_drafts_and_dismiss.sql','utf8'));
+// An explicit owner draft has no pending and can never consume/send one.
+const gen='12121212-1212-4212-8212-121212121212';
+const requestGen=()=>db.query("select social_enqueue($1,$2,$3,'regenerate','instagram','fan','account',null,null,'42',null,null,'','be friendly') as result",[m,o,gen]);
+const draft=(await requestGen()).rows[0].result;assert.equal(draft.pending_id,null);assert.equal(draft.operation,'regenerate');assert.equal((await requestGen()).rows[0].result.id,draft.id);
+const dl='13131313-1313-4313-8313-131313131313';
+await db.query("update social_commands set status='working',worker_id='worker',lease_token=$2,lease_until=now()+interval '2 minutes' where id=$1",[draft.id,dl]);
+const store=(worker='worker')=>db.query("select social_store_owner_draft($1,$2,$3,$4,'[\"hey there\",\"how was your day\"]') as result",[m,worker,draft.id,dl]);
+assert.equal((await store('foreign')).rows[0].result,false);
+await db.query("update social_contact_summaries set last_message_id='43' where model_id=$1 and channel='instagram'",[m]);assert.equal((await store()).rows[0].result,false);
+await db.query("update social_contact_summaries set last_message_id='42' where model_id=$1 and channel='instagram'",[m]);assert.equal((await store()).rows[0].result,true);
+assert.equal((await db.query('select status from social_commands where id=$1',[draft.id])).rows[0].status,'done');
+// Dismiss presentation only; terminal status/audit/intent remain unchanged.
+await db.query("update social_commands set status='blocked',result='{}' where id=$1",[cid]);
+const dismiss=(id=cid,owner=o)=>db.query("select social_dismiss_command($1,$2,$3,'instagram','fan','account') as result",[m,owner,id]);
+assert.equal((await dismiss(cid,'14141414-1414-4414-8414-141414141414')).rows[0].result,false);
+assert.equal((await dismiss()).rows[0].result,true);
+let hidden=(await db.query('select status,text,ui_dismissed_at from social_commands where id=$1',[cid])).rows[0];assert.equal(hidden.status,'blocked');assert.equal(hidden.text,'approved text');assert.ok(hidden.ui_dismissed_at);
+await db.query("update social_commands set status='uncertain',ui_dismissed_at=null where id=$1",[cid]);assert.equal((await dismiss()).rows[0].result,false);
+assert.equal((await dismiss(draft.id)).rows[0].result,true);
+assert.equal((await db.query("select has_function_privilege('anon','social_store_owner_draft(uuid,text,uuid,uuid,jsonb)','EXECUTE') as allowed")).rows[0].allowed,false);
+assert.equal((await db.query("select has_function_privilege('authenticated','social_dismiss_command(uuid,uuid,uuid,text,text,text)','EXECUTE') as allowed")).rows[0].allowed,false);
+
+// Preserve existing exact rendered Instagram marker approvals.
+const markerPending='15151515-1515-4515-8515-151515151515',markerKey='16161616-1616-4616-8616-161616161616';
+await db.query("insert into instagram values($1,'telegram','simona_here','')",[m]);
+await db.query("insert into pending_replies(model_id,id,status,channel,conv_key,suggestions) values($1,$2,'awaiting','instagram','fan:action','[\"come chat [[LINK]]\"]')",[m,markerPending]);
+const renderApproval=(await db.query("select social_enqueue($1,$2,$3,'approve','instagram','fan','account',$4,'[\"come chat [[LINK]]\"]','42',null,null,'come chat https://t.me/simona_here','') as result",[m,o,markerKey,markerPending])).rows[0].result;
+assert.equal(renderApproval.text,'come chat https://t.me/simona_here');
+await db.close();console.log('PASS: owner drafts without pending, source/worker CAS, idempotency, presentation-only dismissal, uncertain protected and private grants');
