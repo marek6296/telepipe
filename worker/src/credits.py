@@ -16,6 +16,7 @@ zlyhal, nezaplatil nikto (okrem nás).
 """
 from __future__ import annotations
 import logging
+import asyncio
 
 log = logging.getLogger(__name__)
 
@@ -61,11 +62,18 @@ class MeteredLlm:
         # kredit došiel. None = kontrolný bot nebeží, len sa pauzuje.
         self._notify = notify
         self._paused_notified = False
+        self._usage_lock = asyncio.Lock()
 
     def __getattr__(self, name):          # metódy Llm, ktoré nemeriame (close…)
         return getattr(self._llm, name)
 
     async def _metered(self, method: str, *args, **kwargs):
+        # The wrapped provider exposes mutable last_usage/last_model. Keep the
+        # call and its billing atomic when media and replies run concurrently.
+        async with self._usage_lock:
+            return await self._metered_locked(method, *args, **kwargs)
+
+    async def _metered_locked(self, method: str, *args, **kwargs):
         # Neobmedzený účet (superadmin, interné modelky) sa nekontroluje vôbec:
         # žiadna pauza, žiadna správa majiteľovi. Meranie tým NEKONČÍ — usage
         # sa zapíše nižšie rovnako a `record_usage` len na strane DB preskočí

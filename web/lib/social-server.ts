@@ -1,9 +1,12 @@
 import "server-only";
 
+import { loadSocialMedia } from "@/lib/social-media-server";
+
 import { getModel } from "@/lib/models";
 import { modelTypeHasTab } from "@/lib/model-types";
 import { createClient, createServiceClient, getUser } from "@/lib/supabase/server";
 import { getTelegramConnection } from "@/lib/telegram";
+import { miniSocialContext } from "@/lib/telegram-mini-server";
 import { authorizeSocialOwner, groupSocialPeople, mapSocialContact, mapSocialMessage, parseContactKey, parseSocialQuery, SocialError, str, UUID } from "@/lib/social-policy";
 import type { SocialChannel, SocialChannelState, SocialCommand, SocialContact, SocialFilter, SocialMode, SocialPending, SocialSnapshot, SocialThread } from "@/lib/social-types";
 
@@ -15,6 +18,8 @@ const PENDING_COLUMNS = "id,channel,conv_key,suggestions,incoming_preview,hint,c
 /** Service access is created only after verified authentication + strict ownership. */
 export async function socialContext(modelId: string) {
   if (!UUID.test(modelId)) throw new SocialError("This model is not available.", 404);
+  const mini = await miniSocialContext(modelId);
+  if (mini) return mini;
   const user = await getUser();
   if (!user) throw new SocialError("Sign in to continue.", 401);
   const client = await createClient();
@@ -129,7 +134,8 @@ export async function loadSocialThread(modelId: string, key: string, before?: st
   const actionIds = commands.map(c => str((c.result as Row)?.action_id)).filter(id => UUID.test(id));
   const actions = actionIds.length ? checked(await ctx.db.from("instagram_actions").select("id,state").eq("model_id",modelId).in("id",actionIds),"Could not load Instagram delivery status.") : [];
   const page = rows.slice(0,50);
-  return {contact,messages:page.map(r => mapSocialMessage(channel,r)).reverse(),hasMore:rows.length>50,nextBefore:rows.length>50 ? str(page.at(-1)?.id) : null,pending,
+  const media = await loadSocialMedia(ctx,contact,page.map(r => str(r.id)));
+  return {contact,messages:page.map(r => ({...mapSocialMessage(channel,r),media:media[str(r.id)]?.media || [],content:media[str(r.id)]?.originalContent ?? str(r.content)})).reverse(),hasMore:rows.length>50,nextBefore:rows.length>50 ? str(page.at(-1)?.id) : null,pending,
     commands:commands.map(c => mapSocialCommand(c,actions?.find(a => a.id === (c.result as Row)?.action_id)?.state)),
     linkedContacts:(checked(linkedResult,"Could not load linked accounts.") as unknown as Row[]).map(mapSocialContact),
     candidate:candidateResult.data ? mapSocialContact(checked(candidateResult,"Could not load a suggested account.") as unknown as Row) : null,loadedAt:new Date().toISOString()};

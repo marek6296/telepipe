@@ -39,7 +39,7 @@ async def test_old_commands_only_open_web_and_remove_old_keyboard(text):
     event = SimpleNamespace(chat_id=42, raw_text=text, reply=AsyncMock())
     with pytest.raises(events.StopPropagation):
         await bot._on_command(event)
-    assert '/app/m/model-1/social' in event.reply.await_args.args[0]
+    assert 'inside Telegram' in event.reply.await_args.args[0]
     assert isinstance(event.reply.await_args.kwargs['buttons'], types.ReplyKeyboardHide)
     bot._send_main.assert_not_awaited()
     client.send_message.assert_not_awaited()
@@ -61,7 +61,7 @@ async def test_old_freeform_reply_cannot_send_to_fan():
     bot.register_sender('telegram', sender)
     event = SimpleNamespace(chat_id=42, raw_text='send this', reply=AsyncMock())
     await bot._on_value(event)
-    assert '/app/m/model-1/social' in event.reply.await_args.args[0]
+    assert 'inside Telegram' in event.reply.await_args.args[0]
     sender.deliver_text.assert_not_awaited()
 
 
@@ -71,7 +71,7 @@ async def test_pairing_still_works_without_menu():
     event = SimpleNamespace(chat_id=42, raw_text='TP-4F9K2X', is_private=True, reply=AsyncMock())
     assert await bot._try_pair(event)
     assert bot._cfg.owner_chat_id == 42
-    assert '/app/m/model-1/social' in event.reply.await_args.args[0]
+    assert 'inside Telegram' in event.reply.await_args.args[0]
     bot._send_main.assert_not_awaited()
 
 
@@ -104,7 +104,8 @@ async def test_durable_claim_consumes_before_single_send_across_worker_restarts(
     call = client.send_message.await_args
     assert call.args == (42, 'Instagram · Fan _name_\n3 new messages\nFirst line second line')
     assert call.kwargs['parse_mode'] is None
-    assert call.kwargs['buttons'][0][0].url == 'https://telepipe.me/app/m/model-1/social?contact=instagram%3A12345'
+    assert call.kwargs['buttons'][0][0].url == 'https://telepipe.me/mini?bot=model-1&contact=instagram%3A12345'
+    assert isinstance(call.kwargs['buttons'][0][0], types.KeyboardButtonWebView)
 
 
 async def test_uncertain_notification_send_is_not_requeued():

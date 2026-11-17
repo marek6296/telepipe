@@ -240,3 +240,21 @@ async def test_accumulated_usage_bills_the_sum():
     await m.reply("sys", [])
     _, i, o, _, _ = reg.usage_rows[0]
     assert (i, o) == (300, 70)
+
+async def test_concurrent_media_and_reply_keep_their_own_usage():
+    import asyncio
+    class ConcurrentLlm:
+        last_usage = {}
+        async def reply(self, *args):
+            self.last_usage = {'input': 11, 'output': 1}
+            await asyncio.sleep(.01)
+            return 'reply'
+        async def transcribe_voice(self, *args):
+            self.last_usage = {'input': 22, 'output': 2}
+            await asyncio.sleep(.001)
+            return 'transcript'
+    reg = FakeRegistry()
+    metered = MeteredLlm(ConcurrentLlm(), reg, model_id='m-1', model_slug='test')
+    assert await asyncio.gather(metered.reply('sys', []), metered.transcribe_voice(b'audio')) == ['reply', 'transcript']
+    assert sorted(row[1] for row in reg.usage_rows) == [11, 22]
+    assert sorted(row[2] for row in reg.usage_rows) == [1, 2]

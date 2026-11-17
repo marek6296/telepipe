@@ -47,6 +47,7 @@ const PUBLIC_PREFIXES = [
   "/update-password",
   "/auth",
   "/api",
+  "/mini",
   // Krátke odkazy z chatu. Klikajú na ne FANÚŠIKOVIA modeliek — ľudia, ktorí
   // u nás nemajú účet a nikdy mať nebudú. Za loginom by presmerovanie skončilo
   // na našej prihlasovacej stránke a odkaz by neposlal nikoho nikam.
@@ -64,7 +65,7 @@ function isSessionFreePath(pathname: string): boolean {
   if (pathname === "/") return true;
   // `/r` je tu tiež: presmerovanie nepotrebuje session a čítanie cookies by mu
   // len pridalo roundtrip v ceste, ktorá má byť čo najkratšia.
-  return [...MARKETING_PREFIXES, ...DISCOVERY_PATHS, "/r"].some(
+  return [...MARKETING_PREFIXES, ...DISCOVERY_PATHS, "/r", "/mini", "/api/mini"].some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
 }

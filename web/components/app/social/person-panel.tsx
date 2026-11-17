@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, Link2, Loader2, Pause, Play, Search, Unlink, X } from "lucide-react";
-import { linkSocialContacts, setSocialTakeover, unlinkSocialContact } from "@/app/app/m/[id]/social/actions";
+import { useSocialTransport } from "./transport";
 import type { SocialContact, SocialResult, SocialSnapshot, SocialThread } from "@/lib/social-types";
 import { cn } from "@/lib/utils";
 import { CHANNEL_NAMES } from "./state";
@@ -11,6 +11,7 @@ import { useSocialResource } from "./use-resource";
 export function PersonPanel({ modelId, thread, selectContact, refresh }: {
   modelId: string; thread: SocialThread; selectContact: (contact: SocialContact) => void; refresh: () => void;
 }) {
+  const { transport: { linkSocialContacts, setSocialTakeover, unlinkSocialContact } } = useSocialTransport();
   const [pickerOpen, setPickerOpen] = useState(false);
   const [linkTarget, setLinkTarget] = useState<SocialContact | null>(null);
   const [unlinkTarget, setUnlinkTarget] = useState<SocialContact | null>(null);

@@ -565,6 +565,8 @@ class FanvueAgent:
         self._db = db
         self._api = api
         self._llm = llm
+        from social_media import for_db
+        self._incoming_media = for_db(db, llm)
         # Control bot pre semi-auto schvaľovanie (Fanvue karty chodia do toho
         # istého Telegram bota). Dopĺňa supervisor; bez neho semi len mlčí.
         self._control = control
@@ -650,7 +652,7 @@ class FanvueAgent:
                 return True
             try:
                 row = await self._db.fan(conv_key) or {}
-                unanswered = await self._reconcile({'uuid': conv_key, 'text': ''}, row, sync_only=True)
+                unanswered = await self._reconcile({'uuid': conv_key, 'text': ''}, row, sync_only=True, process_media=False)
                 if source_message_id is not None and await self._source_snapshot(conv_key) != source_message_id:
                     if unanswered and not approved:
                         raise ReplyDeferred('context_changed')
@@ -1546,7 +1548,7 @@ class FanvueAgent:
             return False
         if hasattr(self._api, 'sync_messages'):
             try:
-                unanswered = await self._reconcile(fan, row, sync_only=True)
+                unanswered = await self._reconcile(fan, row, sync_only=True, process_media=False)
                 if await self._source_snapshot(fan['uuid']) != source_message_id:
                     if unanswered:
                         raise ReplyDeferred('context_changed')
@@ -1598,7 +1600,7 @@ class FanvueAgent:
             return {}
         settings = await self._db.settings()
         if not await self._reconcile({"uuid": conv_key, "text": ""}, row,
-                                     mark_read=False, sync_only=True):
+                                     mark_read=False, sync_only=True, process_media=False):
             return {}
         history = await self._history_rows(conv_key)
         turn = conversation_timing.analyze(history, now_local=local_now(await self._db.behavior()))
@@ -1696,7 +1698,7 @@ class FanvueAgent:
         # Sync only, never seen or purchase thanks while preparing an owner action.
         row = await self._db.fan(key)
         try:
-            await self._reconcile({'uuid': key, 'text': ''}, row, mark_read=False, sync_only=True)
+            await self._reconcile({'uuid': key, 'text': ''}, row, mark_read=False, sync_only=True, process_media=False)
         except Exception:
             return DeliveryResult.blocked('history_unavailable')
         if not await before_send():
@@ -1716,7 +1718,7 @@ class FanvueAgent:
         async def fresh_before_send():
             if hasattr(self._api, 'sync_messages'):
                 try:
-                    await self._reconcile({'uuid': key, 'text': ''}, row, sync_only=True)
+                    await self._reconcile({'uuid': key, 'text': ''}, row, sync_only=True, process_media=False)
                 except Exception:
                     return False
             return not await ready() and await before_send()
@@ -1806,13 +1808,13 @@ class FanvueAgent:
 
     async def _reconcile(
         self, fan: Dict[str, Any], row: Dict[str, Any], mark_read: bool = False,
-        *, sync_only: bool = False,
+        *, sync_only: bool = False, process_media: bool = True,
     ) -> bool:
         if not hasattr(self, '_sync_locks'):
             self._sync_locks = {}
         lock = self._sync_locks.setdefault(fan['uuid'], asyncio.Lock())
         async with lock:
-            result = await self._reconcile_locked(fan, row, mark_read, sync_only=sync_only)
+            result = await self._reconcile_locked(fan, row, mark_read, sync_only=sync_only, process_media=process_media)
         if row.get('pending_thanks') and not sync_only:
             # Delivery can itself refresh history; never hold the import lock
             # across generation/send or it would recursively acquire itself.
@@ -1822,7 +1824,7 @@ class FanvueAgent:
 
     async def _reconcile_locked(
         self, fan: Dict[str, Any], row: Dict[str, Any], mark_read: bool = False,
-        *, sync_only: bool = False,
+        *, sync_only: bool = False, process_media: bool = True,
     ) -> bool:
         """Doplní, čo v pamäti chýba. False = teraz sa neodpisuje.
 
@@ -1904,6 +1906,18 @@ class FanvueAgent:
                 log.info(
                     "Doplnených %s správ do chatu %s", len(chybajuce), fan["uuid"][:8]
                 )
+            if process_media and getattr(self, '_incoming_media', None):
+                # Includes already stored messages: recover accessible recent
+                # attachments and retry bounded failures without a new fan turn.
+                from social_media import fanvue_attachments
+                media_messages = [m for m in skutocne if m.get('hasMedia')]
+                budget = 3
+                for message in media_messages:
+                    parts = fanvue_attachments(message, self._api, fan['uuid'])
+                    budget -= int(bool(await self._incoming_media.ingest('fanvue', fan['uuid'], 'fanvue:' + creator,
+                        message['uuid'], parts)))
+                    if budget <= 0:
+                        break
 
             # POČÍTADLO SPRÁV PODĽA SKUTOČNÉHO CHATU. `msg_count` sa inak
             # zvyšuje LEN pri správach, ktoré prešli cez bota — kto píše priamo

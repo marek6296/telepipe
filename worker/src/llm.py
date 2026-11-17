@@ -402,7 +402,7 @@ class Llm:
 
         payload = {
             "model": self._audio_model,
-            "max_tokens": 1500,
+            "max_tokens": 3000,
             "messages": [
                 {
                     "role": "user",
@@ -436,7 +436,7 @@ class Llm:
         except Exception as exc:  # noqa: BLE001
             log.warning("Hlasovku sa nepodarilo prepísať: %s", exc)
             return ""
-        return content.strip().strip('"')[:600]
+        return content.strip().strip('"')[:6000]
 
     async def describe_image(self, data: bytes, mime: str = "image/jpeg") -> Dict[str, Any]:
         """Popíše prijatú fotku a povie, či je explicitná.

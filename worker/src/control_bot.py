@@ -32,6 +32,9 @@ import json
 import re
 import time
 from datetime import datetime, timedelta, timezone
+from urllib.parse import quote
+
+import httpx
 
 import prehlad
 from typing import Any, Dict, List, Optional, Tuple
@@ -479,10 +482,11 @@ class ControlBot:
         return bool(self._cfg.owner_chat_id and self._mirror_enabled)
 
     async def _open_social(self, event, *, paired: bool = False) -> None:
-        from social_notifications import social_url
+        if paired:
+            await self.nastav_mini_menu()
         text = ("✅ Paired.\n\n" if paired else "") + (
             "New messages in Manual and Semi appear here. "
-            "Read, approve and reply in Social sites:\n" + social_url(self._cfg.model_id)
+            "Tap Social sites next to the message box to read, approve and reply inside Telegram."
         )
         await event.reply(text, buttons=Button.clear(), link_preview=False, parse_mode=None)
 
@@ -492,11 +496,11 @@ class ControlBot:
             return
         if str(item.get('owner_chat_id') or '') != str(self._cfg.owner_chat_id):
             return  # Re-pairing must never disclose a new owner's inbox to the old one.
-        from social_notifications import notification_text, social_url
+        from social_notifications import notification_text
         await self._client.send_message(
             self._cfg.owner_chat_id, notification_text(item),
-            buttons=[[Button.url("Open conversation", social_url(
-                self._cfg.model_id, item['channel'], item['external_id']))]],
+            buttons=[[types.KeyboardButtonWebView("Open conversation", self._mini_url(
+                item['channel'], item['external_id']))]],
             link_preview=False, parse_mode=None,
         )
 
@@ -1576,6 +1580,34 @@ class ControlBot:
             )
         except Exception as exc:  # noqa: BLE001 - pohodlie, nie podmienka
             log.warning("Zoznam príkazov sa nepodarilo nastaviť: %s", exc)
+        if self.notifications_only:
+            await self.nastav_mini_menu()
+
+    def _mini_url(self, channel=None, external_id=None) -> str:
+        url = 'https://telepipe.me/mini?bot=' + quote(str(self._cfg.model_id), safe='')
+        if channel and external_id is not None:
+            url += '&contact=' + quote(f'{channel}:{external_id}', safe='')
+        return url
+
+    async def nastav_mini_menu(self) -> None:
+        """Owner-only launch button; configuration never sends a chat message."""
+        token = getattr(self._cfg, 'control_bot_token', '')
+        if not self.notifications_ready or not token:
+            return
+        try:
+            async with httpx.AsyncClient(timeout=10) as api:
+                result = await api.post(
+                    f'https://api.telegram.org/bot{token}/setChatMenuButton',
+                    json={'chat_id': self._cfg.owner_chat_id, 'menu_button': {
+                        'type': 'web_app', 'text': 'Social sites',
+                        'web_app': {'url': self._mini_url()},
+                    }},
+                )
+            if result.status_code != 200 or result.json().get('ok') is not True:
+                log.warning('Mini App menu configuration failed (HTTP %s)', result.status_code)
+        except Exception as exc:
+            # HTTP exceptions include the request URL, which embeds the bot token.
+            log.warning('Mini App menu configuration failed (%s)', type(exc).__name__)
 
     async def _pinning_on(self) -> bool:
         """Má sa pripínať? Chyba čítania = áno — je to pohodlie, nie riziko."""

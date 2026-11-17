@@ -63,6 +63,18 @@ export type SocialSnapshot = {
   agent: { running: boolean; status: string; paused: boolean; timezone: string; schedule: string };
 };
 
+export type SocialMedia = {
+  id: string;
+  kind: "audio" | "video" | "image" | "file";
+  playbackUrl: string | null;
+  mimeType: string | null;
+  transcript: string | null;
+  description: string | null;
+  status: "pending" | "processing" | "ready" | "unavailable" | "failed";
+  error: string | null;
+  durationSeconds: number | null;
+};
+
 export type SocialMessage = {
   id: string;
   channel: SocialChannel;
@@ -71,6 +83,7 @@ export type SocialMessage = {
   occurredAt: string | null;
   recordedAt: string;
   attachment: { kind: string; url: string | null } | null;
+  media?: SocialMedia[];
 };
 
 export type SocialPending = {

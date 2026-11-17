@@ -163,6 +163,8 @@ class UserBot:
         self._cfg = cfg
         self._db = db
         self._llm = llm
+        from social_media import for_db
+        self._incoming_media = for_db(db, llm)
         self._client = client
         self._notify = notify
         # Control bot pre semi-auto schvaľovanie. Dopĺňa runner cez set_control;
@@ -231,7 +233,7 @@ class UserBot:
         return not (self._cfg.skip_contacts and getattr(peer, 'contact', False)
                     and peer.id not in self._cfg.contact_exceptions)
 
-    async def _record_telegram(self, tg_id, message, role, content, *, origin='native'):
+    async def _record_telegram(self, tg_id, message, role, content, *, origin='native', process_media=True):
         mid = int(getattr(message, 'id', 0) or 0)
         stamp = getattr(message, 'date', None)
         created_at = stamp.isoformat() if isinstance(stamp, datetime) else None
@@ -243,6 +245,9 @@ class UserBot:
             tg_id, mid, role, content, account_scope=self._cfg.tg_account_scope,
             created_at=created_at, origin=origin,
         )
+        if process_media and self._incoming_media and origin != 'telepipe':
+            if await self._ingest_media(tg_id, message):
+                result['source_version'] = await self._db.source_snapshot('telegram', str(tg_id))
         if role == 'assistant':
             self._synced_outgoing[(tg_id, mid)] = None
             if len(self._synced_outgoing) > _SEEN_LIMIT:
@@ -253,7 +258,18 @@ class UserBot:
             self._text_reaction.pop(tg_id, None)
         return result
 
-    async def _import_outgoing(self, tg_id, message):
+    async def _ingest_media(self, tg_id, message):
+        from social_media import telegram_attachment, telegram_bytes
+        part = telegram_attachment(message)
+        if part and self._incoming_media:
+            async def loader():
+                return await telegram_bytes(self._client, message)
+            part['loader'] = loader
+            return await self._incoming_media.ingest('telegram', str(tg_id), self._cfg.tg_account_scope,
+                str(message.id), [part], occurred_at=message.date.isoformat() if getattr(message, 'date', None) else None,
+                role='assistant' if getattr(message, 'out', False) else 'user')
+
+    async def _import_outgoing(self, tg_id, message, *, process_media=True):
         if not getattr(message, 'out', False):
             return {'inserted': False}
         content = _outgoing_content(message)
@@ -264,7 +280,7 @@ class UserBot:
                 return {'inserted': False}
             own = self._own_messages.get((tg_id, int(message.id)))
             return await self._record_telegram(tg_id, message, 'assistant', own or content,
-                                               origin='telepipe' if own is not None else 'native')
+                                               origin='telepipe' if own is not None else 'native', process_media=process_media)
 
     async def _on_outgoing(self, event) -> None:
         try:
@@ -286,7 +302,7 @@ class UserBot:
         rows = [row async for row in self._client.iter_messages(tg_id, limit=30)]
         for row in reversed(rows):
             if getattr(row, 'out', False):
-                await self._import_outgoing(tg_id, row)
+                await self._import_outgoing(tg_id, row, process_media=False)
 
     async def _send_tracked(self, tg_id, content, *, file=None, **kwargs):
         async with self._outgoing_locks.setdefault(tg_id, asyncio.Lock()):
@@ -304,7 +320,7 @@ class UserBot:
                 if tg_id in self._generation_sources and recorded.get('id') is not None:
                     # Further bubbles may use our own newly stored reply, but
                     # never advance to an unrelated message imported concurrently.
-                    self._generation_sources[tg_id] = int(recorded['id'])
+                    self._generation_sources[tg_id] = int(recorded.get('source_version') or recorded['id'])
             except Exception:
                 # The provider already accepted it. Never retry/fallback because
                 # recording failed; its outgoing echo/reconciliation can repair it.
@@ -531,7 +547,10 @@ class UserBot:
         # Fotka poslaná ako SÚBOR nie je `event.photo` — Telegram ju doručí ako
         # dokument. Bez tejto vetvy by sa nikdy nepozrela na fotku, ktorú niekto
         # poslal „bez kompresie", a odpovedala by naslepo.
-        if event.photo or _je_obrazok_subor(event):
+        from social_media import telegram_attachment
+        if self._incoming_media and telegram_attachment(event.message):
+            text = f"{_co_to_prislo(event)} {text}".strip()
+        elif event.photo or _je_obrazok_subor(event):
             seen = await self._look_at_photo(event)
             text = f"{seen} {text}".strip() if text else seen
             # Srdiečko alebo plamienok priamo na fotku. Odloží sa na chvíľu,
@@ -577,6 +596,11 @@ class UserBot:
             return
 
         await self._record_telegram(tg_id, event.message, "user", text)
+        if self._incoming_media and telegram_attachment(event.message):
+            understood = await self._incoming_media.context('telegram', str(tg_id), self._cfg.tg_account_scope, str(message_id))
+            text = understood or text
+            if event.photo or _je_obrazok_subor(event):
+                self._photo_reaction[tg_id] = (message_id_of(event), 'EXPLICITNÚ' in text)
         if hub := getattr(self._db, "hub", None):
             await hub.observe("telegram", str(tg_id), user.get("username", ""), user.get("first_name", ""), text)
 
@@ -3635,7 +3659,7 @@ class Reconciler:
                         continue
                 stats["dialogov"] += 1
                 head = int(getattr(getattr(dialog, 'message', None), 'id', 0) or 0)
-                if head and self._bot._reconciled_heads.get(entity.id) == head:
+                if head and self._bot._reconciled_heads.get(entity.id) == head and not self._bot._incoming_media:
                     continue
                 try:
                     await self._catch_up(entity, stats)
@@ -3675,9 +3699,9 @@ class Reconciler:
         # Include outgoing overlap even when the incoming watermark has moved
         # past it. Durable provider IDs make restart/reconnect replays harmless.
         for message in rows:
-            if getattr(message, 'out', False) or (message.id > last_seen and (message.message or '').strip()):
+            if getattr(message, 'out', False) or (message.id > last_seen and ((message.message or '').strip() or getattr(message, 'media', None))):
                 missed.append(message)
-        if not missed:
+        if not missed and not self._bot._incoming_media:
             return
 
         missed.reverse()
@@ -3686,14 +3710,24 @@ class Reconciler:
         imported = 0
         for message in missed:
             if getattr(message, 'out', False):
-                result = await self._bot._import_outgoing(tg_id, message)
+                result = await self._bot._import_outgoing(tg_id, message, process_media=False)
             else:
                 if not await self._db.claim_message(tg_id, message.id):
                     continue
-                result = await self._bot._record_telegram(tg_id, message, 'user', message.message.strip())
+                result = await self._bot._record_telegram(tg_id, message, 'user', (message.message or '').strip() or _outgoing_content(message), process_media=False)
                 incoming.append(message)
                 count += 1
             imported += int(bool(result.get('inserted')))
+        if self._bot._incoming_media:
+            # Revisit a bounded recent overlap even in Manual and when no new
+            # messages arrived: prior processing may have failed or crashed.
+            from social_media import telegram_attachment
+            parts = [message for message in rows if telegram_attachment(message)]
+            budget = 3
+            for message in parts:
+                budget -= int(bool(await self._bot._ingest_media(tg_id, message)))
+                if budget <= 0:
+                    break
         stats['dotiahnutych'] += imported
         if not incoming:
             return

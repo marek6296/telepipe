@@ -27,6 +27,8 @@ function db() {
 }
 const mocks: Record<string,unknown> = {
   "server-only":{}, "next/cache":{revalidatePath() {}},
+  "@/lib/telegram-mini-server":{miniSocialContext:async()=>null},
+  "@/lib/social-media-server":{loadSocialMedia:async()=>fixtures.media || {}},
   "@/lib/models":{getModel:async () => ({id:modelId,account_id:owner,name:"Example",model_type:"persona",status:"active",claimed_by:"worker",heartbeat_at:new Date().toISOString()})},
   "@/lib/model-types":{modelTypeHasTab:() => true},
   "@/lib/supabase/server":{getUser:async () => user,createClient:async () => db(),createServiceClient:() => {serviceCalls++;return db();}},
@@ -109,3 +111,11 @@ assert.equal(unavailable.thread,null);
 assert.match(unavailable.error,/not available/);
 assert.ok(!calls.some(c => c.table === "social_contact_summaries"),"Deep links cannot bypass Instagram rollout gating");
 console.log("Social notification links: independent contact loading, invalid inputs and rollout boundaries passed.");
+
+reset();
+fixtures.social_contact_summaries={channel:"telegram",external_id:"123",account_scope:"primary",last_message_id:"42",pending_id:null};
+fixtures.dm_messages=[{id:42,role:"user",content:"Caption\n[Attachment audio: ready]\nTranscript: hello",created_at:"2026-11-16T20:00:00Z"}];
+fixtures.media={"42":{originalContent:"Caption",media:[{id:actionId,kind:"audio",transcript:"hello"}]}};
+const withMedia=await server.loadSocialThread(modelId,"telegram:123") as {messages:{content:string;media:{transcript:string}[]}[]};
+assert.equal(withMedia.messages[0].content,"Caption","Human UI retains the original caption without duplicating analysis text");
+assert.equal(withMedia.messages[0].media[0].transcript,"hello");

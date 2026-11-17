@@ -155,9 +155,10 @@ class TenantInstagramDb:
         await self._patch(IG_MESSAGES, {'model_id': self._mine, 'mid': f'eq.{mid}'}, {'effects_applied': True})
 
     async def latest_message_id(self, igsid):
-        rows = await self._get(IG_MESSAGES, {'model_id': self._mine, 'igsid': f'eq.{igsid}',
-            'select': 'id', 'order': 'id.desc', 'limit': '1'})
-        return int(rows[0]['id']) if rows else 0
+        rows = await self._get('/social_contact_summaries', {'model_id': self._mine,
+            'channel': 'eq.instagram', 'external_id': f'eq.{igsid}',
+            'select': 'last_message_id', 'limit': '1'})
+        return int(rows[0].get('last_message_id') or 0) if rows else 0
 
     async def native_reply(self, igsid, account, occurred_at):
         return await self._t._rpc('social_native_reply', {

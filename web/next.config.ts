@@ -15,6 +15,12 @@ import type { NextConfig } from "next";
  */
 
 const nextConfig: NextConfig = {
+  async headers() {
+    return [{source:"/mini/:path*",headers:[{
+      key:"Content-Security-Policy",
+      value:"frame-ancestors 'self' https://web.telegram.org https://*.telegram.org",
+    }]}];
+  },
   images: {
     // Fotky modeliek žijú vo verejnom Supabase buckete `photos`.
     remotePatterns: [

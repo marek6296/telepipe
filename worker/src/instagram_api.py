@@ -307,6 +307,9 @@ def rozober(konverzacia: Dict[str, Any], moje_id: str) -> Dict[str, Any]:
                 "created_time": sprava.get("created_time"),
                 "kind": kind,
                 "has_image": any(a.get('image_data') or a.get('mime_type', '').startswith('image/') for a in attachments),
+                # Ephemeral provider URLs stay in memory; the media worker
+                # stores private bytes and stable attachment identifiers only.
+                "attachments": attachments,
             }
         )
 

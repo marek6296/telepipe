@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { ArrowUpRight, Camera, ChevronDown, Heart, Loader2, Send } from "lucide-react";
-import { setSocialMode } from "@/app/app/m/[id]/social/actions";
+import { useSocialTransport } from "./transport";
 import type { SocialChannelState, SocialMode } from "@/lib/social-types";
 import { cn } from "@/lib/utils";
 import { CHANNEL_NAMES, sourceTime } from "./state";
@@ -25,6 +25,7 @@ export function ChannelCards({ modelId, channels, refresh }: { modelId: string; 
 }
 
 function ChannelCard({ modelId, state, refresh }: { modelId: string; state: SocialChannelState; refresh: () => void }) {
+  const { transport: { setSocialMode }, mini } = useSocialTransport();
   const [saving, setSaving] = useState<SocialMode | null>(null);
   const [error, setError] = useState("");
   const busy = useRef(false);
@@ -56,7 +57,7 @@ function ChannelCard({ modelId, state, refresh }: { modelId: string; state: Soci
     <p className="mt-2 min-h-8 text-[11px] leading-4 text-[var(--app-text-3)]">{state.notice || (state.mode === "off" ? "You write every reply. AI stays quiet." : state.mode === "semi" ? "AI drafts. You approve each reply." : "AI replies within her daily schedule.")}</p>
     {state.syncStatus && <p className="mt-1 truncate text-[10px] text-[var(--app-text-4)]" title={state.lastSyncAt ? `Last sync: ${sourceTime(state.lastSyncAt)}` : undefined}>History · {state.syncStatus.replaceAll("_", " ")}</p>}
     {error && <p role="alert" className="mt-2 text-[11px] text-[#fca5a5]">{error}</p>}
-    {state.available && <div className="mt-3 flex items-center gap-3 border-t border-[var(--app-border)] pt-2.5 text-[11px] text-[var(--app-text-3)]">
+    {state.available && !mini && <div className="mt-3 flex items-center gap-3 border-t border-[var(--app-border)] pt-2.5 text-[11px] text-[var(--app-text-3)]">
       <Link href={state.connectHref} className="inline-flex items-center gap-1 hover:text-[var(--app-text)]">{state.connected ? "Connection" : "Connect account"}<ArrowUpRight className="h-3 w-3" /></Link>
       <Link href={state.settingsHref} className="hover:text-[var(--app-text)]">Settings</Link>
     </div>}

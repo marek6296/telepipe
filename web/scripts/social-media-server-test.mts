@@ -1,0 +1,42 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { resolve } from 'node:path';
+import vm from 'node:vm';
+import ts from 'typescript';
+import * as policy from '../lib/social-media-policy.ts';
+const require=createRequire(import.meta.url);
+const source=ts.transpileModule(readFileSync(resolve(import.meta.dirname,'../lib/social-media-server.ts'),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+const loaded={exports:{}};
+vm.runInThisContext(`(function(require,module,exports){${source}\n})`)((name:string)=>name==='server-only' ? {} : name==='@/lib/social-media-policy' ? policy : require(name),loaded,loaded.exports);
+const load=(loaded.exports as {loadSocialMedia:(...args:unknown[])=>Promise<Record<string,{media:{playbackUrl:string|null}[];originalContent:string|null}>>}).loadSocialMedia;
+const model='10000000-0000-0000-0000-000000000001', id='20000000-0000-4000-8000-000000000001';
+const path=`${model}/telegram/42/${id}.ogg`;
+let signedCalls=0, rows:Record<string,unknown>[]=[];
+const queries:{method:string,args:unknown[]}[]=[];
+let storageThrows=false;
+const db={from(table:string){
+  assert.equal(table,'social_message_media');
+  const q=new Proxy({}, {get(_t,key:string){
+    if(key==='then') return (done:(v:unknown)=>void)=>done({data:rows,error:null});
+    return (...args:unknown[])=>{queries.push({method:key,args});return q;};
+  }});return q;
+},storage:{from(bucket:string){assert.equal(bucket,'social-media');return{async createSignedUrls(paths:string[],ttl:number){
+  signedCalls++;assert.equal(ttl,300);assert.ok(paths.every(p=>p.startsWith(model+'/telegram/')));
+  if(storageThrows) throw new Error('storage unavailable');
+  return {data:[{path,signedUrl:`https://storage.example/signed/${id}`}],error:null};
+}};}}};
+const ctx={model:{id:model},db};
+const contact={channel:'telegram',externalId:'123',accountScope:'telegram:current'};
+const row={id,model_id:model,channel:'telegram',external_id:'123',account_scope:'telegram:current',message_id:42,kind:'audio',storage_path:path,status:'ready',transcript:'Hello',original_content:'Original caption'};
+rows=[{...row,account_scope:'old'},{...row,model_id:'foreign'}];
+assert.deepEqual(await load(ctx,contact,['42']),{}); assert.equal(signedCalls,0);
+rows=[row];
+const one=await load(ctx,contact,['42']); assert.match(one['42'].media[0].playbackUrl!,/^https:/);assert.equal(one['42'].originalContent,'Original caption');
+assert.deepEqual(await load(ctx,contact,['42']),one);assert.equal(signedCalls,1,'polling retains a stable playback URL');
+for(const field of ['model_id','channel','external_id','account_scope']) assert.ok(queries.some(q=>q.method==='eq' && q.args[0]===field));
+assert.ok(queries.some(q=>q.method==='in' && q.args[0]==='message_id'));
+rows=[{...row,storage_path:path.replace('.ogg','.mp3')}]; storageThrows=true;
+const unavailable=await load(ctx,contact,['42']);
+assert.equal(unavailable['42'].media[0].playbackUrl,null,'storage failure must preserve transcript and chat access');
+console.log('PASS private media selection, batch signing and stable playback during polling');

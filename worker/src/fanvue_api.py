@@ -425,6 +425,15 @@ class Fanvue:
             **({'cursor': cursor} if cursor else {}),
         })
 
+    async def chat_media(self, user_uuid: str, message_uuid: str, media_uuids: List[str]) -> List[Dict[str, Any]]:
+        """Resolve private incoming attachments, never mark the chat read."""
+        from urllib.parse import quote
+        body = await self._sync_json(
+            f'/chats/{quote(user_uuid, safe="")}/messages/{quote(message_uuid, safe="")}/media',
+            {'mediaUuids': ','.join(media_uuids[:20]), 'variants': 'main'},
+        )
+        return body['data']
+
     async def sync_messages(self, user_uuid: str, known: set) -> List[Dict[str, Any]]:
         """Four strict pages per round; incomplete catch-up advances next round.
 

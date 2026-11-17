@@ -1,12 +1,12 @@
 "use client";
 
-import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
-import { Check, FileText, Loader2, RefreshCw, Send, SkipForward, Sparkles } from "lucide-react";
-import { skipSocialPending, submitSocialCommand } from "@/app/app/m/[id]/social/actions";
+import { Check, Loader2, RefreshCw, Send, SkipForward, Sparkles } from "lucide-react";
+import { useSocialTransport } from "./transport";
 import type { SocialChannelState, SocialCommandInput, SocialContact, SocialMessage, SocialThread } from "@/lib/social-types";
 import { cn } from "@/lib/utils";
 import { PersonPanel } from "./person-panel";
+import { MessageMedia } from "./message-media";
 import { CHANNEL_NAMES, commandLabel, freezeIntent, mergeMessages, mergeThread, sourceTime } from "./state";
 import { useSocialResource } from "./use-resource";
 import type { ComposerDraft, UpdateDraft } from "./workspace";
@@ -15,6 +15,8 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
   modelId: string; contact: SocialContact; channelState?: SocialChannelState; draft: ComposerDraft; initialThread?: SocialThread;
   updateDraft: UpdateDraft; selectContact: (contact: SocialContact) => void; refreshInbox: () => void;
 }) {
+  const { transport, mini } = useSocialTransport();
+  const { skipSocialPending, submitSocialCommand } = transport;
   const params = new URLSearchParams({ channel: contact.channel, externalId: contact.externalId });
   const url = `/api/models/${modelId}/social/thread?${params}`;
   const resource = useSocialResource<SocialThread>(url, initialThread, mergeThread);
@@ -65,9 +67,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
     const top = scrollRef.current?.scrollTop ?? 0;
     const height = scrollRef.current?.scrollHeight ?? 0;
     try {
-      const response = await fetch(`${url}&before=${encodeURIComponent(thread.nextBefore)}`, { cache: "no-store", signal: controller.signal });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error || "Could not load older messages.");
+      const body = await transport.read<SocialThread>(`${url}&before=${encodeURIComponent(thread.nextBefore)}`, controller.signal);
       if (controller.signal.aborted || body.contact?.key !== contact.key) return;
       const older = body as SocialThread;
       resource.update(previous => ({ ...previous, messages: mergeMessages(older.messages, previous.messages), hasMore: older.hasMore, nextBefore: older.nextBefore }));
@@ -122,18 +122,19 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
     finally { actionBusy.current = false; setSkipLoading(false); }
   }
 
-  return <div className="grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_200px]">
-    <section className="app-card min-w-0 overflow-hidden" aria-label={`${CHANNEL_NAMES[contact.channel]} conversation with ${current.displayName}`}>
+  return <div className="social-conversation grid min-w-0 items-start gap-4 xl:grid-cols-[minmax(0,1fr)_200px]">
+    <section className="social-conversation-card app-card min-w-0 overflow-hidden" aria-label={`${CHANNEL_NAMES[contact.channel]} conversation with ${current.displayName}`}>
       <div className="border-b border-[var(--app-border)] px-4 py-3.5">
         <div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="truncate text-[15px] font-medium">{current.displayName || current.username || current.externalId}</h2><p className="mt-0.5 text-[11px] text-[var(--app-text-3)]">{CHANNEL_NAMES[current.channel]}{current.username ? ` · @${current.username.replace(/^@/, "")}` : ""}{current.humanTakeover ? " · You are replying" : ""}</p></div><button type="button" disabled={resource.loading} onClick={() => void resource.refresh()} aria-label="Refresh conversation" className="app-btn app-btn-quiet h-8 w-8"><RefreshCw className={cn("h-3.5 w-3.5", resource.loading && "animate-spin")} /></button></div>
         {thread && thread.linkedContacts.length > 1 && <div className="mt-3 flex flex-wrap gap-1.5" aria-label="Choose sending account">{thread.linkedContacts.map(linked => <button type="button" key={linked.key} onClick={() => selectContact(linked)} aria-pressed={linked.key === current.key} className={cn("rounded-md border px-2.5 py-1.5 text-[10.5px]", linked.key === current.key ? "border-[var(--app-text-3)] bg-[var(--app-surface-hover)] text-[var(--app-text)]" : "border-[var(--app-border)] text-[var(--app-text-3)]")}>{CHANNEL_NAMES[linked.channel]}</button>)}</div>}
       </div>
       {resource.error && <div role="alert" className="border-b border-[var(--app-border)] px-4 py-3 text-[11px] text-[#fca5a5]">{resource.error} {thread ? "Replies are disabled until the conversation refreshes." : ""}<button type="button" onClick={() => void resource.refresh()} className="ml-2 underline">Retry</button></div>}
-      <div ref={scrollRef} className="h-[400px] overflow-y-auto overscroll-contain px-4 py-4 sm:h-[450px]" aria-label="Message history" aria-busy={!thread && resource.loading}>
+      <div className="social-conversation-body" ref={mini ? scrollRef : undefined}>
+      <div ref={mini ? undefined : scrollRef} className="social-history h-[400px] overflow-y-auto overscroll-contain px-4 py-4 sm:h-[450px]" aria-label="Message history" aria-busy={!thread && resource.loading}>
         {!thread ? <div role="status" className="flex h-full items-center justify-center gap-2 text-[12px] text-[var(--app-text-3)]">{resource.loading ? <><Loader2 className="h-4 w-4 animate-spin" />Loading conversation</> : "Conversation could not be loaded."}</div> : <>
           {thread.hasMore && <div className="mb-4 text-center"><button type="button" onClick={() => void loadOlder()} disabled={olderLoading} className="app-btn app-btn-quiet mx-auto min-h-8 px-3 text-[11px]">{olderLoading && <Loader2 className="h-3 w-3 animate-spin" />}Load older messages</button></div>}
           {olderError && <p role="alert" className="mb-3 text-center text-[11px] text-[#fca5a5]">{olderError}</p>}
-          {thread.messages.length === 0 ? <div className="flex h-full items-center justify-center text-center text-[12px] text-[var(--app-text-3)]">No imported messages for this account yet.</div> : <div className="space-y-3">{thread.messages.map(message => <Message key={message.id} message={message} />)}</div>}
+          {thread.messages.length === 0 ? <div className="flex h-full items-center justify-center text-center text-[12px] text-[var(--app-text-3)]">No imported messages for this account yet.</div> : <div className="space-y-3">{thread.messages.map(message => <Message key={message.id} message={message} refreshPlayback={async mediaId => (await resource.refresh())?.messages.find(row => row.id === message.id)?.media?.find(item => item.id === mediaId)?.playbackUrl} />)}</div>}
         </>}
       </div>
       {thread?.pending && <div ref={previewRef} className="border-t border-[var(--app-border)] bg-white/[0.015] p-4">
@@ -156,23 +157,25 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
         {draft.retry && !draft.submitting && <button type="button" onClick={() => void submit(draft.retry!)} className="app-btn app-btn-ghost mt-2 min-h-8 px-3 text-[11px]">Retry the same request</button>}
         {draft.notice && <p role="status" className="mt-2 text-[11px] text-[var(--app-text-3)]">{draft.notice}</p>}
       </div>}
-      <form onSubmit={event => { event.preventDefault(); if (draft.text.trim()) command("send_text", draft.text.trim()); }} className="border-t border-[var(--app-border)] p-4">
+
+      {thread && thread.commands.length > 0 && <div className="border-t border-[var(--app-border)] px-4 py-3"><h3 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--app-text-4)]">Recent requests</h3><ul className="space-y-2">{thread.commands.slice(0, 5).map(item => <li key={item.id} className="text-[10.5px]"><div className="flex justify-between gap-2"><span className={cn(["failed", "uncertain", "blocked", "stale"].includes(item.status) ? "text-[#fca5a5]" : "text-[var(--app-text-2)]")}>{commandLabel(item)}</span><span className="text-[var(--app-text-4)]">{sourceTime(item.createdAt)}</span></div>{item.text && <p className="mt-0.5 line-clamp-2 break-words text-[var(--app-text-3)]">{item.text}</p>}{item.reason && <p className="mt-0.5 break-words text-[var(--app-text-4)]">{item.reason}</p>}{(item.status === "uncertain" || item.deliveryState === "uncertain") && <p className="mt-1 text-[#fca5a5]">Check the channel before sending again. This request will not be resent automatically.</p>}</li>)}</ul></div>}
+      {mini && thread && <details className="border-t border-[var(--app-border)] p-4"><summary className="cursor-pointer text-[12px] font-medium">Person &amp; conversation controls</summary><div className="mt-3"><PersonPanel key={current.key} modelId={modelId} thread={thread} selectContact={selectContact} refresh={refreshAll} /></div></details>}
+      </div>
+      <form onSubmit={event => { event.preventDefault(); if (draft.text.trim()) command("send_text", draft.text.trim()); }} className="social-exact-composer border-t border-[var(--app-border)] p-4">
         <label htmlFor={`reply-${current.channel}`} className="mb-2 flex items-center justify-between gap-2 text-[11px] font-medium"><span>Write my own · {CHANNEL_NAMES[current.channel]}</span><span className="truncate font-normal text-[var(--app-text-4)]">To {current.displayName || current.username || current.externalId}</span></label>
-        <textarea id={`reply-${current.channel}`} value={draft.text} onChange={event => changeDraft({ text: event.target.value })} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); if (draft.text.trim()) command("send_text", draft.text.trim()); } }} rows={3} maxLength={12000} placeholder="Write the exact message to send…" className="app-input resize-y text-[12px]! leading-5!" />
+        <textarea id={`reply-${current.channel}`} value={draft.text} onChange={event => changeDraft({ text: event.target.value })} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); if (draft.text.trim()) command("send_text", draft.text.trim()); } }} rows={mini ? 2 : 3} maxLength={12000} placeholder="Write the exact message to send…" className="app-input resize-y text-[12px]! leading-5!" />
 
         <div className="mt-3 flex items-center justify-between gap-3"><p className="max-w-[65%] text-[10px] leading-4 text-[var(--app-text-4)]">{!channelState?.connected ? "Connect this channel before replying." : waitingForCommand ? "A request is in progress. Its delivery status appears below." : channelState.mode === "auto" ? "Your exact text is sent unchanged and takes over this conversation. AI pauses here until you resume it." : "Your text is sent unchanged. Ctrl / ⌘ + Enter to send."}</p><button type="submit" disabled={blocked || !draft.text.trim()} className="app-btn app-btn-primary min-h-9 shrink-0 px-3 text-[11px]">{draft.submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}Send exact text</button></div>
       </form>
-      {thread && thread.commands.length > 0 && <div className="border-t border-[var(--app-border)] px-4 py-3"><h3 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--app-text-4)]">Recent requests</h3><ul className="space-y-2">{thread.commands.slice(0, 5).map(item => <li key={item.id} className="text-[10.5px]"><div className="flex justify-between gap-2"><span className={cn(["failed", "uncertain", "blocked", "stale"].includes(item.status) ? "text-[#fca5a5]" : "text-[var(--app-text-2)]")}>{commandLabel(item)}</span><span className="text-[var(--app-text-4)]">{sourceTime(item.createdAt)}</span></div>{item.text && <p className="mt-0.5 line-clamp-2 break-words text-[var(--app-text-3)]">{item.text}</p>}{item.reason && <p className="mt-0.5 break-words text-[var(--app-text-4)]">{item.reason}</p>}{(item.status === "uncertain" || item.deliveryState === "uncertain") && <p className="mt-1 text-[#fca5a5]">Check the channel before sending again. This request will not be resent automatically.</p>}</li>)}</ul></div>}
     </section>
-    {thread && <PersonPanel key={current.key} modelId={modelId} thread={thread} selectContact={selectContact} refresh={refreshAll} />}
+    {!mini && thread && <PersonPanel key={current.key} modelId={modelId} thread={thread} selectContact={selectContact} refresh={refreshAll} />}
   </div>;
 }
 
-function Message({ message }: { message: SocialMessage }) {
+function Message({ message, refreshPlayback }: { message: SocialMessage; refreshPlayback:(mediaId:string)=>Promise<string|null|undefined> }) {
   const own = message.role === "assistant";
-  const attachment = message.attachment;
-  return <div className={cn("flex", own ? "justify-end" : "justify-start")}><div className={cn("max-w-[88%] rounded-xl px-3 py-2.5 text-[12px] leading-5", own ? "rounded-br-sm bg-[#252525] text-[var(--app-text)]" : "rounded-bl-sm border border-[var(--app-border)] bg-[#131313] text-[var(--app-text-2)]")}>
-    {attachment && <div className="mb-2">{attachment.url && ["image", "photo"].includes(attachment.kind) ? <a href={attachment.url} target="_blank" rel="noopener noreferrer"><Image src={attachment.url} alt="Message attachment" width={480} height={360} unoptimized className="max-h-64 w-auto rounded-md object-contain" /></a> : attachment.url && ["audio", "voice"].includes(attachment.kind) ? <audio controls preload="none" src={attachment.url} className="max-w-full" aria-label="Audio message" /> : attachment.url && attachment.kind === "video" ? <video controls preload="none" src={attachment.url} className="max-h-64 max-w-full rounded-md" aria-label="Video message" /> : <span className="inline-flex items-center gap-1.5 text-[11px] text-[var(--app-text-3)]"><FileText className="h-3 w-3" />{attachment.url ? <a href={attachment.url} target="_blank" rel="noopener noreferrer" className="underline">Open {attachment.kind} attachment</a> : `${attachment.kind} attachment · preview unavailable`}</span>}</div>}
+  return <div className={cn("flex", own ? "justify-end" : "justify-start")}><div className={cn("min-w-0 max-w-[88%] rounded-xl px-3 py-2.5 text-[12px] leading-5", own ? "social-message-own rounded-br-sm bg-[#252525] text-[var(--app-text)]" : "social-message-inbound rounded-bl-sm border border-[var(--app-border)] bg-[#131313] text-[var(--app-text-2)]")}>
+    <MessageMedia message={message} refreshPlayback={refreshPlayback} />
     {message.content && <p className="whitespace-pre-wrap break-words">{message.content}</p>}
     <p className="mt-1 text-right text-[9px] leading-4 text-[var(--app-text-4)]" title={message.occurredAt ? `${message.occurredAt} · original message time` : "Original message time is unknown. Import time is not shown as message time."}>{sourceTime(message.occurredAt)}</p>
   </div></div>;

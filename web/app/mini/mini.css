@@ -1,0 +1,39 @@
+.mini-shell { position:fixed; inset:var(--mini-top,0) 0 auto; height:var(--mini-height,100dvh); display:flex; flex-direction:column; overflow:hidden; color:var(--app-text); padding: max(var(--mini-safe-top,0px),env(safe-area-inset-top)) max(var(--mini-safe-right,0px),env(safe-area-inset-right)) max(var(--mini-safe-bottom,0px),env(safe-area-inset-bottom)) max(var(--mini-safe-left,0px),env(safe-area-inset-left)); }
+.mini-header { display:flex; align-items:center; gap:12px; flex:none; min-height:68px; padding:10px 16px; border-bottom:1px solid var(--app-border); }
+.mini-state { margin:auto; padding:36px 24px; max-width:480px; text-align:center; }
+.mini-model-picker { width:100%; max-width:580px; margin:0 auto; padding:32px 20px; overflow:auto; }
+.mini-model-workspace { min-height:0; flex:1; overflow:auto; overscroll-behavior:contain; }
+.mini-model-workspace[hidden] { display:none; }
+.mini-shell .social-workspace { max-width:900px; margin:0 auto; padding:16px; }
+.mini-shell .social-workspace-heading h1 { font-size:17px; }
+.mini-shell .social-workspace-heading p, .mini-shell .social-workspace-schedule { display:none; }
+.mini-shell .social-workspace-columns { display:block; }
+.mini-shell .social-conversation-column { display:none; }
+.mini-shell .mini-chat-open { height:100%; min-height:0; padding:0; display:flex; flex-direction:column; gap:0; }
+.mini-shell .mini-chat-open > * { margin-block:0; }
+.mini-shell .mini-chat-open .social-workspace-heading, .mini-shell .mini-chat-open .social-channels, .mini-shell .mini-chat-open .social-inbox, .mini-shell .social-back-people { display:none; }
+.mini-shell .mini-chat-open .social-workspace-columns, .mini-shell .mini-chat-open .social-conversation-column, .mini-shell .social-conversation, .mini-shell .social-conversation-card { display:flex; flex-direction:column; flex:1; min-height:0; width:100%; }
+.mini-shell .social-conversation-card { border:0; border-radius:0; }
+.mini-shell .social-conversation-card > :not(.social-conversation-body) { flex-shrink:0; }
+.mini-shell .social-conversation-body { min-height:0; flex:1; overflow-y:auto; overscroll-behavior:contain; }
+.mini-shell .social-history { height:auto; min-height:160px; overflow:visible; }
+.mini-shell .social-exact-composer { background:var(--app-surface); padding:10px 16px 12px; }
+.mini-shell .social-exact-composer textarea { min-height:54px; max-height:120px; resize:none; }
+.mini-shell .social-exact-composer label { font-size:10px; }
+.mini-shell .social-exact-composer form { margin:0; }
+.mini-shell .social-exact-composer button { min-height:40px; }
+.mini-shell .social-exact-composer > div { margin-top:8px; }
+.mini-shell input, .mini-shell textarea, .mini-shell select { font-size:16px !important; }
+.mini-shell .social-inbox ul { max-height:none; }
+.mini-shell button { touch-action:manipulation; }
+.mini-shell[data-theme="light"] { --app-surface-hover:#eeeeef; --app-active:#e6e6e7; --app-border:#e0e0e2; --app-border-strong:#ceced2; --app-text-2:#34343a; --app-text-3:#65656d; --app-text-4:#72727a; --app-up:#16883c; }
+.mini-shell[data-theme="light"] .social-message-own { background:#e7e7e9; }
+.mini-shell[data-theme="light"] .social-message-inbound { background:var(--app-surface); }
+.mini-shell { color-scheme:dark; }
+.mini-shell[data-theme="light"] { color-scheme:light; --app-bg:#ffffff; --app-surface:#f6f6f6; --app-text:#151515; }
+.mini-shell[data-theme="light"] .app-input { background:var(--app-bg); color:var(--app-text); }
+.mini-shell[data-theme="light"] .app-input:focus { background:var(--app-bg); border-color:var(--app-text-3); }
+.mini-shell[data-theme="light"] .app-btn-primary { background:var(--app-text); color:var(--app-bg); }
+.mini-shell[data-theme="light"] :where(a,button,input,select,textarea):focus-visible { outline-color:rgba(0,0,0,.6); }
+/* Layered !important utility sizes otherwise beat unlayered overrides. */
+@layer components { .mini-shell input, .mini-shell textarea, .mini-shell select { font-size:16px !important; } }

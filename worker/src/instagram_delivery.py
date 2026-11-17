@@ -39,6 +39,8 @@ def unanswered_text(messages):
 class InstagramDelivery:
     def __init__(self, db, agent):
         self.db, self.agent = db, agent
+        from social_media import for_db
+        self.media = for_db(db, agent._llm)
         self.round = 0
 
     async def poll(self):
@@ -95,7 +97,7 @@ class InstagramDelivery:
             patch.update(circuit_until=(utcnow()+timedelta(hours=1)).isoformat(), circuit_reason=f'meta_{exc.kod}')
         await self.db.save(patch)
 
-    async def ingest(self, raw, cfg, bootstrap=False):
+    async def ingest(self, raw, cfg, bootstrap=False, *, process_media=True):
         chat = api.rozober(raw, cfg['ig_user_id'])
         igsid, messages = chat['igsid'], chat['spravy']
         if not igsid or not messages:
@@ -141,6 +143,20 @@ class InstagramDelivery:
                             occurred=occurred, text=message['content'], photo=bool(message.get('has_image')),
                             account=cfg['ig_user_id'])
             await self.db.mark_message_effects(message['mid'])
+        if self.media:
+            from social_media import instagram_attachments
+            budget = 3
+            for message in reversed(messages):
+                if message.get('attachments'):
+                    if process_media:
+                        budget -= int(bool(await self.media.ingest('instagram', igsid, cfg['ig_user_id'], message['mid'],
+                            instagram_attachments(message['attachments']))))
+                    understood = await self.media.context('instagram', igsid, cfg['ig_user_id'], message['mid'])
+                    if understood:
+                        message['content'] = understood
+                        message['kind'] = 'dm'
+                    if budget <= 0:
+                        break
         last = messages[-1]
         incoming = next((m for m in reversed(messages) if m['role'] == 'user'), None)
         if incoming:
@@ -256,7 +272,7 @@ class InstagramDelivery:
     async def refresh_action(self, cfg, action, *, state='leased', source_message_id=None):
         """Import a fresh provider snapshot, then validate this exact reply target."""
         raw = await asyncio.to_thread(api.conversation, cfg['access_token'], action['target_id'])
-        await self.ingest(raw, cfg)
+        await self.ingest(raw, cfg, process_media=False)
         fresh = api.rozober(raw, cfg['ig_user_id'])
         latest = fresh['spravy'][-1] if fresh['spravy'] else {}
         operator = (action.get('payload') or {}).get('origin') == 'operator'
@@ -347,7 +363,7 @@ class InstagramDelivery:
                 link = reminder = False
             else:
                 raw = await asyncio.to_thread(api.conversation, cfg['access_token'], action['target_id'])
-                await self.ingest(raw, cfg)
+                await self.ingest(raw, cfg, process_media=False)
                 user = await self.db.user(action['igsid']) or {}
                 current = await self.db.action(action['id'])
                 if not current or current['state'] != 'leased':
@@ -510,7 +526,7 @@ class InstagramDelivery:
         chat = api.rozober(raw, cfg['ig_user_id'])
         if chat['igsid'] != command['external_id'] or not chat['spravy']:
             return DeliveryResult.blocked('thread_changed')
-        await self.ingest(raw, cfg)
+        await self.ingest(raw, cfg, process_media=False)
         user = await self.db.user(command['external_id']) or {}
         if not in_window(user.get('last_incoming_at')):
             return DeliveryResult.blocked('window_expired', restore_pending=False)
