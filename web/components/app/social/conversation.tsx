@@ -34,7 +34,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
   const previewRevision = thread?.pending ? `${thread.pending.id}:${thread.pending.updatedAt}` : null;
   const localIntent = draft.activity?.input;
   const commandRows = thread?.commands || [];
-  const optimistic = localIntent && localIntent.operation!=="regenerate" && !commandRows.some(c=>c.id===localIntent.requestId)
+  const optimistic = localIntent && (draft.submitting || Boolean(draft.retry)) && localIntent.operation!=="regenerate" && !commandRows.some(c=>c.id===localIntent.requestId)
     ? [{id:localIntent.requestId,operation:localIntent.operation,channel:current.channel,externalId:current.externalId,text:localIntent.text || "",status:draft.error ? draft.retry ? "uncertain" as const : "failed" as const : "queued" as const,deliveryState:null,reason:"",createdAt:new Date().toISOString()}] : [];
   const outbox = outboxCommands([...commandRows,...optimistic],thread?.messages || []);
   const lastId = outbox.at(-1)?.id || thread?.messages.at(-1)?.id;
