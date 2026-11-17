@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -427,6 +428,7 @@ class Llm:
             ],
         }
         self._reset_usage()
+        self.last_model = self._audio_model
         try:
             r = await self._client.post(self._endpoint, json=payload)
             r.raise_for_status()
@@ -477,6 +479,7 @@ class Llm:
             "max_tokens": 300,
         }
         self._reset_usage()
+        self.last_model = self._vision_model
         try:
             r = await self._client.post(self._endpoint, json=payload)
             r.raise_for_status()
@@ -487,6 +490,9 @@ class Llm:
             log.warning("Fotku sa nepodarilo popísať: %s", exc)
             return {"description": "", "explicit": False}
 
+        # Gemini may repeat the instruction's "Line 1:" labels. They are
+        # formatting, not part of the description or the safety classification.
+        content = re.sub(r'(?i)\bLine\s+[123]\s*:\s*', '\n', content)
         lines = [line.strip() for line in content.splitlines() if line.strip()]
         znacky = {"EXPLICIT", "NORMAL", "SCREENSHOT", "PERSON", "OTHER"}
         explicit = any(line.upper() == "EXPLICIT" for line in lines)

@@ -28,6 +28,32 @@ def _odpoved(text="ahoj", *, vstup=100, vystup=50, status=200, finish="stop"):
     )
 
 
+@pytest.mark.asyncio
+async def test_media_usage_records_actual_model_after_chat():
+    model = _llm(lambda req: _odpoved('A blue square.\nOTHER\nNORMAL'),
+                 vision_model='test/vision', audio_model='test/audio')
+    try:
+        await model.reply('sys', [])
+        assert model.last_model == 'test/model'
+        await model.describe_image(b'jpeg')
+        assert model.last_model == 'test/vision'
+        await model.transcribe_voice(b'audio')
+        assert model.last_model == 'test/audio'
+    finally:
+        await model.close()
+
+
+@pytest.mark.asyncio
+async def test_vision_accepts_gemini_numbered_line_labels():
+    model = _llm(lambda req: _odpoved('Line 1: A phone screenshot.\nLine 2: SCREENSHOT\nLine 3: EXPLICIT'))
+    try:
+        assert await model.describe_image(b'jpeg') == {
+            'description': 'A phone screenshot.', 'kind': 'SCREENSHOT', 'explicit': True,
+        }
+    finally:
+        await model.close()
+
+
 @pytest.fixture
 def nespi(monkeypatch):
     """Backoff medzi pokusmi je 2/4/8 s — v teste nie."""

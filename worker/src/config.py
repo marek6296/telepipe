@@ -187,7 +187,7 @@ class Config:
                 "LLM_ECONOMY_MODEL", "deepseek-ai/deepseek-v4-flash"
             ).strip(),
             reasoning_effort=os.getenv("LLM_REASONING_EFFORT", "low").strip(),
-            vision_model=os.getenv("LLM_VISION_MODEL", "qwen/qwen3-vl-235b-a22b-thinking"),
+            vision_model=os.getenv("LLM_VISION_MODEL", "google/gemini-3.5-flash"),
             # Zvuk berie Gemini, vision model ani hlavný model ho neprijmú.
             audio_model=os.getenv("LLM_AUDIO_MODEL", "google/gemini-3.5-flash"),
             voice_api_url=os.getenv("VOICE_API_URL", ""),

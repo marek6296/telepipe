@@ -62,6 +62,15 @@ def test_config_pricing_sync_env_overrides(monkeypatch):
     assert cfg.atlas_balance_alert_usd == 12.5
 
 
+def test_default_vision_uses_available_atlas_multimodal_model(monkeypatch):
+    for key, value in ENV.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.delenv('LLM_VISION_MODEL', raising=False)
+    assert Config.from_env().vision_model == 'google/gemini-3.5-flash'
+    monkeypatch.setenv('LLM_VISION_MODEL', 'custom/vision')
+    assert Config.from_env().vision_model == 'custom/vision'
+
+
 def test_config_fanvue_is_optional(monkeypatch):
     """Bez Fanvue appky musí worker nabehnúť presne ako doteraz."""
     for k, v in ENV.items():
