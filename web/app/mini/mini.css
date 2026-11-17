@@ -78,8 +78,8 @@
 
 .mini-shell .social-workspace:not(.mini-chat-open) { padding-top:10px; }
 .mini-shell .social-channels { margin-top:0; }
-.mini-shell .mini-channel-summary > span:first-child { padding-right:130px; min-height:20px; font-size:11px; }
-.mini-shell .mini-channel-status > div { gap:5px; font-size:10px; }
+.mini-shell .mini-channel-summary > span:first-child { min-height:28px; font-size:11px; gap:8px; }
+.mini-shell .mini-channel-status > span { gap:5px; font-size:10px; }
 .mini-shell .mini-channel-status button { width:28px; height:28px; }
 
 .mini-channel-count { margin-left:3px; font-size:9px; font-weight:600; }

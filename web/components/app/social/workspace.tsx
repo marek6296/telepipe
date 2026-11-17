@@ -71,11 +71,11 @@ export function SocialWorkspace({ initial, initialThread = null, selectionError 
     if (!mini && window.matchMedia("(max-width: 1023px)").matches) requestAnimationFrame(() => conversationRef.current?.scrollIntoView({ block: "start", behavior: "instant" }));
   }
 
-  const workerStatus = (<div className="flex items-center gap-2 text-[11px] text-[var(--app-text-3)]">
+  const workerStatus = (<span className="flex items-center gap-2 text-[11px] text-[var(--app-text-3)]">
         <span className={cn("h-1.5 w-1.5 rounded-full", snapshot.agent.running && !snapshot.agent.paused ? "bg-[var(--app-up)]" : "bg-[var(--app-text-4)]")} />
         <span>{snapshot.agent.paused ? "Replies paused" : snapshot.agent.running ? "Worker online" : "Worker offline"}</span>
-        <button type="button" onClick={() => void refresh()} disabled={loading} aria-label="Refresh inbox" title="Refresh inbox" className="app-btn app-btn-quiet h-8 w-8"><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /></button>
-      </div>);
+        <button type="button" onClick={event => { event.preventDefault(); event.stopPropagation(); void refresh(); }} disabled={loading} aria-label="Refresh inbox" title="Refresh inbox" className="app-btn app-btn-quiet h-8 w-8"><RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} /></button>
+      </span>);
 
   return <div className={cn("social-workspace space-y-5", mini && selected && "mini-chat-open")}>
     {!mini && <div className="social-workspace-heading flex flex-wrap items-start justify-between gap-3">

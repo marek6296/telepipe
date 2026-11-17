@@ -16,11 +16,11 @@ export function ChannelCards({ modelId, channels, refresh, headerActions }: { mo
   return <>
     <div className={cn("relative",!mini && "sm:hidden")}><details className="app-card group">
       <summary className={cn("cursor-pointer list-none px-4 py-3.5 [&::-webkit-details-marker]:hidden",mini && "mini-channel-summary")}>
-        <span className="flex items-center justify-between gap-3 text-[12px] font-medium"><span>{mini ? "Channels & modes" : "Channels & reply modes"}</span><ChevronDown className={cn("h-3.5 w-3.5 text-[var(--app-text-4)] transition-transform group-open:rotate-180",mini && "absolute right-3 top-4")} /></span>
+        <span className="flex items-center justify-between gap-3 text-[12px] font-medium"><span className="shrink-0">{mini ? "Channels & modes" : "Channels & reply modes"}</span>{mini && headerActions && <span className="mini-channel-status ml-auto">{headerActions}</span>}<ChevronDown className={cn("h-3.5 w-3.5 text-[var(--app-text-4)] transition-transform group-open:rotate-180",mini && "shrink-0")} /></span>
         <span className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--app-text-3)]">{channels.map(channel => <span key={channel.channel} className="inline-flex items-center gap-1.5"><span className={cn("h-1 w-1 rounded-full", channel.available && channel.connected ? "bg-[var(--app-up)]" : "bg-[var(--app-text-4)]")} />{CHANNEL_NAMES[channel.channel]} · {channel.available ? channel.connected ? MODES.find(mode => mode.value === channel.mode)?.label : "Offline" : "Unavailable"}</span>)}</span>
       </summary>
       <div className="grid gap-3 border-t border-[var(--app-border)] p-3">{channels.map(channel => <ChannelCard key={channel.channel} modelId={modelId} state={channel} refresh={refresh} />)}</div>
-    </details>{headerActions && <div className="mini-channel-status absolute right-8 top-2">{headerActions}</div>}</div>
+    </details></div>
     <div className={mini ? "hidden" : "hidden gap-3 sm:grid sm:grid-cols-3"}>{channels.map(channel => <ChannelCard key={channel.channel} modelId={modelId} state={channel} refresh={refresh} />)}</div>
   </>;
 }
