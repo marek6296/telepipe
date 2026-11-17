@@ -22,11 +22,12 @@ const FILTERS: { value: SocialFilter; label: string }[] = [
 ];
 
 export type SocialNavigation = { back: () => boolean; contactKey: () => string | null };
-export function SocialWorkspace({ initial, initialThread = null, selectionError = null, navigationRef }: { initial: SocialSnapshot; initialThread?: SocialThread | null; selectionError?: string | null; navigationRef?: Ref<SocialNavigation> }) {
+export function SocialWorkspace({ initial, initialThread = null, selectionError = null, navigationRef, onSelectionChange }: { initial: SocialSnapshot; initialThread?: SocialThread | null; selectionError?: string | null; navigationRef?: Ref<SocialNavigation>; onSelectionChange?:(key:string|null)=>void }) {
   const { mini } = useSocialTransport();
   const [search, setSearch] = useState("");
   const [query, setQuery] = useState({ search: "", channel: "all" as SocialChannel | "all", filter: "all" as SocialFilter, offset: 0 });
   const [selected, setSelected] = useState<SocialContact | null>(initialThread?.contact ?? null);
+  useEffect(() => { onSelectionChange?.(selected?.key ?? null); },[selected?.key,onSelectionChange]);
   const entryKey = `${initialThread?.contact.key ?? ""}|${selectionError ?? ""}`;
   const [previousEntryKey, setPreviousEntryKey] = useState(entryKey);
   const [selectionDismissed, setSelectionDismissed] = useState(false);
