@@ -310,7 +310,7 @@ def fallback_spoken(text: str) -> str:
     return re.sub(r"[ \t]{2,}", " ", out).strip()
 
 
-async def to_spoken(llm, text: str, nalada: str = "") -> str:
+async def to_spoken(llm, text: str, nalada: str = "", *, strict: bool = False) -> str:
     """Prepíše odpoveď do hovorenej podoby s tagmi pre v3.
 
     Zlyhanie nie je problém — vráti sa aspoň očistený text, ktorý sa dá
@@ -324,9 +324,13 @@ async def to_spoken(llm, text: str, nalada: str = "") -> str:
         out = await llm.structured(_SPOKEN_SYSTEM, zadanie, max_tokens=400, temperature=0.75)
     except Exception as exc:  # noqa: BLE001 - prepis nesmie zhodiť odpoveď
         log.warning("Prepis do hovorenej podoby zlyhal: %s", exc)
+        if strict:
+            raise RuntimeError("Spoken preparation failed. Try generating the voice again.")
         return zaklad
     out = (out or "").strip().strip('"')
     if not out:
+        if strict:
+            raise RuntimeError("Spoken preparation failed. Try generating the voice again.")
         return zaklad
     # Model občas vráti vysvetlenie namiesto textu. Strop bol `+160 znakov`,
     # čo pri krátkej vete znamenalo štvornásobok — a do toho sa zmestilo to
@@ -338,8 +342,12 @@ async def to_spoken(llm, text: str, nalada: str = "") -> str:
     if len(out) > max(len(zaklad) * 2.0, len(zaklad) + 90):
         log.info("Prepis bol podozrivo dlhý (%s → %s), beriem pôvodný",
                  len(zaklad), len(out))
+        if strict:
+            raise RuntimeError("Spoken preparation failed. Try generating the voice again.")
         return zaklad
     if says_twice(out):
         log.info("Prepis opakoval tú istú vec, beriem pôvodný: %r", out[:80])
+        if strict:
+            raise RuntimeError("Spoken preparation failed. Try generating the voice again.")
         return zaklad
     return out

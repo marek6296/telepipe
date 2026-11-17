@@ -2641,6 +2641,13 @@ class UserBot:
         if command['account_scope'] != getattr(self._cfg, 'tg_account_scope', 'primary'):
             return DeliveryResult.blocked('telegram_account_changed')
         tg_id, text = int(command['external_id']), command['text']
+        voice_data = None
+        if command['operation'] == 'send_voice':
+            try:
+                from operator_voice import load
+                voice_data = await load(self, command)
+            except Exception as exc:
+                return DeliveryResult.blocked(str(exc) if isinstance(exc, RuntimeError) else 'voice_preview_unavailable')
         lock = self._locks.setdefault(tg_id, asyncio.Lock())
         async with lock:
             try:
@@ -2677,7 +2684,7 @@ class UserBot:
             if not await before_send():
                 return DeliveryResult.blocked('stale_context')
             mode = (await self._db.tg_reply_mode()).get('mode', 'auto')
-            if command['operation'] == 'send_text' and mode == 'auto':
+            if command['operation'] in ('send_text','send_voice') and mode == 'auto':
                 await self._db.update_user(tg_id, {'human_takeover': True})
                 await self._db.supersede_open('telegram', str(tg_id))
             if reason := await ready():
@@ -2699,8 +2706,18 @@ class UserBot:
                 return DeliveryResult.blocked(reason)
             if not await before_send():
                 return DeliveryResult.blocked('stale_context')
+            if voice_data is not None:
+                try:
+                    from operator_voice import current
+                    await current(self, command)
+                except Exception as exc:
+                    return DeliveryResult.blocked(str(exc) if isinstance(exc, RuntimeError) else 'voice_preview_unavailable')
             try:
-                sent = await self._send_tracked(tg_id, text, parse_mode=None)
+                if voice_data is not None:
+                    buffer = io.BytesIO(voice_data); buffer.name = 'voice.ogg'
+                    sent = await self._send_tracked(tg_id, '(voice note) '+text, file=buffer, voice_note=True)
+                else:
+                    sent = await self._send_tracked(tg_id, text, parse_mode=None)
             except Exception as exc:
                 if await self._note_flood(exc, tg_id):
                     return DeliveryResult.blocked('telegram_flood_pause')

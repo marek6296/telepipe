@@ -12,6 +12,7 @@ ako text. Hlas je bonus, nie podmienka.
 """
 from __future__ import annotations
 
+import re
 import logging
 from typing import Dict, Optional
 
@@ -110,7 +111,8 @@ async def speech(
             if speed and model in HONOURS_SPEED:
                 # Rozsah, ktorý ElevenLabs berie. Mimo neho vráti 422.
                 nastavenia["speed"] = round(max(0.7, min(1.2, float(speed))), 2)
-            payload = {"text": text, "model_id": model, "voice_settings": nastavenia}
+            spoken_text = text if model == MODEL_ID else re.sub(r"\[[^\]]{1,80}\]", " ", text)
+            payload = {"text": spoken_text, "model_id": model, "voice_settings": nastavenia}
             try:
                 r = await client.post(
                     f"{BASE}/text-to-speech/{voice_id}",

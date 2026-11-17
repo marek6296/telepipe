@@ -1679,7 +1679,13 @@ class FanvueAgent:
         key, text = command['external_id'], command['text']
         media = command.get('media_uuids') or []
         price = command.get('price_cents') or 0
-        if command['operation'] == 'send_media':
+        if command['operation'] == 'send_voice':
+            try:
+                from operator_voice import fanvue_media
+                media = [await fanvue_media(self, command)]
+            except Exception as exc:
+                return DeliveryResult.blocked(str(exc) if isinstance(exc, RuntimeError) else 'voice_preview_unavailable')
+        elif command['operation'] == 'send_media':
             from fanvue_owner_media import ready_media
             if not media or not isinstance(price, int) or (price != 0 and price < 300):
                 return DeliveryResult.blocked('invalid_media')
@@ -1717,7 +1723,7 @@ class FanvueAgent:
         if not await before_send():
             return DeliveryResult.blocked('stale_context')
         settings = await self._db.settings()
-        if command['operation'] in ('send_text', 'send_media') and settings.get('reply_mode', 'auto') == 'auto':
+        if command['operation'] in ('send_text', 'send_media', 'send_voice') and settings.get('reply_mode', 'auto') == 'auto':
             await self._db.update_fan(key, {'human_takeover': True})
             if self._control is not None:
                 await self._control._db.supersede_open('fanvue', key)
@@ -1730,17 +1736,28 @@ class FanvueAgent:
         await composition_pause(text)
         if not await before_send():
             return DeliveryResult.blocked('stale_context')
+        voice_reason = ""
         async def fresh_before_send():
+            nonlocal voice_reason
+            if command["operation"] == "send_voice":
+                try:
+                    from operator_voice import current
+                    await current(self, command)
+                except Exception as exc:
+                    voice_reason = str(exc) if isinstance(exc, RuntimeError) else "voice_preview_unavailable"
+                    return False
             if hasattr(self._api, 'sync_messages'):
                 try:
                     await self._reconcile({'uuid': key, 'text': ''}, row, sync_only=True, process_media=False)
                 except Exception:
                     return False
             return not await ready() and await before_send()
-        outcome = await self._api.send_operator(key, text, before_send=fresh_before_send, **({'media_uuids': media, 'price_cents': price} if media else {}))
+        outcome = await self._api.send_operator(key, '' if command['operation']=='send_voice' else text, before_send=fresh_before_send, **({'media_uuids': media, 'price_cents': price} if media else {}))
+        if voice_reason and outcome.status == 'blocked':
+            return DeliveryResult.blocked(voice_reason)
         if outcome.status == 'done':
             try:
-                await self._db.add_message(key, 'assistant', (text + f'\n[Sent {len(media)} media; unlock price ${price / 100:.2f}]' if media else text), outcome.result.get('provider_message_id') or '')
+                await self._db.add_message(key, 'assistant', ('(voice note) '+text if command['operation']=='send_voice' else text + f'\n[Sent {len(media)} media; unlock price ${price / 100:.2f}]' if media else text), outcome.result.get('provider_message_id') or '')
                 for media_id in media:
                     await self._db.record_send(media_id, key, price)
                 await self._db.update_fan(key, {'msg_count': int(row.get('msg_count') or 0) + 1})

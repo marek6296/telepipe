@@ -37,7 +37,7 @@ async def ready_media(api, ids, db=None):
     body = await call(api, 'GET', '/media/bulk', params={'mediaUuids': ','.join(ids), 'variants': 'thumbnail,main'})
     rows = {str(r.get('uuid')): r for r in media_rows(body)}
     valid = all(i in rows and rows[i].get('status') == 'ready'
-               and str(rows[i].get('mediaType') or rows[i].get('type') or '').lower() in ('image', 'video') for i in ids)
+               and str(rows[i].get('mediaType') or rows[i].get('type') or '').lower() in ('image', 'video', 'audio') for i in ids)
     if valid and db is not None:
         # Uploaded items may not have reached the background Vault sync yet.
         # Seed only provider fields so send receipts have a parent; preserve
@@ -97,12 +97,12 @@ class FanvueOwnerMedia:
             body = await call(api, 'GET', '/media', params=params)
             items = [media_item(row) for row in media_rows(body)]
             folders = await sender._db.folders()
-            return {'items': [item for item in items if item['kind'] in ('image', 'video')],
+            return {'items': [item for item in items if item['kind'] in ('image', 'video', 'audio')],
                     'hasMore': (body.get('pagination') or {}).get('hasMore', len(items) == 50),
                     'folders': [f['name'] for f in folders]}
         if action == 'init':
             file = data['file']
-            if file['mediaType'] not in ('image', 'video') or not 0 < file['size'] <= 1610612736:
+            if file['mediaType'] not in ('image', 'video', 'audio') or not 0 < file['size'] <= 1610612736:
                 raise ValueError('Unsupported file type or size.')
             body = await call(api, 'POST', '/media/uploads', json={'name': file['name'], 'filename': file['name'],
                 'mediaType': file['mediaType'], 'sizeBytes': file['size']})

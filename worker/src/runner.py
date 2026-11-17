@@ -369,6 +369,9 @@ class TenantRunner:
             from fanvue_owner_media import FanvueOwnerMedia
             owner_media = FanvueOwnerMedia(self._transport, cfg.model_id, g.replica_name, control)
             self._cleanup.append(asyncio.create_task(owner_media.run()))
+            from operator_voice import VoicePreviews
+            voice_previews = VoicePreviews(self._transport, cfg.model_id, g.replica_name, control)
+            self._cleanup.append(asyncio.create_task(voice_previews.run()))
             if bot_ready:
                 from social_notifications import SocialNotifications
                 notifications = SocialNotifications(self._transport, cfg.model_id, g.replica_name, control)
