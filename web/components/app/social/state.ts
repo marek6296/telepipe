@@ -6,6 +6,16 @@ export function commandInProgress(command: SocialCommand): boolean {
       && ["queued", "ready", "pending", "leased", "approval", "sending"].includes(command.deliveryState ?? ""));
 }
 
+/** Bridge an accepted local send only until a newer authoritative inbox read. */
+export function replyInProgress(contact:SocialContact, draft:{submitting?:boolean;error?:string;activity?:{input:Pick<SocialCommandInput,"operation">;command?:SocialCommand}|null}|undefined, loadedAt:string):boolean {
+  if(contact.replyInProgress)return true;
+  const activity=draft?.activity;
+  if(!activity || activity.input.operation==="regenerate" || draft?.error)return false;
+  if(draft?.submitting)return true;
+  return Boolean(activity.command && commandInProgress(activity.command)
+    && Date.parse(activity.command.createdAt)>=Date.parse(loadedAt));
+}
+
 export function commandLabel(command: SocialCommand): string {
   if (command.status === "done") {
     if (command.operation === "regenerate") return "Drafts updated";

@@ -98,3 +98,11 @@ const realEcho={id:'echo',role:'assistant',content:'hello',providerId:'real-id',
 assert.equal(outboxCommands([failedAttempt],[realEcho]).length,0);
 assert.equal(outboxCommands([{...failedAttempt,status:'uncertain'}],[realEcho]).length,1);
 assert.equal(outboxCommands([{...failedAttempt,dismissedAt:'2026-11-17T20:06:00Z'}],[]).length,0);
+
+const { replyInProgress } = await import('../components/app/social/state.ts');
+const sendActivity={input:{operation:'send_text'},command:{...command,operation:'send_text',status:'queued',createdAt:'2026-11-18T00:00:05Z'}} as unknown as {input:Pick<SocialCommandInput,'operation'>;command:SocialCommand};
+assert.equal(replyInProgress({replyInProgress:false} as SocialContact,{activity:sendActivity,submitting:true},'2026-11-18T00:00:01Z'),true);
+assert.equal(replyInProgress({replyInProgress:false} as SocialContact,{activity:sendActivity},'2026-11-18T00:00:01Z'),true,'Accepted send stays visible before inbox catches up');
+assert.equal(replyInProgress({replyInProgress:false} as SocialContact,{activity:sendActivity},'2026-11-18T00:00:10Z'),false,'Old local queued state cannot spin forever after authoritative completion/failure');
+assert.equal(replyInProgress({replyInProgress:true} as SocialContact,undefined,'2026-11-18T00:00:10Z'),true,'Durable state survives reload');
+assert.equal(replyInProgress({replyInProgress:false} as SocialContact,{activity:{...sendActivity,input:{operation:'regenerate'}},submitting:true},''),false,'Draft generation is not a send');

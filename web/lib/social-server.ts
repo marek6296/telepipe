@@ -44,6 +44,7 @@ const mode = (v: unknown): SocialMode => v === "semi" || v === "auto" ? v : "off
 const time = (v: unknown) => { const n = Number(v); return `${Math.floor(n/60).toString().padStart(2,"0")}:${(n%60).toString().padStart(2,"0")}`; };
 
 export async function loadSocialSnapshot(modelId: string, input: {search?: string; channel?: SocialChannel | "all"; filter?: SocialFilter; offset?: number} = {}): Promise<SocialSnapshot> {
+  const loadedAt=new Date().toISOString();
   const ctx = await socialContext(modelId);
   const query = parseSocialQuery(new URLSearchParams(Object.entries(input).map(([k,v]) => [k,String(v)])));
   if (query.channel !== "all") requireSocialChannel(ctx, query.channel);
@@ -60,6 +61,17 @@ export async function loadSocialSnapshot(modelId: string, input: {search?: strin
   const contacts = (inbox?.contacts || []).map(mapSocialContact);
   const counts = checked(await db.rpc("social_waiting_message_counts",{p_model:modelId,p_owner:ctx.userId,p_contacts:contacts.map(c=>({channel:c.channel,externalId:c.externalId,accountScope:c.accountScope}))}),"Could not load waiting message counts.") as Record<string,number>;
   contacts.forEach(contact=>{contact.waitingMessageCount=Math.max(0,Number(counts?.[contact.key] || 0));});
+  // Read durable in-flight sends, not proposal generation. Page the result so
+  // a large operator queue cannot hide another contact's progress.
+  const externalIds=[...new Set(contacts.map(c=>c.externalId))];
+  const sending:Row[]=[];
+  if(externalIds.length)for(let offset=0;;offset+=1000){
+    const rows=checked(await db.from("social_commands").select("id,channel,external_id,account_scope")
+      .eq("model_id",modelId).neq("operation","regenerate").in("status",["queued","working","sending"])
+      .in("external_id",externalIds).in("channel",ctx.channels).order("id").range(offset,offset+999),"Could not load reply progress.") as Row[];
+    sending.push(...rows);if(rows.length<1000)break;
+  }
+  contacts.forEach(contact=>{contact.replyInProgress=sending.some(c=>c.channel===contact.channel && c.external_id===contact.externalId && c.account_scope===contact.accountScope);});
   const settings = checked(settingsResult,"Could not load reply settings.");
   const fv = checked(fvResult,"Could not load Fanvue connection.");
   const ig = checked(igResult,"Could not load Instagram connection.");
@@ -77,7 +89,7 @@ export async function loadSocialSnapshot(modelId: string, input: {search?: strin
       lastSyncAt:channel === "instagram" ? ig?.sync_completed_at || null : running ? model.heartbeat_at : null,
       notice:circuit ? "Instagram is temporarily paused by a delivery safeguard." : config?.last_error ? "Connection needs attention. Open channel settings." : !running ? "Agent is offline. Replies will wait until it is running." : null};
   });
-  return {modelId,modelName:model.name,channels,people:groupSocialPeople(contacts),total:Number(inbox?.total || 0),offset:query.offset,pageSize:30,loadedAt:new Date().toISOString(),
+  return {modelId,modelName:model.name,channels,people:groupSocialPeople(contacts),total:Number(inbox?.total || 0),offset:query.offset,pageSize:30,loadedAt,
     agent:{running,status:model.status,paused:settings?.ai_paused === true || Date.parse(settings?.paused_until || "") > Date.now(),timezone:behavior?.active_tz || "America/Los_Angeles",schedule:behavior ? `${time(behavior.active_start_min)}–${time(behavior.active_end_min)}` : "Configured daily schedule"}};
 }
 

@@ -134,3 +134,21 @@ assert.equal(await server.ownerDraftForContact([ownerRow],{...draftContact,lastM
 assert.equal(await server.ownerDraftForContact([{...ownerRow,ui_dismissed_at:new Date().toISOString()}],draftContact),null);
 console.log('PASS: owner-scoped presentation dismissal and source-bound independent suggestions');
 assert.equal(await server.ownerDraftForContact([{...ownerRow,id:'latest',ui_dismissed_at:new Date().toISOString()},ownerRow],draftContact),null,'Skipping the latest owner draft must not resurface an older one');
+
+reset();
+fixtures.social_inbox={contacts:[{channel:'instagram',external_id:'123',account_scope:'current',last_message_role:'user'}],total:1};
+fixtures.social_waiting_message_counts={'instagram:123':1};
+fixtures.social_commands=[{id:actionId,channel:'instagram',external_id:'123',account_scope:'current'}];
+let inboxProgress=await server.loadSocialSnapshot(modelId) as {people:{contacts:{replyInProgress:boolean;waitingMessageCount:number}[]}[]};
+assert.equal(inboxProgress.people[0].contacts[0].replyInProgress,true);
+assert.equal(inboxProgress.people[0].contacts[0].waitingMessageCount,1,'Sending must not mutate the authoritative waiting count');
+assert.ok(calls.some(c=>c.table==='social_commands' && c.method==='eq' && c.args[0]==='model_id' && c.args[1]===modelId));
+assert.ok(calls.some(c=>c.table==='social_commands' && c.method==='neq' && c.args[0]==='operation' && c.args[1]==='regenerate'));
+assert.ok(calls.some(c=>c.table==='social_commands' && c.method==='in' && c.args[0]==='status' && JSON.stringify(c.args[1])==='["queued","working","sending"]'));
+fixtures.social_commands=[{id:actionId,channel:'instagram',external_id:'123',account_scope:'old-account'}];
+inboxProgress=await server.loadSocialSnapshot(modelId) as typeof inboxProgress;
+assert.equal(inboxProgress.people[0].contacts[0].replyInProgress,false,'An old connected account cannot light the current account');
+fixtures.social_commands=[];
+inboxProgress=await server.loadSocialSnapshot(modelId) as typeof inboxProgress;
+assert.equal(inboxProgress.people[0].contacts[0].replyInProgress,false,'Terminal failure or success ends the spinner; existing waiting count stays authoritative');
+console.log('PASS: owner-scoped durable inbox send progress, preserved counts and reconnect isolation');

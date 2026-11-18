@@ -40,6 +40,7 @@ export type SocialContact = {
   lastActivityAt: string | null;
   needsReply: boolean;
   waitingMessageCount?:number;
+  replyInProgress?:boolean;
   pendingId: string | null;
 };
 
