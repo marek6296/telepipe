@@ -116,4 +116,11 @@ await db.query("update social_commands set status='sending',worker_id='worker',l
 await db.query("update instagram_actions set state='sending',lease_token=$2,lease_until=now()+interval '2 minutes' where id=$1",[aid,lease]);
 assert.equal((await db.query('select instagram_start_message($1,$2,$3) as ok',[m,aid,lease])).rows[0].ok,true);
 assert.equal((await db.query("select social_defer_preparation($1,'worker',$2,$3,'provider_read_limit') as ok",[m,cid,lease])).rows[0].ok,false,'Never defer an attempted message as preparation');
+
+await db.exec("alter table instagram_actions add column expires_at timestamptz;alter table instagram add column connected boolean default true,add column enabled boolean default true,add column reply_mode text default 'semi';");
+await db.exec(readFileSync('supabase/migrations/20261118013911_instagram_operator_claim_isolation.sql','utf8'));
+await db.query("update instagram_actions set state='pending',kind='dm',due_at=now()-interval '1 minute',reason='',expires_at=now()+interval '1 hour' where id=$1",[aid]);
+assert.equal((await db.query('select instagram_claim($1) as action',[m])).rows[0].action,null,'Auto poll cannot steal an operator action during the release/defer gap');
+assert.equal((await db.query('select state from instagram_actions where id=$1',[aid])).rows[0].state,'pending');
+console.log('PASS: automatic claim excludes owner work during durable handoff');
 await db.close();console.log('PASS: durable delay preserves command/intent, rejects provider/reserved/wrong worker, respects due time and continues other channels');
