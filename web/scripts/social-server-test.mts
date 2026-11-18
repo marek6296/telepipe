@@ -159,7 +159,7 @@ fixtures.social_contact_summaries={channel:'instagram',external_id:'123',account
 fixtures.persona={cta_link:'https://fanvue.com/model'};
 fixtures.instagram={bio_link:'https://linkovne.com/model',telegram_handle:'model_user',funnel_target:'both'};
 const sitesThread=await server.loadSocialThread(modelId,'instagram:123') as {sites:{label:string;url:string;available:boolean}[]};
-assert.deepEqual(sitesThread.sites.map(s=>[s.label,s.available]),[['Fanvue',false],['Linkovne',true],['Telegram',true]]);
+assert.deepEqual(sitesThread.sites.map(s=>[s.label,s.available]),[['Fanvue',true],['Linkovne',true],['Telegram',true]]);
 for(const table of ['persona','instagram'])assert.ok(calls.some(c=>c.table===table&&c.method==='eq'&&c.args[0]==='model_id'&&c.args[1]===modelId));
 assert.ok(calls.some(c=>c.table==='instagram'&&c.method==='select'&&c.args[0]==='bio_link,telegram_handle,funnel_target'),'Site picker never selects access tokens');
 console.log('PASS: model-configured link DTO and channel restrictions');

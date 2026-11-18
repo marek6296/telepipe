@@ -9,8 +9,8 @@ function safeUrl(value:unknown):string|null {
 export function configuredSites(persona:Record<string,unknown>|null,instagram:Record<string,unknown>|null,channel:SocialChannel):SocialSite[]{
   const sites:SocialSite[]=[];
   const cta=safeUrl(persona?.cta_link);
-  if(cta){const host=new URL(cta).hostname;const fanvue=host==='fanvue.com'||host.endsWith('.fanvue.com');
-    sites.push({kind:fanvue?'fanvue':'website',label:fanvue?'Fanvue':'Website',url:cta,available:channel!=='instagram',reason:channel==='instagram'?'Use Linkovne on Instagram.':''});}
+  if(cta){const fanvue=/^https:\/\/(?:www\.)?fanvue\.com\/[^\s@]+$/.test(cta);
+    sites.push({kind:fanvue?'fanvue':'website',label:fanvue?'Fanvue':'Website',url:cta,available:fanvue||channel!=='instagram',reason:channel==='instagram'&&!fanvue?'Use a configured platform link on Instagram.':''});}
   const page=safeUrl(instagram?.bio_link);
   const mode=instagram?.funnel_target;
   if(page && ['linkovne.com','www.linkovne.com'].includes(new URL(page).hostname) && new URL(page).pathname.replaceAll('/','') && (!new URL(page).port || new URL(page).port==='443')){

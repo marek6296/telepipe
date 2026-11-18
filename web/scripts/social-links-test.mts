@@ -3,7 +3,7 @@ import {configuredSites} from '../lib/social-links.ts';
 const persona={cta_link:'https://fanvue.com/simona'};
 const ig={bio_link:'https://linkovne.com/simonakralova',telegram_handle:'@simapussina',funnel_target:'both'};
 const links=configuredSites(persona,ig,'instagram');
-assert.equal(links.find(l=>l.kind==='fanvue')?.available,false);
+assert.equal(links.find(l=>l.kind==='fanvue')?.available,true);
 assert.equal(links.find(l=>l.kind==='linkovne')?.available,true);
 assert.equal(links.find(l=>l.kind==='telegram')?.url,'https://t.me/simapussina');
 assert.equal(configuredSites(persona,ig,'telegram').find(l=>l.kind==='fanvue')?.available,true);
