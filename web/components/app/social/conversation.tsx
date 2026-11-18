@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { VoiceReply } from "./voice-reply";
 import { PersonBrief } from "./person-brief";
 import { FanvueAttachments } from "./fanvue-attachments";
+import { SitesPicker } from "./sites-picker";
 import { PersonPanel } from "./person-panel";
 import { MessageMedia } from "./message-media";
 import { CHANNEL_NAMES, commandInProgress, commandLabel, commandExplanation, freezeIntent, mergeMessages, mergeThread, outboxCommands, sourceTime, canDismissCommand } from "./state";
@@ -139,7 +140,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
       ...(pending ? { pendingId: pending.id, expectedSuggestions: pending.suggestions } : {}),
       ...(text !== undefined ? { text } : {}), ...(brief !== undefined ? { brief } : {}) });
     if (operation === "regenerate") regeneratingRevision.current = previewRevision;
-    void submit(input);
+    return submit(input);
   }
 
   function voiceInput(text:string):SocialCommandInput|null {
@@ -222,7 +223,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
         {draft.retry && !draft.submitting && <button type="button" onClick={() => void submit(draft.retry!)} className="app-btn app-btn-ghost mt-2 min-h-8 px-3 text-[11px]">Retry the same request</button>}
       </div>}
       <form onSubmit={event => { event.preventDefault(); if (draft.text.trim()) command("send_text", draft.text.trim()); }} className="social-exact-composer border-t border-[var(--app-border)] p-4">
-        <label htmlFor={`reply-${current.channel}`} className="mb-2 flex items-center justify-between gap-2 text-[11px] font-medium"><span className="flex items-center gap-1">Write my own · {CHANNEL_NAMES[current.channel]}{current.channel!=="instagram"&&<VoiceReply key={`manual-voice:${current.key}:${draft.text}`} modelId={modelId} channel={current.channel} text={draft.text} disabled={blocked} prepare={()=>voiceInput(draft.text)} onSend={sendVoice} />}{current.channel==="fanvue"&&<FanvueAttachments key={`${current.key}:${current.accountScope}`} modelId={modelId} contact={current} disabled={blocked} initialCaption={draft.text} onSend={sendMedia} />}</span><span className="truncate font-normal text-[var(--app-text-4)]">To {current.displayName || current.username || current.externalId}</span></label>
+        <label htmlFor={`reply-${current.channel}`} className="mb-2 flex items-center justify-between gap-2 text-[11px] font-medium"><span className="flex items-center gap-1">Write my own · {CHANNEL_NAMES[current.channel]}<SitesPicker sites={thread?.sites || []} disabled={blocked} onSend={async site=>Boolean(await command("send_text",site.url))}/>{current.channel!=="instagram"&&<VoiceReply key={`manual-voice:${current.key}:${draft.text}`} modelId={modelId} channel={current.channel} text={draft.text} disabled={blocked} prepare={()=>voiceInput(draft.text)} onSend={sendVoice} />}{current.channel==="fanvue"&&<FanvueAttachments key={`${current.key}:${current.accountScope}`} modelId={modelId} contact={current} disabled={blocked} initialCaption={draft.text} onSend={sendMedia} />}</span><span className="truncate font-normal text-[var(--app-text-4)]">To {current.displayName || current.username || current.externalId}</span></label>
         <textarea id={`reply-${current.channel}`} value={draft.text} onChange={event => changeDraft({ text: event.target.value })} onKeyDown={event => { if ((event.metaKey || event.ctrlKey) && event.key === "Enter") { event.preventDefault(); if (draft.text.trim()) command("send_text", draft.text.trim()); } }} rows={mini ? 1 : 3} maxLength={12000} placeholder={mini ? "Message…" : "Write the exact message to send…"} className="app-input resize-y text-[12px]! leading-5!" />
 
         <div className="social-composer-actions mt-3 flex items-center justify-between gap-3"><p className="max-w-[65%] text-[10px] leading-4 text-[var(--app-text-4)]">{!channelState?.connected ? "Connect this channel before replying." : waitingForCommand ? "A request is in progress. Its delivery status appears above." : channelState.mode === "auto" ? "Your exact text is sent unchanged and takes over this conversation. AI pauses here until you resume it." : "Your text is sent unchanged. Ctrl / ⌘ + Enter to send."}</p><button type="submit" disabled={blocked || !draft.text.trim()} className="app-btn app-btn-primary min-h-9 shrink-0 px-3 text-[11px]">{progressBusy && draft.activity?.input.operation === "send_text" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}{progressBusy && draft.activity?.input.operation === "send_text" ? progressText : mini ? "Send" : "Send exact text"}</button></div>

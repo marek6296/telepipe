@@ -34,6 +34,7 @@ const mocks: Record<string,unknown> = {
   "@/lib/supabase/server":{getUser:async () => user,createClient:async () => db(),createServiceClient:() => {serviceCalls++;return db();}},
   "@/lib/telegram":{getTelegramConnection:async () => ({connected:true,phone:null})},
   "@/lib/social-policy":policy,
+  "@/lib/social-links":await import("../lib/social-links.ts"),
 };
 function moduleAt(path:string) {
   const source = ts.transpileModule(readFileSync(resolve(root,path),"utf8"),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
@@ -152,3 +153,13 @@ fixtures.social_commands=[];
 inboxProgress=await server.loadSocialSnapshot(modelId) as typeof inboxProgress;
 assert.equal(inboxProgress.people[0].contacts[0].replyInProgress,false,'Terminal failure or success ends the spinner; existing waiting count stays authoritative');
 console.log('PASS: owner-scoped durable inbox send progress, preserved counts and reconnect isolation');
+
+reset();
+fixtures.social_contact_summaries={channel:'instagram',external_id:'123',account_scope:'current',last_message_id:'42'};
+fixtures.persona={cta_link:'https://fanvue.com/model'};
+fixtures.instagram={bio_link:'https://linkovne.com/model',telegram_handle:'model_user',funnel_target:'both'};
+const sitesThread=await server.loadSocialThread(modelId,'instagram:123') as {sites:{label:string;url:string;available:boolean}[]};
+assert.deepEqual(sitesThread.sites.map(s=>[s.label,s.available]),[['Fanvue',false],['Linkovne',true],['Telegram',true]]);
+for(const table of ['persona','instagram'])assert.ok(calls.some(c=>c.table===table&&c.method==='eq'&&c.args[0]==='model_id'&&c.args[1]===modelId));
+assert.ok(calls.some(c=>c.table==='instagram'&&c.method==='select'&&c.args[0]==='bio_link,telegram_handle,funnel_target'),'Site picker never selects access tokens');
+console.log('PASS: model-configured link DTO and channel restrictions');

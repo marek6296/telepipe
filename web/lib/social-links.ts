@@ -1,0 +1,26 @@
+import type {SocialChannel,SocialSite} from './social-types';
+
+function safeUrl(value:unknown):string|null {
+  if(typeof value!=='string' || !value.trim() || /\s/.test(value.trim()))return null;
+  try{const url=new URL(value.trim());return url.protocol==='https:' && !url.username && !url.password ? value.trim():null;}catch{return null;}
+}
+
+/** Public destinations only; account credentials never enter this DTO. */
+export function configuredSites(persona:Record<string,unknown>|null,instagram:Record<string,unknown>|null,channel:SocialChannel):SocialSite[]{
+  const sites:SocialSite[]=[];
+  const cta=safeUrl(persona?.cta_link);
+  if(cta){const host=new URL(cta).hostname;const fanvue=host==='fanvue.com'||host.endsWith('.fanvue.com');
+    sites.push({kind:fanvue?'fanvue':'website',label:fanvue?'Fanvue':'Website',url:cta,available:channel!=='instagram',reason:channel==='instagram'?'Use Linkovne on Instagram.':''});}
+  const page=safeUrl(instagram?.bio_link);
+  const mode=instagram?.funnel_target;
+  if(page && ['linkovne.com','www.linkovne.com'].includes(new URL(page).hostname) && new URL(page).pathname.replaceAll('/','') && (!new URL(page).port || new URL(page).port==='443')){
+    const available=channel!=='instagram'||mode==='bio_link'||mode==='both';
+    sites.push({kind:'linkovne',label:'Linkovne',url:page,available,reason:available?'':'Enable Linkovne in Instagram settings.'});
+  }
+  const handle=typeof instagram?.telegram_handle==='string'?instagram.telegram_handle.trim().replace(/^@/,''):'';
+  if(/^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(handle)){
+    const available=channel!=='instagram'||mode==='telegram'||mode==='both';
+    sites.push({kind:'telegram',label:'Telegram',url:`https://t.me/${handle}`,available,reason:available?'':'Enable Telegram in Instagram settings.'});
+  }
+  return sites.filter((s,i)=>sites.findIndex(other=>other.url===s.url)===i);
+}

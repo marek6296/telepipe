@@ -119,6 +119,7 @@ export type SocialCommand = {
 };
 
 export type SocialThread = {
+  sites?:SocialSite[];
   ownerDraft?:SocialPending|null;
   contact: SocialContact;
   messages: SocialMessage[];
@@ -130,6 +131,8 @@ export type SocialThread = {
   candidate: SocialContact | null;
   loadedAt: string;
 };
+
+export type SocialSite={kind:'fanvue'|'linkovne'|'telegram'|'website';label:string;url:string;available:boolean;reason:string};
 
 export type SocialCommandInput = {
   voicePreviewId?:string;

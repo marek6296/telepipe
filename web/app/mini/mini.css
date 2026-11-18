@@ -89,3 +89,5 @@
 
 .mini-shell .mini-inbox-filters { margin-top:8px; gap:3px; }
 .mini-shell .mini-inbox-filters button { min-height:30px; padding:5px 2px; font-size:10px; text-align:center; white-space:nowrap; }
+
+.mini-shell .social-exact-composer .social-sites-trigger { min-height:24px; height:24px; padding:0 6px; }

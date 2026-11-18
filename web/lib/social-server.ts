@@ -1,4 +1,5 @@
 import "server-only";
+import {configuredSites} from "@/lib/social-links";
 
 import { loadSocialMedia } from "@/lib/social-media-server";
 
@@ -147,12 +148,14 @@ export async function loadSocialThread(modelId: string, key: string, before?: st
       messagesQuery = messagesQuery.or(`${timestamp}.lt.${value},and(${timestamp}.eq.${value},id.lt.${before}),${timestamp}.is.null`);
     } else messagesQuery = messagesQuery.is(timestamp,null).lt("id",before);
   }
-  const [messagesResult,pending,commandsResult,linkedResult,candidateResult] = await Promise.all([
+  const [messagesResult,pending,commandsResult,linkedResult,candidateResult,personaLinks,instagramLinks] = await Promise.all([
     messagesQuery.order(timestamp,{ascending:false,nullsFirst:false}).order("id",{ascending:false}).limit(51),
     socialPending(ctx,contact),
     ctx.db.from("social_commands").select(COMMAND_COLUMNS).eq("model_id",modelId).eq("channel",channel).eq("external_id",contact.externalId).eq("account_scope",contact.accountScope).order("created_at",{ascending:false}).limit(12),
     contact.personId ? ctx.db.from("social_contact_summaries").select(CONTACT_COLUMNS).eq("model_id",modelId).eq("person_id",contact.personId).in("channel",ctx.channels) : Promise.resolve({data:[],error:null}),
     contact.candidateId ? ctx.db.from("social_contact_summaries").select(CONTACT_COLUMNS).eq("model_id",modelId).eq("identity_id",contact.candidateId).in("channel",ctx.channels).maybeSingle() : Promise.resolve({data:null,error:null}),
+    ctx.db.from("persona").select("cta_link").eq("model_id",modelId).maybeSingle(),
+    ctx.channels.includes("instagram") ? ctx.db.from("instagram").select("bio_link,telegram_handle,funnel_target").eq("model_id",modelId).maybeSingle() : Promise.resolve({data:null,error:null}),
   ]);
   const rows = checked(messagesResult,"Could not load messages.") as unknown as Row[];
   const commands = checked(commandsResult,"Could not load delivery status.") as unknown as Row[];
@@ -160,7 +163,7 @@ export async function loadSocialThread(modelId: string, key: string, before?: st
   const actions = actionIds.length ? checked(await ctx.db.from("instagram_actions").select("id,state").eq("model_id",modelId).in("id",actionIds),"Could not load Instagram delivery status.") : [];
   const page = rows.slice(0,50);
   const media = await loadSocialMedia(ctx,contact,page.map(r => str(r.id)));
-  return {contact,messages:page.map(r => ({...mapSocialMessage(channel,r),media:media[str(r.id)]?.media || [],content:media[str(r.id)]?.originalContent ?? str(r.content)})).reverse(),hasMore:rows.length>50,nextBefore:rows.length>50 ? str(page.at(-1)?.id) : null,pending,ownerDraft:ownerDraftForContact(commands,contact),
+  return {sites:configuredSites(checked(personaLinks,"Could not load site links."),checked(instagramLinks,"Could not load site links."),channel),contact,messages:page.map(r => ({...mapSocialMessage(channel,r),media:media[str(r.id)]?.media || [],content:media[str(r.id)]?.originalContent ?? str(r.content)})).reverse(),hasMore:rows.length>50,nextBefore:rows.length>50 ? str(page.at(-1)?.id) : null,pending,ownerDraft:ownerDraftForContact(commands,contact),
     commands:commands.map(c => mapSocialCommand(c,actions?.find(a => a.id === (c.result as Row)?.action_id)?.state)),
     linkedContacts:(checked(linkedResult,"Could not load linked accounts.") as unknown as Row[]).map(mapSocialContact),
     candidate:candidateResult.data ? mapSocialContact(checked(candidateResult,"Could not load a suggested account.") as unknown as Row) : null,loadedAt:new Date().toISOString()};

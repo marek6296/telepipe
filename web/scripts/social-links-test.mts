@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {configuredSites} from '../lib/social-links.ts';
+const persona={cta_link:'https://fanvue.com/simona'};
+const ig={bio_link:'https://linkovne.com/simonakralova',telegram_handle:'@simapussina',funnel_target:'both'};
+const links=configuredSites(persona,ig,'instagram');
+assert.equal(links.find(l=>l.kind==='fanvue')?.available,false);
+assert.equal(links.find(l=>l.kind==='linkovne')?.available,true);
+assert.equal(links.find(l=>l.kind==='telegram')?.url,'https://t.me/simapussina');
+assert.equal(configuredSites(persona,ig,'telegram').find(l=>l.kind==='fanvue')?.available,true);
+assert.deepEqual(configuredSites({cta_link:'javascript:alert(1)'},{bio_link:'https://evil.example',telegram_handle:'not/a/handle'},'instagram'),[]);
+assert.deepEqual(configuredSites({cta_link:'https://user:pass@fanvue.com/x'},null,'telegram'),[]);
+console.log('PASS: configured safe site links, Instagram destinations, configured destination selection');
