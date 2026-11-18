@@ -19,9 +19,10 @@ for(const name of ['instagram_has_url','instagram_classify_link']){const i=old.i
 await db.exec(readFileSync('supabase/migrations/20261118005039_instagram_owner_fanvue_links.sql','utf8'));
 await db.exec(readFileSync('supabase/migrations/20261118010405_instagram_owner_site_eligibility.sql','utf8'));
 await db.exec(readFileSync('supabase/migrations/20261118010900_instagram_owner_sites_manual_policy.sql','utf8'));
+await db.exec(readFileSync('supabase/migrations/20261118011431_instagram_contextual_promo_without_age_collection.sql','utf8'));
 await db.exec('create trigger store_target before insert or update of text,contains_link on instagram_actions for each row execute function instagram_store_link_target();');
 const m='11111111-1111-4111-8111-111111111111',c='22222222-2222-4222-8222-222222222222',a='33333333-3333-4333-8333-333333333333',lease='44444444-4444-4444-8444-444444444444',url='https://www.fanvue.com/sima.sima';
-async function reset(){await db.exec('truncate models,social_commands,persona,instagram,ig_users,instagram_actions;');
+async function reset(){await db.exec('truncate models,social_commands,persona,instagram,ig_users,instagram_actions,conversation_identities,conversation_people;');
 await db.query("insert into models values($1,'active','worker',now());",[m]);
 await db.query('insert into persona values($1,$2)',[m,url]);
 await db.query("insert into instagram values($1,true,true,'semi','account',null,false,false,false,'some_user','https://linkovne.com/model','both')",[m]);
@@ -50,7 +51,7 @@ for(const url of ['https://t.me/some_user','https://linkovne.com/model']){
  await reset();await db.exec("update ig_users set age_state='minor_or_conflicting';");await db.query('update social_commands set text=$1',[url]);
  assert.equal((await reserve(url)).ok,true,'Stored age belongs to Auto, not explicit owner sending');
  await reset();await db.exec("update ig_users set age_state='unknown',link_sent_at=null;update instagram_actions set payload=payload-'origin'-'command_id';update instagram set reply_mode='auto';");
- assert.equal((await reserve(url)).ok,false,'Auto still requires invitation eligibility');
+ assert.equal((await reserve(url)).ok,true,'Auto contextual invitation does not require age collection');
 }
 console.log('PASS: owner configured sites independent of stored age; Auto age policy remains');
 
@@ -64,3 +65,7 @@ assert.equal((await reserve(page)).ok,true,'Explicit owner uses known configured
 await db.exec("update instagram_actions set state='leased',reserved_at=null;update instagram set reply_mode='auto',funnel_target='both';update instagram_actions set payload=payload-'origin'-'command_id';update ig_users set link_sent_at=null;");
 assert.equal((await reserve(page)).reason,'contact_opt_out','Auto still enforces shared age restrictions');
 console.log('PASS: explicit owner shared-age/funnel independence; shared Auto guard remains');
+
+await reset();await db.exec("update instagram set reply_mode='auto';update instagram_actions set payload=payload-'origin'-'command_id';update ig_users set age_state='minor_or_conflicting',link_sent_at=null;");
+assert.equal((await reserve('https://t.me/some_user')).reason,'invitation_not_allowed','Auto rejects a disclosed underage contact');
+console.log('PASS: Auto links no routine age collection; explicit local/shared underage disclosures still block');

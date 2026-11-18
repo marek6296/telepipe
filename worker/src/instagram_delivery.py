@@ -674,24 +674,25 @@ class InstagramDelivery:
         if fanvue_customer:
             allowed = False
         adult = user.get('age_state') in ('adult_self_declared', 'adult_platform_verified')
+        can_promote = user.get('age_state') != 'minor_or_conflicting'
         links = await self.db.actions(contains_link='eq.true', reserved_at='not.is.null', order='reserved_at.desc', limit='100')
         budgets = link_budgets(links, cfg, utcnow())
         targets = link_targets(cfg)
         has_link = bool(user.get('link_sent_at'))
-        eligible = allowed and adult and not has_link
+        eligible = allowed and can_promote and not has_link
         telegram_link = bool(eligible and 'telegram' in targets and (ignore_budgets or budgets['telegram']))
         bio_link = bool(eligible and 'bio_link' in targets and (ignore_budgets or budgets['bio_link']))
         reminder_ok = ignore_budgets or not parse_time(user.get('last_reminder_at')) or utcnow()-parse_time(user['last_reminder_at']) >= timedelta(days=1)
         primary = 'telegram' if cfg.get('funnel_target') == 'both' else cfg.get('funnel_target')
         spent = not budgets.get('bio_link' if 'bio_link' in targets else 'telegram', False)
         return {'fanvue_customer': fanvue_customer,
-                'fanvue_return': bool(fanvue_customer and can_return and adult and reminder_ok),
+                'fanvue_return': bool(fanvue_customer and can_return and can_promote and reminder_ok),
                 'link': telegram_link if primary == 'telegram' else bio_link,
                 'telegram_link': telegram_link, 'bio_link': bio_link,
                 'highlights': bool(eligible and (ignore_budgets or spent) and cfg.get('highlights_link') and reminder_ok),
-                'remind': bool(allowed and adult and has_link and reminder_ok),
+                'remind': bool(allowed and can_promote and has_link and reminder_ok),
                 'photo': bool(cfg.get('photos_enabled') and not user.get('photo_sent_at') and allowed and adult),
-                'age_unknown': user.get('age_state', 'unknown') == 'unknown'}
+                'age_restricted': not can_promote or restrictions.get('age_state') == 'minor_or_conflicting'}
 
     async def approval_state(self, key):
         """Read-only owner-card eligibility, without provider calls or receipts."""

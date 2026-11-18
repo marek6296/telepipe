@@ -101,3 +101,28 @@ async def test_reminders_keep_original_identity_destination(monkeypatch,reply,ex
         assert db.hub.record_invite.call_args.args[2]==expected
     else:
         db.hub.record_invite.assert_not_called()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('age,expected',[('unknown',True),('adult_self_declared',True),('minor_or_conflicting',False)])
+async def test_auto_promo_does_not_require_collecting_age(age,expected):
+    from instagram_pravidla import blok
+    db=AsyncMock(model_id='model');db.actions.return_value=[]
+    db.hub.restrictions.return_value={};db.hub.linked.return_value=[]
+    offer=await InstagramDelivery(db,AsyncMock()).offer_state(CFG,dict(igsid='fan',age_state=age))
+    assert offer['telegram_link'] is expected and offer['bio_link'] is expected
+    prompt=blok(CFG,offer=offer)
+    assert 'ask their age' not in prompt
+    assert 'Do not ask for their age' in prompt
+
+
+@pytest.mark.asyncio
+async def test_shared_underage_disclosure_blocks_promo_without_age_question():
+    from instagram_pravidla import blok
+    db=AsyncMock(model_id='model');db.actions.return_value=[]
+    db.hub.restrictions.return_value={'age_state':'minor_or_conflicting'};db.hub.linked.return_value=[]
+    offer=await InstagramDelivery(db,AsyncMock()).offer_state(CFG,dict(igsid='fan',age_state='unknown'))
+    assert not offer['telegram_link'] and not offer['bio_link']
+    assert offer['age_restricted']
+    assert 'Do not ask for their age' in blok(CFG,offer=offer)
+    assert 'do not flirt or promote adult destinations' in blok(CFG,offer=offer)

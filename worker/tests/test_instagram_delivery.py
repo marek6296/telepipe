@@ -135,7 +135,7 @@ async def test_reservation_failure_is_not_sent(monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize('age,no_links,expected', [('adult_self_declared',False,True),('unknown',False,False),('minor_or_conflicting',False,False),('adult_self_declared',True,False)])
+@pytest.mark.parametrize('age,no_links,expected', [('adult_self_declared',False,True),('unknown',False,True),('minor_or_conflicting',False,False),('adult_self_declared',True,False)])
 async def test_existing_customer_return_keeps_age_optout_and_reminder_guards(age,no_links,expected):
     db = AsyncMock()
     db.hub.restrictions.return_value = {'no_links': no_links}

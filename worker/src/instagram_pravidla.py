@@ -60,10 +60,12 @@ def blok(nastavenia: Dict[str, Any], pozvala_uz: int = 0, offer=None) -> str:
                      'and it fits, respond ONLY [[PHOTO]]; the server sends the image. Never promise a later photo.')
     else:
         rules.append('No photo is available to send in this reply. Do not offer or promise one.')
-    if offer.get('age_unknown'):
-        rules.append('Adult status is unconfirmed. Keep ordinary conversation safe. Before an adult-oriented invitation '
-                     'becomes relevant, ask their age once naturally, without repeating the question if already pending. '
-                     'Never infer adulthood from a profile, purchase intent or flirtation.')
+    rules.append('Do not ask for their age or collect age verification. '
+                 'Use the conversation and configured invitation permissions to decide when a link is relevant. '
+                 'Never assume or invent an age for the person.')
+    if offer.get('age_restricted'):
+        rules.append('This person has explicitly disclosed being under 18 or conflicting age information. '
+                     'Keep the conversation non-sexual; do not flirt or promote adult destinations.')
     return '\n\n'.join(rules)
 
 
