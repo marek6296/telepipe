@@ -474,11 +474,12 @@ class InstagramDelivery:
                     approved_raw = (action['payload'].get('approved_intent')
                         if operator and action['payload'].get('operator_operation') == 'approve' else action.get('text'))
                     raw_text = '[[PHOTO]]' if action['kind'] == 'photo' else approved_raw if action['payload'].get('approved_source_mid') else await self.agent._napis(user, action['igsid'], cfg)
-                    from instagram_interactions import prepare_response
+                    from instagram_interactions import prepare_response, prepare_operator_response
                     # Operator text is fixed; local temporal quotas are enforced
                     # by reserve and may defer it. Keep hard consent/age/URL gates.
                     offer = await self.offer_state(cfg, user, ignore_budgets=operator)
-                    prepared = prepare_response(raw_text or '', cfg, offer)
+                    prepared = (prepare_operator_response(raw_text or '', cfg, offer, await self.db.persona())
+                                if operator else prepare_response(raw_text or '', cfg, offer))
                     if operator and (prepared['kind'] != 'dm' or not prepared['text'] or prepared['text'] != action['text']):
                         await self.db.change_action(action, {'state': 'blocked', 'reason': 'text_not_allowed'})
                         return
@@ -563,7 +564,7 @@ class InstagramDelivery:
                 # A reminder must not overwrite the original invitation destination.
                 if link_target:
                     await self.db.hub.record_invite('instagram', action['igsid'],
-                        'telegram' if link_target == 'telegram' else 'linkpage', scope=cfg['ig_user_id'])
+                            {'telegram': 'telegram', 'bio_link': 'linkpage', 'fanvue': 'fanvue'}[link_target], scope=cfg['ig_user_id'])
         except api.InstagramError as exc:
             await self.provider_error(exc, during_read=True)
             if exc.kod == 4 and not operator and await self.prepare_synced_preview(cfg, action):
@@ -607,13 +608,14 @@ class InstagramDelivery:
             # Old proposals may contain intents such as [[REMIND]]. The command
             # freezes the exact text/URL shown in the web UI, while the reviewed
             # raw array lets us recover its meaning without inventing a new one.
-            from instagram_interactions import prepare_response
+            from instagram_interactions import prepare_operator_response
+            persona = await self.db.persona()
             offer = await self.offer_state(cfg, user, ignore_budgets=True)
             intent = None
             for candidate in command.get('expected_suggestions') or []:
                 if not isinstance(candidate, str):
                     continue
-                prepared = prepare_response(candidate, cfg, offer)
+                prepared = prepare_operator_response(candidate, cfg, offer, persona)
                 if prepared['kind'] == 'dm' and prepared['text'] and prepared['text'] == command['text']:
                     intent = candidate
                     break

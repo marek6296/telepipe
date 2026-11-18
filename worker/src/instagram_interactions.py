@@ -40,6 +40,16 @@ def link_budgets(actions, settings, now=None):
     return result
 
 
+def prepare_operator_response(raw, settings, offer, persona):
+    """An explicit owner's exact configured Fanvue URL; never used by Auto."""
+    destination = str(persona.get('cta_link') or '').strip()
+    urls = URL.findall(raw or '')
+    if (re.fullmatch(r'https://(?:www\.)?fanvue\.com/[^\s@]+', destination)
+            and len(urls) == 1 and urls[0] == destination and not TAGS.findall(raw or '')):
+        return dict(kind='dm', text=raw.strip(), link=True, reminder=False, link_target='fanvue')
+    return prepare_response(raw, settings, offer)
+
+
 def prepare_response(raw, settings, offer):
     result = dict(kind='dm', text='', link=False, reminder=False, link_target='')
     text = raw.strip()
