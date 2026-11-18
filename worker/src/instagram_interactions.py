@@ -41,12 +41,19 @@ def link_budgets(actions, settings, now=None):
 
 
 def prepare_operator_response(raw, settings, offer, persona):
-    """An explicit owner's exact configured Fanvue URL; never used by Auto."""
+    """Exact configured owner destinations, independent of Auto invitations.
+
+    The reservation still enforces recipient restrictions and delivery limits.
+    """
     destination = str(persona.get('cta_link') or '').strip()
     urls = URL.findall(raw or '')
     if (re.fullmatch(r'https://(?:www\.)?fanvue\.com/[^\s@]+', destination)
             and len(urls) == 1 and urls[0] == destination and not TAGS.findall(raw or '')):
         return dict(kind='dm', text=raw.strip(), link=True, reminder=False, link_target='fanvue')
+    if len(urls) == 1 and not TAGS.findall(raw or ''):
+        target = next((key for key, url in link_targets(settings).items() if url == urls[0]), '')
+        if target:
+            return dict(kind='dm', text=raw.strip(), link=True, reminder=False, link_target=target)
     return prepare_response(raw, settings, offer)
 
 

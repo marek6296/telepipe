@@ -25,7 +25,8 @@ def test_owner_exception_is_only_one_exact_configured_fanvue_destination(text,co
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('operation',['send_text','approve'])
-async def test_owner_fanvue_uses_existing_seen_pause_reserved_send(monkeypatch,operation):
+@pytest.mark.parametrize('kind',['fanvue','telegram','bio_link'])
+async def test_owner_fanvue_uses_existing_seen_pause_reserved_send(monkeypatch,operation,kind):
     from datetime import datetime,timezone
     from unittest.mock import AsyncMock
     import instagram_api as api
@@ -36,10 +37,12 @@ async def test_owner_fanvue_uses_existing_seen_pause_reserved_send(monkeypatch,o
     from test_instagram_kolo import FakeLlm,MOJE_ID
     from test_social_commands import command
     raw=thread(datetime.now(timezone.utc))
-    db=OperatorDb(reply_mode='semi')
+    db=OperatorDb(reply_mode='semi',funnel_target='both',telegram_handle='simapussina',bio_link='https://linkovne.com/simonakralova')
+    text={'fanvue':URL,'telegram':'https://t.me/simapussina','bio_link':'https://linkovne.com/simonakralova'}[kind]
     db.persona=AsyncMock(return_value={'cta_link':URL})
     agent=InstagramAgent(db,FakeLlm())
     await db.ensure_user('fan')
+    db.users['fan']['age_state']='unknown'
     monkeypatch.setattr(api,'conversation_page',lambda *a,**kw:{'data':[raw],'after':''})
     monkeypatch.setattr(api,'conversation',lambda *a,**kw:raw)
     events=[]
@@ -52,7 +55,16 @@ async def test_owner_fanvue_uses_existing_seen_pause_reserved_send(monkeypatch,o
         if name=='reserve':assert kwargs['link'] is True
         return await original(name,**kwargs)
     db.rpc=rpc
-    result=await agent.deliver_operator(command(operation=operation,channel='instagram',external_id='fan',account_scope=MOJE_ID,text=URL),AsyncMock(return_value=True))
+    result=await agent.deliver_operator(command(operation=operation,channel='instagram',external_id='fan',account_scope=MOJE_ID,text=text),AsyncMock(return_value=True))
     assert result.status=='done'
-    assert events==['seen','pause',URL]
-    db.hub.record_invite.assert_awaited_once_with('instagram','fan','fanvue',scope=MOJE_ID)
+    assert events==['seen','pause',text]
+    db.hub.record_invite.assert_awaited_once_with('instagram','fan','linkpage' if kind=='bio_link' else kind,scope=MOJE_ID)
+
+
+@pytest.mark.parametrize('target,url',[
+    ('telegram','https://t.me/simapussina'),('bio_link','https://linkovne.com/simonakralova')])
+def test_owner_configured_site_is_not_gated_by_automatic_invitation_eligibility(target,url):
+    from instagram_interactions import prepare_operator_response
+    cfg={'funnel_target':'both','telegram_handle':'simapussina','bio_link':'https://linkovne.com/simonakralova'}
+    assert prepare_operator_response(url,cfg,{'age_unknown':True,'telegram_link':False,'bio_link':False},{})['text']==url
+    assert not prepare_response(url,cfg,{'age_unknown':True,'telegram_link':False,'bio_link':False})['text']

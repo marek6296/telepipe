@@ -17,6 +17,7 @@ create table instagram_actions(model_id uuid,id uuid,igsid text,kind text,state 
 const old=readFileSync('supabase/migrations/20261116152955_instagram_destination_budgets.sql','utf8');
 for(const name of ['instagram_has_url','instagram_classify_link']){const i=old.indexOf('create function public.'+name+'(');await db.exec(old.slice(i,old.indexOf('$$;',i)+3));}
 await db.exec(readFileSync('supabase/migrations/20261118005039_instagram_owner_fanvue_links.sql','utf8'));
+await db.exec(readFileSync('supabase/migrations/20261118010405_instagram_owner_site_eligibility.sql','utf8'));
 await db.exec('create trigger store_target before insert or update of text,contains_link on instagram_actions for each row execute function instagram_store_link_target();');
 const m='11111111-1111-4111-8111-111111111111',c='22222222-2222-4222-8222-222222222222',a='33333333-3333-4333-8333-333333333333',lease='44444444-4444-4444-8444-444444444444',url='https://www.fanvue.com/sima.sima';
 async function reset(){await db.exec('truncate models,social_commands,persona,instagram,ig_users,instagram_actions;');
@@ -41,3 +42,13 @@ await reset();await db.query("insert into instagram_actions(model_id,id,igsid,ki
 assert.equal((await db.query("select instagram_configured_fanvue($1,'hello') as ok",[m])).rows[0].ok,false);
 assert.equal((await db.query("select has_function_privilege('anon','instagram_configured_fanvue(uuid,text)','EXECUTE') as ok")).rows[0].ok,false);
 console.log('PASS: exact configured owner Fanvue, manual/Semi, Auto/forged/stale rejected, recipient/window/quota guards, private grants');
+
+for(const url of ['https://t.me/some_user','https://linkovne.com/model']){
+ await reset();await db.exec("update ig_users set age_state='unknown';");await db.query('update social_commands set text=$1',[url]);
+ assert.equal((await reserve(url)).ok,true,'Explicit owner link allows unknown age without fabricating adult evidence');
+ await reset();await db.exec("update ig_users set age_state='minor_or_conflicting';");await db.query('update social_commands set text=$1',[url]);
+ assert.equal((await reserve(url)).ok,false,'Known minor guard remains');
+ await reset();await db.exec("update ig_users set age_state='unknown',link_sent_at=null;update instagram_actions set payload=payload-'origin'-'command_id';update instagram set reply_mode='auto';");
+ assert.equal((await reserve(url)).ok,false,'Auto still requires invitation eligibility');
+}
+console.log('PASS: owner Telegram/Linkovne with unknown age, Auto unchanged, known-minor denial');
