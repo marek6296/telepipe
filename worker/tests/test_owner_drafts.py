@@ -131,6 +131,24 @@ async def test_instagram_refreshes_exact_thread_before_and_after_without_approva
     sender.send.assert_not_awaited()
 
 
+@pytest.mark.parametrize('changes', [False, True])
+async def test_instagram_owner_followup_brief_uses_source_fenced_cache_during_backoff(monkeypatch, changes):
+    import instagram_api
+    from datetime import datetime, timedelta, timezone
+    sender = instagram()
+    cfg = await sender._db.settings()
+    cfg.update(circuit_reason='meta_4', circuit_until=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat())
+    sender._db.latest_message_id = AsyncMock(side_effect=[12, 13] if changes else [12, 12])
+    sender._delivery.provider_error = AsyncMock()
+    monkeypatch.setattr(instagram_api, 'conversation', lambda *a, **kw: pytest.fail('no Meta during circuit'))
+    job = command('instagram')
+    job.update(expected_source_id='12', brief='Ja som z Cali a ty? :)')
+    result = await owner_drafts.generate(sender, job)
+    assert bool(result['suggestions']) is not changes
+    if not changes: assert sender._navrhy.call_args.kwargs['brief'] == job['brief']
+    sender.send.assert_not_awaited()
+
+
 async def test_instagram_discovers_manual_contact_across_pages(monkeypatch):
     import instagram_api
     sender = instagram()

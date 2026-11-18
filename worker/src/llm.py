@@ -7,6 +7,7 @@ import re
 from typing import Any, Dict, List, Optional
 
 import httpx
+import conversation_timing
 
 log = logging.getLogger(__name__)
 
@@ -222,7 +223,7 @@ class Llm:
         self, system_prompt: str, history: List[Dict[str, str]], model: str = ""
     ) -> str:
         """`model` prepíše chatový model len pre toto volanie."""
-        messages = [{"role": "system", "content": system_prompt}] + history
+        messages = [{"role": "system", "content": system_prompt}] + conversation_timing.generation_messages(history)
         # Strop musí pokryť reasoning + text; o krátkosť odpovede sa stará prompt.
         return await self._so_zalohou(
             model or self._chat_override, messages, 1200, 0.9
@@ -290,13 +291,23 @@ class Llm:
             f"Zoraď ich od NAJLEPŠEJ po najslabšiu. Oddeľ riadkom, ktorý obsahuje "
             f"len „{marker}“. Žiadne číslovanie, nadpisy ani vysvetlenia."
         )
+        if '[ZADANIE OD MAJITEĽKY ÚČTU]' in system_prompt or sum(
+            '; CURRENT TURN]\n' in str(row.get('content') or '') for row in history
+        ) > 1:
+            # Completeness beats a five-character option when the owner asks
+            # for two facts or several inbound messages need a joint answer.
+            start = instruction.index('— DĹŽKY SÚ DANÉ')
+            end = instruction.index('Zoraď ich od NAJLEPŠEJ', start)
+            instruction = (instruction[:start]
+                + '— Stay concise, varying length naturally; every alternative must preserve the complete owner brief (when present) and address all meaningful current inputs. Never drop content just to make the first option tiny.\n'
+                + instruction[end:])
         if seed:
             instruction += (
                 f"\n[NOVÝ POKUS {seed}] Predchádzajúce návrhy sa nepáčili. "
                 "Napíš iné — iné otvorenie, iná dĺžka, iný spôsob, ako to uchopiť. "
                 "Nezopakuj tie isté vety."
             )
-        messages = [{"role": "system", "content": system_prompt + instruction}] + history
+        messages = [{"role": "system", "content": system_prompt + instruction}] + conversation_timing.generation_messages(history)
         raw = await self._so_zalohou(
             model or self._chat_override, messages, 1400, 0.95
         )

@@ -264,9 +264,12 @@ class InstagramAgent:
         nastavenia = await self._db.settings()
         if not await self._delivery.refresh_regeneration(nastavenia, key):
             return {}
+        source_id = await self._db.latest_message_id(conv_key)
         user = await self._db.user(conv_key) or user
         navrhy, _ = await self._navrhy(user, conv_key, nastavenia, seed=seed or "2", brief=brief)
         if not await self._delivery.refresh_regeneration(nastavenia, key):
+            return {}
+        if await self._db.latest_message_id(conv_key) != source_id:
             return {}
         return {"suggestions": navrhy, "hint": ""}
 

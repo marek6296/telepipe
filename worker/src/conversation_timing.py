@@ -109,6 +109,8 @@ def analyze(history: list[dict[str, Any]], now_local: datetime | None = None) ->
         f'Now: {now.strftime("%Y-%m-%d %H:%M %Z")}; timezone: {zone}. Message times are source times, not import times.',
         'Timing labels are context only: never copy them into your reply. Unknown time means unknown; do not invent a day or duration.',
         f'CURRENT TURN contains the latest {len(incoming)} unanswered message(s). Read them together, including greetings before the very last message.',
+        'Each alternative must respond to the whole CURRENT TURN: acknowledge meaningful updates, answer the questions and keep their connection. Do not focus only on its final sentence. Acknowledgments and emoji do not need separate answers.',
+        'Interpret unclear wording using the full exchange, including your own previous questions. If a pronoun or translation is ambiguous, respond kindly or clarify briefly; do not mock him or confidently invent what either person meant.',
         'BACKGROUND preserves the relationship, facts and earlier conversation; it is not a checklist of questions that must all be answered now.',
         'If the current turn explicitly returns to an earlier topic, use the relevant background to answer it. Otherwise follow what he is doing NOW.',
         'A session boundary is not a new acquaintance. Do not reintroduce yourself, forget him or invent reasons for a pause.',
@@ -129,3 +131,22 @@ def prompt_with_timing(system: str, turn: Turn) -> str:
     """Regeneration replaces the previous timing block, never accumulates it."""
     clean = re.sub(re.escape(_START) + r'.*?' + re.escape(_END), '', system, flags=re.DOTALL).rstrip()
     return clean + '\n\n' + turn.prompt
+
+
+def generation_messages(history: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Present a timestamped unanswered burst as one input to the chat model.
+
+    Keep stored history and BACKGROUND boundaries intact. Provider adapters may
+    otherwise emphasize the last of several consecutive user-role messages.
+    """
+    result = []
+    previous_current = False
+    for row in history:
+        current = row.get('role') == 'user' and bool(re.match(
+            r'^\[Message time: [^\n]+; CURRENT TURN\]\n', str(row.get('content') or '')))
+        if current and previous_current:
+            result[-1]['content'] += '\n\n' + row['content']
+        else:
+            result.append(dict(row))
+        previous_current = current
+    return result

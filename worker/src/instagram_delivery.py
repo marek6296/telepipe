@@ -309,6 +309,10 @@ class InstagramDelivery:
         return True
 
     async def refresh_regeneration(self, cfg, key):
+        current = await self.db.settings()
+        if current.get('ig_user_id') != cfg.get('ig_user_id'):
+            return False
+        cfg = current
         parts = str(key).split(':', 1)
         if len(parts) != 2 or not cfg.get('connected') or not cfg.get('access_token'):
             return False
@@ -316,7 +320,24 @@ class InstagramDelivery:
         if (not action or action['igsid'] != parts[0] or action['state'] != 'approval'
                 or (action.get('payload') or {}).get('account_id') != cfg.get('ig_user_id')):
             return False
-        return await self.refresh_action(cfg, action, state='approval')
+        async def synced():
+            # Private previews only; delivery still refreshes Meta and applies
+            # all source/account/window/consent gates before sending.
+            user = await self.db.user(parts[0]) or {}
+            source = await self.db.preview_source(parts[0])
+            return (in_window(action.get('source_at'))
+                and user.get('ai_enabled', True) and not user.get('human_takeover')
+                and source.get('role') == 'user' and source.get('mid') == action.get('source_mid'))
+        circuit = parse_time(cfg.get('circuit_until'))
+        if circuit and circuit > utcnow():
+            return await synced() if cfg.get('circuit_reason') == 'meta_4' else False
+        try:
+            return await self.refresh_action(cfg, action, state='approval')
+        except api.InstagramError as exc:
+            await self.provider_error(exc, during_read=True)
+            if exc.kod == 4:
+                return await synced()
+            raise
 
     async def send_readiness(self, cfg, action):
         """Recheck after slow generation/provider reads; Semi only bypasses the clock."""

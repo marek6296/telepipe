@@ -61,7 +61,14 @@ async def generate(sender, command):
     if channel == 'fanvue':
         return await _fanvue(sender, command, external, seed, brief)
     if channel == 'instagram':
-        return await _instagram(sender, command, external, seed, brief)
+        import instagram_api as api
+        try:
+            return await _instagram(sender, command, external, seed, brief)
+        except api.InstagramError as exc:
+            await sender._delivery.provider_error(exc, during_read=True)
+            if exc.kod != 4:
+                raise
+            return await _instagram_synced(sender, command, external, seed, brief)
     return _empty()
 
 
@@ -186,6 +193,10 @@ async def _instagram(sender, command, external, seed, brief):
 
     if not same_account(cfg):
         return _empty()
+    circuit = conversation_timing.message_time({'occurred_at': cfg.get('circuit_until')})
+    if circuit and circuit > datetime.now(timezone.utc):
+        return (await _instagram_synced(sender, command, external, seed, brief)
+                if cfg.get('circuit_reason') == 'meta_4' else _empty())
     previous = await db.actions(igsid='eq.' + external, order='created_at.desc', limit='1')
     # A stored target is a hint only. Its current remote participant is checked
     # before importing any messages into this contact's history.
@@ -225,6 +236,29 @@ async def _instagram(sender, command, external, seed, brief):
     suggestions, _ = await sender._navrhy(user, external, cfg, seed=seed, brief=brief)
     latest = await asyncio.to_thread(api.conversation, cfg['access_token'], raw['id'])
     if not await refresh(latest):
+        return _empty()
+    offer = await sender._delivery.offer_state(cfg, await db.user(external) or user)
+    rendered = [prepare_response(s, cfg, offer) for s in suggestions if isinstance(s, str)]
+    return {'suggestions': _plain([r['text'] for r in rendered if r['kind'] == 'dm']), 'hint': ''}
+
+
+async def _instagram_synced(sender, command, external, seed, brief):
+    """Private owner previews during read backoff, never delivery permission."""
+    from instagram_interactions import prepare_response
+    db = sender._db
+    async def current():
+        cfg = await db.settings()
+        return cfg if (cfg.get('connected') and cfg.get('access_token')
+                       and cfg.get('ig_user_id') == command.get('account_scope')) else None
+    cfg = await current()
+    source = await db.latest_message_id(external)
+    if not cfg or not source or str(source) != str(command.get('expected_source_id')):
+        return _empty()
+    user = await db.user(external)
+    if not user:
+        return _empty()
+    suggestions, _ = await sender._navrhy(user, external, cfg, seed=seed, brief=brief)
+    if not await current() or await db.latest_message_id(external) != source:
         return _empty()
     offer = await sender._delivery.offer_state(cfg, await db.user(external) or user)
     rendered = [prepare_response(s, cfg, offer) for s in suggestions if isinstance(s, str)]
