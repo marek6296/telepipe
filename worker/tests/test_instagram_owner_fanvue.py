@@ -65,6 +65,6 @@ async def test_owner_fanvue_uses_existing_seen_pause_reserved_send(monkeypatch,o
     ('telegram','https://t.me/simapussina'),('bio_link','https://linkovne.com/simonakralova')])
 def test_owner_configured_site_is_not_gated_by_automatic_invitation_eligibility(target,url):
     from instagram_interactions import prepare_operator_response
-    cfg={'funnel_target':'both','telegram_handle':'simapussina','bio_link':'https://linkovne.com/simonakralova'}
+    cfg={'funnel_target':'off','telegram_handle':'simapussina','bio_link':'https://linkovne.com/simonakralova'}
     assert prepare_operator_response(url,cfg,{'age_unknown':True,'telegram_link':False,'bio_link':False},{})['text']==url
     assert not prepare_response(url,cfg,{'age_unknown':True,'telegram_link':False,'bio_link':False})['text']

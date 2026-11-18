@@ -12,15 +12,12 @@ export function configuredSites(persona:Record<string,unknown>|null,instagram:Re
   if(cta){const fanvue=/^https:\/\/(?:www\.)?fanvue\.com\/[^\s@]+$/.test(cta);
     sites.push({kind:fanvue?'fanvue':'website',label:fanvue?'Fanvue':'Website',url:cta,available:fanvue||channel!=='instagram',reason:channel==='instagram'&&!fanvue?'Use a configured platform link on Instagram.':''});}
   const page=safeUrl(instagram?.bio_link);
-  const mode=instagram?.funnel_target;
   if(page && ['linkovne.com','www.linkovne.com'].includes(new URL(page).hostname) && new URL(page).pathname.replaceAll('/','') && (!new URL(page).port || new URL(page).port==='443')){
-    const available=channel!=='instagram'||mode==='bio_link'||mode==='both';
-    sites.push({kind:'linkovne',label:'Linkovne',url:page,available,reason:available?'':'Enable Linkovne in Instagram settings.'});
+    sites.push({kind:'linkovne',label:'Linkovne',url:page,available:true,reason:''});
   }
   const handle=typeof instagram?.telegram_handle==='string'?instagram.telegram_handle.trim().replace(/^@/,''):'';
   if(/^[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(handle)){
-    const available=channel!=='instagram'||mode==='telegram'||mode==='both';
-    sites.push({kind:'telegram',label:'Telegram',url:`https://t.me/${handle}`,available,reason:available?'':'Enable Telegram in Instagram settings.'});
+    sites.push({kind:'telegram',label:'Telegram',url:`https://t.me/${handle}`,available:true,reason:''});
   }
   return sites.filter((s,i)=>sites.findIndex(other=>other.url===s.url)===i);
 }

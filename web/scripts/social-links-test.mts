@@ -10,3 +10,5 @@ assert.equal(configuredSites(persona,ig,'telegram').find(l=>l.kind==='fanvue')?.
 assert.deepEqual(configuredSites({cta_link:'javascript:alert(1)'},{bio_link:'https://evil.example',telegram_handle:'not/a/handle'},'instagram'),[]);
 assert.deepEqual(configuredSites({cta_link:'https://user:pass@fanvue.com/x'},null,'telegram'),[]);
 console.log('PASS: configured safe site links, Instagram destinations, configured destination selection');
+
+assert.equal(configuredSites(persona,{...ig,funnel_target:'telegram'},'instagram').find(l=>l.kind==='linkovne')?.available,true,'Owner site selection is independent of the Auto funnel');

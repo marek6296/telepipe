@@ -51,7 +51,7 @@ def prepare_operator_response(raw, settings, offer, persona):
             and len(urls) == 1 and urls[0] == destination and not TAGS.findall(raw or '')):
         return dict(kind='dm', text=raw.strip(), link=True, reminder=False, link_target='fanvue')
     if len(urls) == 1 and not TAGS.findall(raw or ''):
-        target = next((key for key, url in link_targets(settings).items() if url == urls[0]), '')
+        target = next((key for key in ('telegram', 'bio_link') if allowed_destination(key, settings) == urls[0]), '')
         if target:
             return dict(kind='dm', text=raw.strip(), link=True, reminder=False, link_target=target)
     return prepare_response(raw, settings, offer)
