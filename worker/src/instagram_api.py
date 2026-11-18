@@ -50,10 +50,11 @@ MAX_BAJTOV_KOMENTAR = 300
 class InstagramError(RuntimeError):
     """Čokoľvek, čo Instagram odmietol. Nesie aj kód, nech sa dá rozhodnúť."""
 
-    def __init__(self, sprava: str, kod: int = 0, podtyp: str = "") -> None:
+    def __init__(self, sprava: str, kod: int = 0, podtyp: str = "", http_status: int | None = None) -> None:
         super().__init__(sprava)
         self.kod = kod
         self.podtyp = podtyp
+        self.http_status = http_status
 
 
 def _volaj(url: str, data: Optional[Dict[str, Any]] = None, timeout: float = 20.0) -> Dict[str, Any]:
@@ -78,6 +79,7 @@ def _volaj(url: str, data: Optional[Dict[str, Any]] = None, timeout: float = 20.
             str(chyba.get("message") or surove)[:300],
             kod=int(chyba.get("code") or exc.code),
             podtyp=str(chyba.get("error_subcode") or ""),
+            http_status=exc.code,
         ) from exc
     except Exception as exc:  # noqa: BLE001 - sieť
         raise InstagramError(str(exc)[:300]) from exc

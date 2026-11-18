@@ -127,6 +127,13 @@ class SocialCommands:
             log.warning('model %s: social %s failed (%s)', self.model_id, command['id'], type(exc).__name__)
             outcome = DeliveryResult.uncertain() if started else DeliveryResult('failed', 'preparation_failed', {'safe_to_retry': True})
 
+        if outcome.status == 'deferred_preparation':
+            if await self.rpc('defer_preparation', worker=self.worker_id, command=command['id'],
+                              lease=command['lease_token'], reason=outcome.reason):
+                await self.control.sync_social_cards()
+                return
+            outcome = DeliveryResult('stale', 'stale_context')
+
         if outcome.status == 'deferred':
             deferred = await self.rpc('defer', worker=self.worker_id, command=command['id'],
                 lease=command['lease_token'], action=outcome.result['action_id'], reason=outcome.reason)

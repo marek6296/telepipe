@@ -83,4 +83,37 @@ await db.query("insert into instagram_actions values($1,$2,'fan','pending','dm_l
 assert.equal((await db.query("select social_defer($1,'worker',$2,$3,$4,'dm_limit') as result",[m,approval,lease,action2])).rows[0].result,true);
 const pending=(await db.query('select * from pending_replies where id=$1',[proposal])).rows[0];assert.equal(pending.status,'awaiting');assert.equal(pending.decision_command_id,null);
 assert.equal((await db.query('select status from social_commands where id=$1',[approval])).rows[0].status,'queued');
+
+// A reserved action is not a message attempt. Persist the actual provider-call boundary.
+await db.exec('create table instagram(model_id uuid,circuit_until timestamptz);alter table instagram_actions add column text text,add column due_at timestamptz,add column sent_at timestamptz,add column kind text;');
+await db.exec(readFileSync('supabase/migrations/20261118012625_instagram_delivery_phase_and_provider_wait.sql','utf8'));
+await db.query("insert into instagram values($1,now()+interval '1 hour')",[m]);
+await db.query("update social_commands set status='sending',worker_id='worker',lease_token=$2,lease_until=now()+interval '3 minutes' where id=$1",[cid,lease]);
+await db.query("update instagram_actions set state='sending',lease_token=$2,lease_until=now()+interval '2 minutes',reserved_at=now(),payload=$3::jsonb,text='approved text' where id=$1",[aid,lease,JSON.stringify({origin:'operator',command_id:cid,account_id:'account'})]);
+assert.equal((await db.query("select instagram_release_unsent($1,$2,$3,'provider_read_limit') as ok",[m,aid,lease])).rows[0].ok,true);
+assert.equal((await db.query("select social_defer($1,'worker',$2,$3,$4,'provider_read_limit') as ok",[m,cid,lease,aid])).rows[0].ok,true);
+assert.equal((await db.query("select available_at>now()+interval '59 minutes' as delayed from social_commands where id=$1",[cid])).rows[0].delayed,true);
+await db.query("update social_commands set available_at=now()-interval '1 minute' where id=$1",[cid]);
+assert.equal((await db.query("select social_claim($1,'worker') as result",[m])).rows[0].result,null,'Provider circuit leaves IG queued');
+await db.query("update instagram set circuit_until=null where model_id=$1",[m]);
+await db.query("update social_commands set status='sending',worker_id='worker',lease_token=$2,lease_until=now()+interval '3 minutes' where id=$1",[cid,lease]);
+await db.query("update instagram_actions set state='sending',lease_token=$2,lease_until=now()+interval '2 minutes',reserved_at=now(),reason='' where id=$1",[aid,lease]);
+assert.equal((await db.query('select instagram_start_message($1,$2,$3) as ok',[m,aid,lease])).rows[0].ok,true);
+assert.equal((await db.query('select instagram_start_message($1,$2,$3) as ok',[m,aid,lease])).rows[0].ok,false,'Never start same attempt twice');
+assert.equal((await db.query("select instagram_release_unsent($1,$2,$3,'provider_read_limit') as ok",[m,aid,lease])).rows[0].ok,false,'After marker a timeout is uncertain');
+assert.equal((await db.query("select instagram_finish($1,$2,$3,'failed','','meta_4') as ok",[m,aid,lease])).rows[0].ok,true);
+assert.equal((await db.query("select social_defer($1,'worker',$2,$3,$4,'meta_4') as ok",[m,cid,lease,aid])).rows[0].ok,true,'Definite Meta4 HTTP rejection may wait');
+const phase=(await db.query('select payload from instagram_actions where id=$1',[aid])).rows[0].payload;
+assert.ok(phase.last_rejected_message_api_at);assert.equal(phase.message_api_started_at,undefined);
+assert.equal((await db.query("select has_function_privilege('anon','instagram_start_message(uuid,uuid,uuid)','EXECUTE') as ok")).rows[0].ok,false);
+console.log('PASS: pre-message release, private attempt marker, timeout retained, exact rate rejection deferred, circuit respected');
+
+await db.query("update social_commands set status='working',worker_id='worker',lease_token=$2,lease_until=now()+interval '2 minutes' where id=$1",[cid,lease]);
+assert.equal((await db.query("select social_defer_preparation($1,'worker',$2,$3,'provider_read_limit') as ok",[m,cid,lease])).rows[0].ok,true,'Initial GET failure stays queued');
+assert.equal((await db.query("select has_function_privilege('anon','social_defer_preparation(uuid,text,uuid,uuid,text)','EXECUTE') as ok")).rows[0].ok,false);
+// A later explicit retry after a definite rejection can enter a fresh attempt.
+await db.query("update social_commands set status='sending',worker_id='worker',lease_token=$2,lease_until=now()+interval '2 minutes' where id=$1",[cid,lease]);
+await db.query("update instagram_actions set state='sending',lease_token=$2,lease_until=now()+interval '2 minutes' where id=$1",[aid,lease]);
+assert.equal((await db.query('select instagram_start_message($1,$2,$3) as ok',[m,aid,lease])).rows[0].ok,true);
+assert.equal((await db.query("select social_defer_preparation($1,'worker',$2,$3,'provider_read_limit') as ok",[m,cid,lease])).rows[0].ok,false,'Never defer an attempted message as preparation');
 await db.close();console.log('PASS: durable delay preserves command/intent, rejects provider/reserved/wrong worker, respects due time and continues other channels');

@@ -176,9 +176,19 @@ class FakeDb:
                 return {'ok': False, 'reason': 'off'}
             a.update(state='sending', text=args['text'], contains_link=args['link'], contains_reminder=args['reminder'], reserved_at=_teraz())
             return {'ok': True}
+        if name == 'start_message':
+            a = self.queue[args['action']]
+            if a['state'] != 'sending' or a.get('payload', {}).get('message_api_started_at'):
+                return False
+            a.setdefault('payload', {})['message_api_started_at'] = _teraz()
+            return True
         if name == 'finish':
             a = self.queue[args['action']]
-            a.update(state='blocked' if args['outcome']=='failed' else args['outcome'], provider_id=args.get('provider',''))
+            a.update(state='blocked' if args['outcome']=='failed' else args['outcome'], provider_id=args.get('provider',''),reason=args.get('reason',''))
+            if args['outcome']=='failed':
+                a['reserved_at']=None
+                stamp=a.setdefault('payload',{}).pop('message_api_started_at',None)
+                a['payload'].update(last_rejected_message_api_at=stamp,last_rejected_reason=args.get('reason',''))
             if args['outcome']=='sent' and a['igsid'] in self.users:
                 self.users[a['igsid']]['msg_count'] += 1
                 if a.get('contains_link'):
@@ -186,7 +196,7 @@ class FakeDb:
             return True
         if name == 'release_unsent':
             a = self.queue[args['action']]
-            if a['state'] != 'sending' or a['lease_token'] != args['lease']:
+            if a['state'] != 'sending' or a['lease_token'] != args['lease'] or a.get('payload',{}).get('message_api_started_at'):
                 return False
             a.update(state='pending',reserved_at=None,lease_token=None,reason=args['reason'])
             return True

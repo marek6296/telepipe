@@ -355,3 +355,10 @@ async def test_owner_requests_suggestions_without_pending_and_never_sends(monkey
     assert names==['social_claim','social_store_owner_draft']
     sender.deliver_operator.assert_not_awaited()
     assert t._rpc.await_args.args[1]['p_suggestions']==['the walk was lovely','i loved that walk']
+
+
+async def test_read_only_preparation_defers_without_entering_send_boundary():
+    dispatcher,transport,control=setup(command(channel='instagram'))
+    control._senders['instagram']=SimpleNamespace(deliver_operator=AsyncMock(return_value=DeliveryResult('deferred_preparation','provider_read_limit')))
+    await dispatcher.tick()
+    assert [c.args[0] for c in transport._rpc.await_args_list]==['social_claim','social_defer_preparation']

@@ -74,12 +74,13 @@ class InstagramDelivery:
             for thread in page['data']:
                 await self.ingest(thread, cfg, bootstrap=bootstrap)
             cursor = str(cfg.get('sync_cursor') or '')
-            if cursor:
+            if cursor and (bootstrap or self.round % 5 == 0):
                 page = await asyncio.to_thread(api.conversation_page, cfg['access_token'], cfg['ig_user_id'], cursor)
                 for thread in page['data']:
                     await self.ingest(thread, cfg, bootstrap=bootstrap)
-            patch = {'sync_cursor': page['after'], 'last_poll_at': utcnow().isoformat(), 'poll_error': ''}
-            if not page['after']:
+            next_cursor = page['after'] if not cursor or bootstrap or self.round % 5 == 0 else cursor
+            patch = {'sync_cursor': next_cursor, 'last_poll_at': utcnow().isoformat(), 'poll_error': ''}
+            if not next_cursor:
                 patch.update(sync_completed_at=cfg.get('sync_completed_at') or utcnow().isoformat(), sync_status='ready')
             await self.db.save(patch)
             if active and not bootstrap:
@@ -323,6 +324,8 @@ class InstagramDelivery:
         if (action.get('payload') or {}).get('origin') == 'operator':
             if not current.get('connected') or current.get('ig_user_id') != cfg.get('ig_user_id'):
                 return 'account_changed'
+            if parse_time(current.get('circuit_until')) and parse_time(current['circuit_until']) > utcnow():
+                return 'provider_pause'
             return '' if in_window(action.get('source_at')) else 'window_expired'
         if (not current.get('enabled') or not current.get('connected')
                 or any(current.get(k) != cfg.get(k) for k in ('reply_mode','ig_user_id'))):
@@ -409,6 +412,8 @@ class InstagramDelivery:
                 await self.defer(action, 'sleeping')
                 return
         link_target = ''
+        reserved_started = False
+        message_attempted = False
         try:
             if action['kind'] == 'comment':
                 # Refresh visible comments; deleted or manually answered comments are cancelled.
@@ -514,6 +519,7 @@ class InstagramDelivery:
             reserved = await self.db.rpc('reserve', action=action['id'], lease=action['lease_token'], text=text, link=link, reminder=reminder)
             if not reserved.get('ok'):
                 return
+            reserved_started = True
             if action['kind'] in ('dm', 'photo'):
                 # Read receipts are a separate provider write. Never emit one while
                 # polling, generating a proposal, waiting for approval, or blocked.
@@ -522,6 +528,8 @@ class InstagramDelivery:
                 except api.InstagramError as exc:
                     # Optional acknowledgement failure must not lose an unsent reply.
                     log.warning('Instagram read receipt unavailable (Meta %s)', exc.kod)
+                    if exc.kod == 4:
+                        raise
                 if operator:
                     from operator_delivery import composition_pause
                     await composition_pause(text)
@@ -538,6 +546,10 @@ class InstagramDelivery:
                 if operator and not await before_send():
                     await self.db.rpc('release_unsent', action=action['id'], lease=action['lease_token'], reason='stale_context')
                     return
+            if not await self.db.rpc('start_message', action=action['id'], lease=action['lease_token']):
+                await self.db.rpc('release_unsent', action=action['id'], lease=action['lease_token'], reason='stale_context')
+                return
+            message_attempted = True
             try:
                 if action['kind'] == 'comment':
                     response = await asyncio.to_thread(api.odpovedz_na_komentar, cfg['access_token'], action['target_id'], text)
@@ -549,7 +561,8 @@ class InstagramDelivery:
                     response = await asyncio.to_thread(api.posli_text, cfg['access_token'], action['igsid'], text, account_id=cfg['ig_user_id'])
             except api.InstagramError as exc:
                 # Even 5xx can occur after acceptance. Only explicit client rejections release quota.
-                outcome = 'failed' if exc.kod in (10, 100, 190, 200, 551) else 'uncertain'
+                definite_rejection = exc.kod in (4, 10, 100, 190, 200, 551) and exc.http_status in (400, 401, 403, 404, 429)
+                outcome = 'failed' if definite_rejection else 'uncertain'
                 await self.db.rpc('finish', action=action['id'], lease=action['lease_token'], outcome=outcome, reason=f'meta_{exc.kod}')
                 await self.provider_error(exc)
                 return
@@ -567,18 +580,18 @@ class InstagramDelivery:
                             {'telegram': 'telegram', 'bio_link': 'linkpage', 'fanvue': 'fanvue'}[link_target], scope=cfg['ig_user_id'])
         except api.InstagramError as exc:
             await self.provider_error(exc, during_read=True)
+            reason = 'provider_read_limit' if exc.kod == 4 else 'provider_read_unavailable' if exc.kod == 0 else f'refresh_meta_{exc.kod}'
+            if operator and not message_attempted:
+                if reserved_started:
+                    await self.db.rpc('release_unsent', action=action['id'], lease=action['lease_token'], reason=reason)
+                else:
+                    await self.defer(action, reason, minutes=1)
+                return
             if exc.kod == 4 and not operator and await self.prepare_synced_preview(cfg, action):
                 return
             await self.defer(action, f'refresh_meta_{exc.kod}')
 
-    async def deliver_operator(self, command, before_send):
-        """Prepare a durable action, then run the existing reservation/send path."""
-        from social_commands import DeliveryResult
-        cfg = await self.db.settings()
-        if not cfg.get('connected') or cfg.get('ig_user_id') != command['account_scope']:
-            return DeliveryResult.blocked('instagram_disconnected')
-        if parse_time(cfg.get('circuit_until')) and parse_time(cfg['circuit_until']) > utcnow():
-            return DeliveryResult.blocked('provider_pause')
+    async def operator_snapshot(self, cfg, command):
         raw = None
         previous = await self.db.actions(igsid='eq.' + command['external_id'], order='created_at.desc', limit='1')
         if previous and previous[0].get('target_id'):
@@ -595,6 +608,23 @@ class InstagramDelivery:
                 if raw or not cursor or cursor in visited:
                     break
                 visited.add(cursor)
+        return raw
+
+    async def deliver_operator(self, command, before_send):
+        """Prepare a durable action, then run the existing reservation/send path."""
+        from social_commands import DeliveryResult
+        cfg = await self.db.settings()
+        if not cfg.get('connected') or cfg.get('ig_user_id') != command['account_scope']:
+            return DeliveryResult.blocked('instagram_disconnected')
+        if parse_time(cfg.get('circuit_until')) and parse_time(cfg['circuit_until']) > utcnow():
+            return DeliveryResult('deferred_preparation', 'provider_read_limit' if cfg.get('circuit_reason') == 'meta_4' else 'provider_read_unavailable')
+        try:
+            raw = await self.operator_snapshot(cfg, command)
+        except api.InstagramError as exc:
+            await self.provider_error(exc, during_read=True)
+            if exc.kod in (0, 4):
+                return DeliveryResult('deferred_preparation', 'provider_read_limit' if exc.kod == 4 else 'provider_read_unavailable')
+            return DeliveryResult.blocked('instagram_disconnected' if exc.kod == 190 else 'history_unavailable')
         if not raw:
             return DeliveryResult.blocked('thread_unavailable')
         chat = api.rozober(raw, cfg['ig_user_id'])
@@ -647,7 +677,7 @@ class InstagramDelivery:
         if state in ('sending', 'uncertain') or not state:
             return DeliveryResult.uncertain()
         if (state in ('pending','blocked') and not current.get('reserved_at')
-                and current.get('reason') in ('action_gap','account_limit','dm_limit','conversation_limit','active_chats_limit','new_contact_limit','url_limit','url_global_limit','reminder_limit')
+                and current.get('reason') in ('action_gap','account_limit','dm_limit','conversation_limit','active_chats_limit','new_contact_limit','url_limit','url_global_limit','reminder_limit','provider_read_limit','provider_read_unavailable','meta_4','provider_pause')
                 and (current.get('payload') or {}).get('command_id') == command['id']):
             return DeliveryResult('deferred', current['reason'], {'action_id': action['id']})
         if (command.get('pending_id') and state in ('pending', 'ready', 'leased', 'blocked')

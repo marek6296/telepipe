@@ -166,7 +166,7 @@ class TestDorucenieZKarty:
         agent, db, _, _, _ = _semi(monkeypatch)
 
         def rozbite(token, igsid, text, **kwargs):
-            raise api.InstagramError("outside of allowed window", kod=10)
+            raise api.InstagramError("outside of allowed window", kod=10, http_status=400)
 
         monkeypatch.setattr(api, "posli_text", rozbite)
         assert asyncio.run(agent.deliver_text("999:1", "ahoj")) is True
@@ -321,7 +321,7 @@ class TestKomentare:
         monkeypatch.setattr(api, "prispevky_s_komentarmi", lambda *a, **k: [_prispevok(_komentar())])
 
         def rozbite(token, cid, text):
-            raise api.InstagramError("no permission", kod=10)
+            raise api.InstagramError("no permission", kod=10, http_status=400)
 
         monkeypatch.setattr(api, "odpovedz_na_komentar", rozbite)
         monkeypatch.setattr("instagram_delivery.select_comment", lambda *a: True)

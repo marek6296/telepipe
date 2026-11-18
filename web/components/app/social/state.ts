@@ -112,6 +112,8 @@ export function outboxCommands(commands:SocialCommand[],messages:SocialMessage[]
 }
 
 export function commandExplanation(command:SocialCommand):string {
+  if(command.status==="queued" && command.reason==="waiting_provider_read_unavailable")return "Instagram could not be reached. This reply is queued and will retry after the pause; you can close the app.";
+  if(command.status==="queued" && ["waiting_provider_read_limit","waiting_provider_read_unavailable","waiting_meta_4","waiting_provider_pause"].includes(command.reason))return "Instagram is temporarily limiting API requests. This reply is queued and will retry after the pause; you can close the app.";
   if(command.status==="queued" && command.reason.startsWith("waiting_"))return "Waiting for Instagram’s delivery limits. This reply will send automatically; you can leave this chat.";
   const reasons:Record<string,string>={
     generation_empty:"No new preview was created. Refresh the conversation and try Say this again. Nothing was sent.",

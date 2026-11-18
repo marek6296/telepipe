@@ -310,3 +310,94 @@ async def test_temporal_promo_budget_waits_for_exact_approved_reply(monkeypatch,
     assert result.status=='deferred' and result.reason==reason
     assert db.queue['op']['text']==shown
     seen.assert_not_called();send.assert_not_called()
+
+
+async def test_read_rate_limit_after_seen_before_message_goes_back_to_queue(monkeypatch):
+    import instagram_api as api
+    import operator_delivery
+    raw=thread(datetime.now(timezone.utc));db=OperatorDb(reply_mode='semi');agent=InstagramAgent(db,FakeLlm())
+    await db.ensure_user('fan')
+    monkeypatch.setattr(api,'conversation_page',lambda *a,**kw:{'data':[raw],'after':''})
+    calls=0
+    def read(*args,**kw):
+        nonlocal calls
+        calls+=1
+        if calls==3:raise api.InstagramError('rate',kod=4)
+        return raw
+    monkeypatch.setattr(api,'conversation',read)
+    monkeypatch.setattr(api,'mark_seen',lambda *a,**kw:{})
+    monkeypatch.setattr(operator_delivery,'composition_pause',AsyncMock())
+    sends=[];monkeypatch.setattr(api,'posli_text',lambda *a,**kw:sends.append(a))
+    result=await agent.deliver_operator(command(channel='instagram',external_id='fan',account_scope=MOJE_ID),AsyncMock(return_value=True))
+    assert not sends
+    assert result.status=='deferred' and result.reason=='provider_read_limit'
+    assert db.queue['op']['reserved_at'] is None
+
+
+async def test_explicit_message_rate_rejection_is_waiting_not_uncertain(monkeypatch):
+    import instagram_api as api
+    import operator_delivery
+    raw=thread(datetime.now(timezone.utc));db=OperatorDb(reply_mode='semi');agent=InstagramAgent(db,FakeLlm())
+    await db.ensure_user('fan')
+    monkeypatch.setattr(api,'conversation_page',lambda *a,**kw:{'data':[raw],'after':''})
+    monkeypatch.setattr(api,'conversation',lambda *a,**kw:raw)
+    monkeypatch.setattr(api,'mark_seen',lambda *a,**kw:{})
+    monkeypatch.setattr(operator_delivery,'composition_pause',AsyncMock())
+    def rejected(*a,**kw):raise api.InstagramError('Application request limit reached',kod=4,http_status=400)
+    monkeypatch.setattr(api,'posli_text',rejected)
+    result=await agent.deliver_operator(command(channel='instagram',external_id='fan',account_scope=MOJE_ID),AsyncMock(return_value=True))
+    assert result.status=='deferred' and result.reason=='meta_4'
+
+
+async def test_initial_read_rate_limit_waits_before_reservation(monkeypatch):
+    import instagram_api as api
+    db=OperatorDb(reply_mode='semi');agent=InstagramAgent(db,FakeLlm())
+    def limited(*a,**kw):raise api.InstagramError('rate',kod=4,http_status=400)
+    monkeypatch.setattr(api,'conversation_page',limited)
+    before=AsyncMock(return_value=True)
+    result=await agent.deliver_operator(command(channel='instagram',external_id='fan',account_scope=MOJE_ID),before)
+    assert result.status=='deferred_preparation'
+    before.assert_not_awaited()
+    assert not db.queue and db.nastavenia['circuit_reason']=='meta_4'
+
+
+async def test_http_500_with_error_code4_is_not_retried(monkeypatch):
+    import instagram_api as api
+    import operator_delivery
+    raw=thread(datetime.now(timezone.utc));db=OperatorDb(reply_mode='semi');agent=InstagramAgent(db,FakeLlm())
+    await db.ensure_user('fan')
+    monkeypatch.setattr(api,'conversation_page',lambda *a,**kw:{'data':[raw],'after':''})
+    monkeypatch.setattr(api,'conversation',lambda *a,**kw:raw)
+    monkeypatch.setattr(api,'mark_seen',lambda *a,**kw:{})
+    monkeypatch.setattr(operator_delivery,'composition_pause',AsyncMock())
+    def ambiguous(*a,**kw):raise api.InstagramError('server error',kod=4,http_status=500)
+    monkeypatch.setattr(api,'posli_text',ambiguous)
+    result=await agent.deliver_operator(command(channel='instagram',external_id='fan',account_scope=MOJE_ID),AsyncMock(return_value=True))
+    assert result.status=='uncertain'
+    assert db.queue['op']['payload']['message_api_started_at']
+
+
+async def test_circuit_opened_after_claim_still_waits_without_provider_calls(monkeypatch):
+    import instagram_api as api
+    db=OperatorDb(reply_mode='semi',circuit_until=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(),circuit_reason='meta_4')
+    agent=InstagramAgent(db,FakeLlm())
+    monkeypatch.setattr(api,'conversation_page',lambda *a,**kw:pytest.fail('No requests during circuit'))
+    result=await agent.deliver_operator(command(channel='instagram',external_id='fan',account_scope=MOJE_ID),AsyncMock(return_value=True))
+    assert result.status=='deferred_preparation'
+
+
+async def test_reservation_circuit_race_is_queued_not_blocked(monkeypatch):
+    import instagram_api as api
+    raw=thread(datetime.now(timezone.utc));db=OperatorDb(reply_mode='semi');agent=InstagramAgent(db,FakeLlm())
+    await db.ensure_user('fan')
+    monkeypatch.setattr(api,'conversation_page',lambda *a,**kw:{'data':[raw],'after':''})
+    monkeypatch.setattr(api,'conversation',lambda *a,**kw:raw)
+    original=db.rpc
+    async def reserve(name,**kwargs):
+        if name=='reserve':
+            db.queue[kwargs['action']].update(state='blocked',reason='provider_pause',reserved_at=None)
+            return {'ok':False,'reason':'provider_pause'}
+        return await original(name,**kwargs)
+    db.rpc=reserve
+    result=await agent.deliver_operator(command(channel='instagram',external_id='fan',account_scope=MOJE_ID),AsyncMock(return_value=True))
+    assert result.status=='deferred' and result.reason=='provider_pause'

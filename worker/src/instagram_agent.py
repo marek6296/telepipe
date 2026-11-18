@@ -22,7 +22,7 @@ log = logging.getLogger(__name__)
 
 # Ako často sa pozerá na nové správy. Instagram DM nie je Telegram — nikto
 # nečaká odpoveď do piatich sekúnd a častejšie pollovanie len míňa limity.
-KOLO_S = 45.0
+KOLO_S = 90.0
 
 # Kým Instagram nie je pripojený, zapnutý alebo má režim `off`, stačí sa
 # pozrieť raz za päť minút. Toľko najviac čaká klient po pripojení.
