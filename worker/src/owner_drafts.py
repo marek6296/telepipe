@@ -242,14 +242,24 @@ async def _instagram(sender, command, external, seed, brief):
     return {'suggestions': _plain([r['text'] for r in rendered if r['kind'] == 'dm']), 'hint': ''}
 
 
+async def instagram_preview(sender, command):
+    """Owner text preparation uses the inbox snapshot, never delivery state.
+
+    The dispatcher validates pending ownership/suggestions before this call and
+    SQL fences source/identity again when storing it. Native history continues
+    to sync independently. No Meta call, seen, takeover or mode mutation.
+    """
+    return await _instagram_synced(sender, command, str(command.get('external_id') or ''),
+                                   str(command.get('id') or ''), str(command.get('brief') or ''))
+
+
 async def _instagram_synced(sender, command, external, seed, brief):
-    """Private owner previews during read backoff, never delivery permission."""
+    """Private owner previews, never delivery permission."""
     from instagram_interactions import prepare_response
     db = sender._db
     async def current():
         cfg = await db.settings()
-        return cfg if (cfg.get('connected') and cfg.get('access_token')
-                       and cfg.get('ig_user_id') == command.get('account_scope')) else None
+        return cfg if (cfg.get('ig_user_id') and cfg.get('ig_user_id') == command.get('account_scope')) else None
     cfg = await current()
     source = await db.latest_message_id(external)
     if not cfg or not source or str(source) != str(command.get('expected_source_id')):

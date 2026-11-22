@@ -265,3 +265,20 @@ async def test_instagram_discovery_cycle_is_bounded(monkeypatch):
     assert await owner_drafts.generate(sender, command('instagram')) == {'suggestions': [], 'hint': ''}
     assert page.call_count == 2
     sender._navrhy.assert_not_awaited()
+
+
+@pytest.mark.parametrize('mode', ['off', 'semi', 'auto'])
+async def test_explicit_instagram_preview_ignores_delivery_and_agent_state(monkeypatch, mode):
+    import instagram_api
+    sender = instagram()
+    cfg = await sender._db.settings()
+    cfg.update(connected=False, access_token='', reply_mode=mode, circuit_reason='meta_190')
+    sender._db.user.return_value = {'igsid':'555', 'ai_enabled':False, 'human_takeover':True}
+    sender._db.latest_message_id = AsyncMock(return_value=12)
+    monkeypatch.setattr(instagram_api, 'conversation', lambda *a, **kw: pytest.fail('private preview must not call Meta'))
+    job = command('instagram')
+    job.update(expected_source_id='12', brief='invite him to my page')
+    result = await owner_drafts.instagram_preview(sender, job)
+    assert result['suggestions'] == ['nice to meet you']
+    sender.send.assert_not_awaited()
+    sender.seen.assert_not_awaited()

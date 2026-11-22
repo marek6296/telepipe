@@ -297,14 +297,18 @@ async def test_slow_telegram_mirror_cannot_resurrect_web_sent_draft():
     assert 100 not in b._cards
     assert b._db.rows['p1']['control_msg_id'] is None
 
-async def test_instagram_say_this_uses_exact_pending_conversation_key():
+async def test_instagram_say_this_uses_exact_pending_but_private_context_generator(monkeypatch):
+    import owner_drafts
     job=command(operation='regenerate',channel='instagram',external_id='fan',account_scope='ig-account',pending_id='pending',expected_suggestions=['old'],brief='say you enjoyed the walk')
     dispatcher,t,control=setup(job)
     t._get=AsyncMock(return_value=[{'conv_key':'fan:action-id','suggestions':['old']}])
     sender=SimpleNamespace(regenerate=AsyncMock(return_value={'suggestions':['i loved that walk']}))
     control._senders['instagram']=sender
+    preview = AsyncMock(return_value={'suggestions':['i loved that walk']})
+    monkeypatch.setattr(owner_drafts, 'instagram_preview', preview, raising=False)
     await dispatcher.tick()
-    sender.regenerate.assert_awaited_once_with('fan:action-id',seed='c1',brief='say you enjoyed the walk')
+    sender.regenerate.assert_not_awaited()
+    preview.assert_awaited_once_with(sender, job)
     assert t._get.await_args.args[1]['model_id']=='eq.model'
     assert t._get.await_args.args[1]['id']=='eq.pending'
     assert not any(c.args[0]=='social_start_send' for c in t._rpc.await_args_list)
@@ -362,3 +366,16 @@ async def test_read_only_preparation_defers_without_entering_send_boundary():
     control._senders['instagram']=SimpleNamespace(deliver_operator=AsyncMock(return_value=DeliveryResult('deferred_preparation','provider_read_limit')))
     await dispatcher.tick()
     assert [c.args[0] for c in transport._rpc.await_args_list]==['social_claim','social_defer_preparation']
+
+
+async def test_instagram_followup_also_uses_private_generator(monkeypatch):
+    import owner_drafts
+    job=command(operation='regenerate',channel='instagram',pending_id=None,brief='invite him')
+    dispatcher,t,control=setup(job)
+    sender=SimpleNamespace()
+    control._senders['instagram']=sender
+    preview=AsyncMock(return_value={'suggestions':['come see me sometime']})
+    monkeypatch.setattr(owner_drafts,'instagram_preview',preview)
+    await dispatcher.tick()
+    preview.assert_awaited_once_with(sender,job)
+    assert [c.args[0] for c in t._rpc.await_args_list]==['social_claim','social_store_owner_draft']

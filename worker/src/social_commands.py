@@ -88,7 +88,11 @@ class SocialCommands:
                 pending = command.get('pending_id')
                 if not pending:
                     from owner_drafts import generate
-                    output = await generate(sender, command)
+                    if command['channel'] == 'instagram':
+                        from owner_drafts import instagram_preview
+                        output = await instagram_preview(sender, command)
+                    else:
+                        output = await generate(sender, command)
                     suggestions = [s for s in (output or {}).get('suggestions', []) if isinstance(s,str) and s.strip()][:3]
                     if not suggestions:
                         outcome = DeliveryResult.blocked('generation_empty')
@@ -105,7 +109,11 @@ class SocialCommands:
                                        status='stale', result={}, reason='draft_changed')
                         await self.control.sync_social_cards()
                         return
-                    output = await sender.regenerate(key, seed=command['id'], brief=command.get('brief') or '')
+                    if command['channel'] == 'instagram':
+                        from owner_drafts import instagram_preview
+                        output = await instagram_preview(sender, command)
+                    else:
+                        output = await sender.regenerate(key, seed=command['id'], brief=command.get('brief') or '')
                     suggestions = [s for s in (output or {}).get('suggestions', []) if isinstance(s, str) and s.strip()]
                     if not suggestions:
                         outcome = DeliveryResult.blocked('generation_empty')
