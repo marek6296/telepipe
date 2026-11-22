@@ -18,7 +18,7 @@ from __future__ import annotations
 
 # Dlhé zadanie prestáva byť zadaním a stáva sa scenárom — a vtedy z odpovede
 # vypadne jej hlas. Strop je štedrý, ale nie neobmedzený.
-MAX_ZNAKOV = 500
+MAX_ZNAKOV = 2000  # rovnaký limit ako web a social_enqueue
 
 
 def do_promptu(brief: str) -> str:
@@ -33,6 +33,11 @@ def do_promptu(brief: str) -> str:
         "neprepisuj doslova ani neprekladaj vetu po vete.\n"
         "— Povedz to SVOJIMI slovami, svojím štýlom a svojou dĺžkou, presne "
         "ako píšeš vždy.\n"
+        "— Zachovaj celý význam zadania v KAŽDOM návrhu, vrátane záporov, "
+        "otázok a toho, kto čo hovorí. Majiteľkino ‚ja‘ znamená teba. "
+        "Je to cieľ odpovede, nie ďalšia prichádzajúca správa od neho. "
+        "Kontext pomáha so štýlom a nadviazaním, nesmie nahradiť zadanie "
+        "inou témou ani pridať ponuku či otázku, ktorú zadanie nechce.\n"
         "— Zadanie môže byť v inom jazyku než váš chat. Na tom nezáleží — ty "
         "píšeš v jazyku, ktorým si s ním píšeš doteraz.\n"
         "— Musí to sadnúť do rozhovoru, ktorý práve beží; nezačínaj odznova "

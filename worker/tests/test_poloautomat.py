@@ -119,9 +119,9 @@ class TestZadanieOdMajitela:
         assert "drž sa" in zadanie.do_promptu("posli mu fotku")
 
     def test_dlhe_zadanie_sa_skrati(self):
-        out = zadanie.do_promptu("a" * 900)
-        assert "a" * 500 in out
-        assert "a" * 501 not in out
+        out = zadanie.do_promptu("a" * 2500)
+        assert "a" * 2000 in out
+        assert "a" * 2001 not in out
 
     def test_viacriadkove_zadanie_ostane_citatelne(self):
         assert "prvy druhy" in zadanie.do_promptu("prvy\n\n  druhy")

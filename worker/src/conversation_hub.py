@@ -113,7 +113,7 @@ class ConversationHub:
             return False
         table, key, stamp = {'telegram': ('dm_messages', 'tg_id', 'created_at'),
             'instagram': ('ig_messages', 'igsid', 'occurred_at'),
-            'fanvue': ('fv_messages', 'fan_uuid', 'created_at')}[platform]
+            'fanvue': ('fv_messages', 'fan_uuid', 'occurred_at')}[platform]
         rows = await self.rows(table, **{key: f'eq.{external_id}'}, select=f'role,content,{stamp}',
                                order=f'{stamp}.desc.nullslast,id.desc', limit='1')
         if not rows or rows[0].get('role') != 'user':

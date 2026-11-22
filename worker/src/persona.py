@@ -560,10 +560,10 @@ def build_system_prompt(
         sections.append(
             "NA TOTO SA PÝTAL\n"
             f"„{his_question}“\n"
-            "Napísal viac správ naraz a TOTO je to, na čo čaká odpoveď. Odpovedz "
-            "na to ako prvé a konkrétne. Ostatné jeho správy môžeš odbiť jednou "
-            "vetou alebo nechať tak — ale otázku nikdy neobíď, to je najrýchlejší "
-            "spôsob, ako vyzerať ako automat."
+            "Toto je jedna z jeho aktuálnych otázok. Odpovedz konkrétne a spolu "
+            "s ostatnými podstatnými otázkami a informáciami z aktuálneho bloku. "
+            "Nevynechaj skoršiu otázku len preto, že za ňou napísal ďalšiu správu. "
+            "Spoj to prirodzene, nie ako zoznam; krátke prikývnutia nemusíš rozoberať."
         )
 
     if wants_call:
