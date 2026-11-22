@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -42,6 +43,39 @@ class InstagramDelivery:
         from social_media import for_db
         self.media = for_db(db, agent._llm)
         self.round = 0
+        self._poll_snapshots = {}
+
+    async def ingest_page(self, page, cfg, *, bootstrap):
+        for item in page['data']:
+            key = (cfg['ig_user_id'], str(item.get('id') or ''))
+            updated = parse_time(item.get('updated_time'))
+            cached = self._poll_snapshots.get(key)
+            reused = False
+            # Poll only the cheap conversation index. Full history is needed
+            # when its version changes, on restart, or after a bounded TTL.
+            # Never reuse this cache for delivery/source validation.
+            if 'messages' in item:
+                raw = item
+            elif (updated and cached and cached[0] == updated
+                  and utcnow() - cached[1] < timedelta(minutes=10)):
+                raw = deepcopy(cached[2])
+                reused = True
+            else:
+                raw = await asyncio.to_thread(api.conversation, cfg['access_token'], item['id'])
+            if reused:
+                chat = api.rozober(raw, cfg['ig_user_id'])
+                latest = await self.db.preview_source(chat['igsid']) if chat['igsid'] else {}
+                if latest.get('mid') and (not chat['spravy'] or latest['mid'] != chat['spravy'][-1]['mid']):
+                    raw = await asyncio.to_thread(api.conversation, cfg['access_token'], item['id'])
+                    reused = False
+            snapshot = deepcopy(raw)
+            # Still reconcile/enqueue every cycle: a mode change, released
+            # takeover or failed publication can need work without a new MID.
+            await self.ingest(raw, cfg, bootstrap=bootstrap)
+            if updated and not reused and snapshot.get('id') == item.get('id') and 'messages' in snapshot:
+                self._poll_snapshots[key] = (updated, utcnow(), snapshot)
+                if len(self._poll_snapshots) > 256:
+                    self._poll_snapshots.pop(next(iter(self._poll_snapshots)))
 
     async def poll(self):
         cfg = await self.db.settings()
@@ -70,14 +104,12 @@ class InstagramDelivery:
             await self.db.save({'replies_started_at': cfg['replies_started_at']})
         bootstrap = not cfg.get('sync_completed_at')
         try:
-            page = await asyncio.to_thread(api.conversation_page, cfg['access_token'], cfg['ig_user_id'])
-            for thread in page['data']:
-                await self.ingest(thread, cfg, bootstrap=bootstrap)
+            page = await asyncio.to_thread(api.conversation_page, cfg['access_token'], cfg['ig_user_id'], summary_only=True)
+            await self.ingest_page(page, cfg, bootstrap=bootstrap)
             cursor = str(cfg.get('sync_cursor') or '')
             if cursor and (bootstrap or self.round % 5 == 0):
-                page = await asyncio.to_thread(api.conversation_page, cfg['access_token'], cfg['ig_user_id'], cursor)
-                for thread in page['data']:
-                    await self.ingest(thread, cfg, bootstrap=bootstrap)
+                page = await asyncio.to_thread(api.conversation_page, cfg['access_token'], cfg['ig_user_id'], cursor, summary_only=True)
+                await self.ingest_page(page, cfg, bootstrap=bootstrap)
             next_cursor = page['after'] if not cursor or bootstrap or self.round % 5 == 0 else cursor
             patch = {'sync_cursor': next_cursor, 'last_poll_at': utcnow().isoformat(), 'poll_error': ''}
             if not next_cursor:

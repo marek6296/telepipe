@@ -54,7 +54,7 @@ export async function loadSocialSnapshot(modelId: string, input: {search?: strin
     db.rpc("social_inbox", {p_model:modelId,p_search:query.search,p_channel:query.channel === "all" ? "" : query.channel,p_filter:query.filter,p_limit:30,p_offset:query.offset,p_allow_instagram:ctx.channels.includes("instagram")}),
     db.from("settings").select("tg_reply_mode,ai_paused,paused_until").eq("model_id",modelId).maybeSingle(),
     db.from("fanvue").select("connected,enabled,handle,reply_mode,last_error,updated_at").eq("model_id",modelId).maybeSingle(),
-    ctx.channels.includes("instagram") ? db.from("instagram").select("connected,enabled,username,reply_mode,sync_status,sync_completed_at,last_error,circuit_until,circuit_reason").eq("model_id",modelId).maybeSingle() : Promise.resolve({data:null,error:null}),
+    ctx.channels.includes("instagram") ? db.from("instagram").select("connected,enabled,username,reply_mode,sync_status,sync_completed_at,last_poll_at,poll_error,last_error,circuit_until,circuit_reason").eq("model_id",modelId).maybeSingle() : Promise.resolve({data:null,error:null}),
     db.from("behavior").select("active_tz,active_start_min,active_end_min").eq("model_id",modelId).maybeSingle(),
     getTelegramConnection(model),
   ]);
@@ -84,11 +84,12 @@ export async function loadSocialSnapshot(modelId: string, input: {search?: strin
     const connected = channel === "telegram" ? tg.connected : config?.connected === true;
     const activeMode = channel === "telegram" ? mode(settings?.tg_reply_mode) : config?.enabled === false ? "off" : mode(config?.reply_mode);
     const circuit = channel === "instagram" && Date.parse(ig?.circuit_until || "") > Date.now();
+    const syncDelayed = channel === "instagram" && Boolean(ig?.poll_error);
     return {channel,available:true,connected,handle:channel === "telegram" ? (tg.phone || "Telegram account") : str(channel === "instagram" ? ig?.username : fv?.handle),
       mode:activeMode,connectHref:`${base}/${channel}`,settingsHref:`${base}/${channel}/settings`,
-      syncStatus:channel === "instagram" ? str(ig?.sync_status) || "not_started" : running && connected ? "live" : "offline",
-      lastSyncAt:channel === "instagram" ? ig?.sync_completed_at || null : running ? model.heartbeat_at : null,
-      notice:circuit ? "Instagram is temporarily paused by a delivery safeguard." : config?.last_error ? "Connection needs attention. Open channel settings." : !running ? "Agent is offline. Replies will wait until it is running." : null};
+      syncStatus:channel === "instagram" ? circuit ? "paused" : syncDelayed ? "retrying" : str(ig?.sync_status) || "not_started" : running && connected ? "live" : "offline",
+      lastSyncAt:channel === "instagram" ? ig?.last_poll_at || ig?.sync_completed_at || null : running ? model.heartbeat_at : null,
+      notice:circuit ? "Instagram sync is paused. New messages will appear when the connection resumes." : syncDelayed ? "Instagram sync is delayed. Retrying automatically." : config?.last_error ? "Connection needs attention. Open channel settings." : !running ? "Agent is offline. Replies will wait until it is running." : null};
   });
   return {modelId,modelName:model.name,channels,people:groupSocialPeople(contacts),total:Number(inbox?.total || 0),offset:query.offset,pageSize:30,loadedAt,
     agent:{running,status:model.status,paused:settings?.ai_paused === true || Date.parse(settings?.paused_until || "") > Date.now(),timezone:behavior?.active_tz || "America/Los_Angeles",schedule:behavior ? `${time(behavior.active_start_min)}–${time(behavior.active_end_min)}` : "Configured daily schedule"}};

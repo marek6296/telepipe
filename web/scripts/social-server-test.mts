@@ -163,3 +163,17 @@ assert.deepEqual(sitesThread.sites.map(s=>[s.label,s.available]),[['Fanvue',true
 for(const table of ['persona','instagram'])assert.ok(calls.some(c=>c.table===table&&c.method==='eq'&&c.args[0]==='model_id'&&c.args[1]===modelId));
 assert.ok(calls.some(c=>c.table==='instagram'&&c.method==='select'&&c.args[0]==='bio_link,telegram_handle,funnel_target'),'Site picker never selects access tokens');
 console.log('PASS: model-configured link DTO and channel restrictions');
+
+reset();
+fixtures.instagram={connected:true,enabled:true,reply_mode:'semi',sync_status:'ready',sync_completed_at:'2026-11-01T00:00:00Z',last_poll_at:'2026-11-22T18:00:00Z',poll_error:'Meta error 4; delivery paused',circuit_until:new Date(Date.now()+60_000).toISOString()};
+let syncSnapshot=await server.loadSocialSnapshot(modelId) as {channels:{channel:string;syncStatus:string;lastSyncAt:string;notice:string|null}[]};
+let igSync=syncSnapshot.channels.find(c=>c.channel==='instagram')!;
+assert.equal(igSync.syncStatus,'paused');
+assert.equal(igSync.lastSyncAt,'2026-11-22T18:00:00Z');
+assert.match(igSync.notice!,/sync.*paused/i);
+fixtures.instagram={...fixtures.instagram as object,circuit_until:null,poll_error:'Temporary problem'};
+syncSnapshot=await server.loadSocialSnapshot(modelId) as typeof syncSnapshot;
+igSync=syncSnapshot.channels.find(c=>c.channel==='instagram')!;
+assert.equal(igSync.syncStatus,'retrying');
+assert.match(igSync.notice!,/sync.*delayed/i);
+console.log('PASS: worker heartbeat cannot hide delayed Instagram history sync');

@@ -242,9 +242,9 @@ def v_okne(posledna_jeho: Any, teraz: Optional[datetime] = None, hodin: int = OK
 FIELDS = f"id,updated_time,participants,messages.limit({HISTORIA}){{id,created_time,from,to,message,attachments}}"
 
 
-def conversation_page(token: str, account_id: str, after: str = '') -> Dict[str, Any]:
+def conversation_page(token: str, account_id: str, after: str = '', *, summary_only: bool = False) -> Dict[str, Any]:
     # Nested message/attachment expansion is expensive (25 chats approached the 20 s timeout).
-    params = dict(platform='instagram', fields=FIELDS, limit=5)
+    params = dict(platform='instagram', fields='id,updated_time' if summary_only else FIELDS, limit=5)
     if after:
         params['after'] = after
     result = _volaj(_url(f'{account_id}/conversations', token, **params))
