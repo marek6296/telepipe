@@ -140,3 +140,10 @@ export function commandExplanation(command:SocialCommand):string {
   };
   return reasons[command.reason] || "";
 }
+/** Presentation only; the worker still refreshes the provider before delivery. */
+export function instagramReplyWindowClosed(channel:string,messages:readonly SocialMessage[],now=Date.now()):boolean {
+  if(channel!=="instagram")return false;
+  const times=messages.filter(m=>m.role==="user"&&m.channel==="instagram"&&m.occurredAt)
+    .map(m=>Date.parse(m.occurredAt!)).filter(t=>Number.isFinite(t)&&t<=now+300_000);
+  return times.length>0&&now-Math.max(...times)>=86_400_000;
+}

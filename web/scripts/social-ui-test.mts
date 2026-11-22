@@ -106,3 +106,14 @@ assert.equal(replyInProgress({replyInProgress:false} as SocialContact,{activity:
 assert.equal(replyInProgress({replyInProgress:false} as SocialContact,{activity:sendActivity},'2026-11-18T00:00:10Z'),false,'Old local queued state cannot spin forever after authoritative completion/failure');
 assert.equal(replyInProgress({replyInProgress:true} as SocialContact,undefined,'2026-11-18T00:00:10Z'),true,'Durable state survives reload');
 assert.equal(replyInProgress({replyInProgress:false} as SocialContact,{activity:{...sendActivity,input:{operation:'regenerate'}},submitting:true},''),false,'Draft generation is not a send');
+
+const {instagramReplyWindowClosed}=await import('../components/app/social/state.ts');
+const windowNow=Date.parse('2026-11-22T14:00:00Z');
+const igRow=(stamp:string|null,role:'user'|'assistant'='user')=>({...message('1'),channel:'instagram' as const,role,occurredAt:stamp});
+assert.equal(instagramReplyWindowClosed('instagram',[igRow('2026-11-18T18:06:00Z')],windowNow),true);
+assert.equal(instagramReplyWindowClosed('instagram',[igRow('2026-11-18T18:06:00Z'),igRow('2026-11-22T13:59:00Z')],windowNow),false);
+assert.equal(instagramReplyWindowClosed('instagram',[igRow('2026-11-18T18:06:00Z'),igRow('2026-11-22T13:59:00Z','assistant')],windowNow),true);
+assert.equal(instagramReplyWindowClosed('instagram',[igRow(null)],windowNow),false);
+assert.equal(instagramReplyWindowClosed('telegram',[igRow('2026-11-18T18:06:00Z')],windowNow),false);
+assert.equal(instagramReplyWindowClosed('instagram',[igRow('2026-11-21T14:00:00Z')],windowNow),true);
+console.log('PASS: Instagram expiry uses newest inbound source time and reopens on new inbound');
