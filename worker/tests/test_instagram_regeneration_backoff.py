@@ -39,3 +39,24 @@ async def test_synced_regeneration_rejects_changes_while_generating(monkeypatch,
         return ['im from cali, u?'], []
     agent._navrhy = generate
     assert await agent.regenerate('fan:1', brief='Ja som z Cali a ty? :)') == {}
+
+
+async def test_expired_delivery_still_allows_private_brief_preview(monkeypatch):
+    db, _, agent = await prepared()
+    db.queue['1'].update(state='expired', reason='window_expired', source_at='2026-01-01T00:00:00Z')
+    db.preview_source = lambda igsid: synced_source(db, igsid)
+    monkeypatch.setattr(api, 'conversation', lambda *a, **kw: pytest.fail('expired private preview needs no delivery refresh'))
+    agent._navrhy = AsyncMock(return_value=(['come see me on my page sometime'], []))
+    result = await agent.regenerate('fan:1', brief='invite him to my page')
+    assert result['suggestions'] == ['come see me on my page sometime']
+    assert db.queue['1']['state'] == 'expired'
+
+
+async def test_expired_preview_rejects_newer_source(monkeypatch):
+    db, _, agent = await prepared()
+    db.queue['1'].update(state='expired')
+    db.preview_source = AsyncMock(return_value={'mid':'newer','role':'user'})
+    monkeypatch.setattr(api, 'conversation', lambda *a, **kw: pytest.fail('no read'))
+    agent._navrhy = AsyncMock()
+    assert await agent.regenerate('fan:1', brief='invite him') == {}
+    agent._navrhy.assert_not_awaited()

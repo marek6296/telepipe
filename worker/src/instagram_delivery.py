@@ -317,7 +317,7 @@ class InstagramDelivery:
         if len(parts) != 2 or not cfg.get('connected') or not cfg.get('access_token'):
             return False
         action = await self.db.action(parts[1])
-        if (not action or action['igsid'] != parts[0] or action['state'] != 'approval'
+        if (not action or action['igsid'] != parts[0] or action['state'] not in ('approval', 'expired')
                 or (action.get('payload') or {}).get('account_id') != cfg.get('ig_user_id')):
             return False
         async def synced():
@@ -325,9 +325,12 @@ class InstagramDelivery:
             # all source/account/window/consent gates before sending.
             user = await self.db.user(parts[0]) or {}
             source = await self.db.preview_source(parts[0])
-            return (in_window(action.get('source_at'))
-                and user.get('ai_enabled', True) and not user.get('human_takeover')
+            return (user.get('ai_enabled', True) and not user.get('human_takeover')
                 and source.get('role') == 'user' and source.get('mid') == action.get('source_mid'))
+        if action['state'] == 'expired':
+            # Expiry limits delivery, not an owner's private text preview.
+            # Keep this action expired; approval/send still enforce the window.
+            return await synced()
         circuit = parse_time(cfg.get('circuit_until'))
         if circuit and circuit > utcnow():
             return await synced() if cfg.get('circuit_reason') == 'meta_4' else False
