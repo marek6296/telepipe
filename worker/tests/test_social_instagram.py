@@ -401,3 +401,47 @@ async def test_reservation_circuit_race_is_queued_not_blocked(monkeypatch):
     db.rpc=reserve
     result=await agent.deliver_operator(command(channel='instagram',external_id='fan',account_scope=MOJE_ID),AsyncMock(return_value=True))
     assert result.status=='deferred' and result.reason=='provider_pause'
+
+
+@pytest.mark.parametrize('code',[1,2])
+async def test_transient_provider_read_error_retries_without_hour_pause(code):
+    import instagram_api as api
+    db=OperatorDb(reply_mode='semi')
+    agent=InstagramAgent(db,FakeLlm())
+    await agent._delivery.provider_error(api.InstagramError('temporary',kod=code),during_read=True)
+    assert not db.nastavenia.get('circuit_until')
+    assert db.nastavenia.get('poll_error')
+
+
+@pytest.mark.parametrize('code',[1,2])
+async def test_initial_owner_read_error_stays_in_durable_preparation_queue(monkeypatch,code):
+    import instagram_api as api
+    db=OperatorDb(reply_mode='semi')
+    agent=InstagramAgent(db,FakeLlm())
+    async def failing(*a,**kw):raise api.InstagramError('temporary',kod=code)
+    agent._delivery.operator_snapshot=failing
+    before=AsyncMock()
+    result=await agent.deliver_operator(command(channel='instagram',external_id='fan',account_scope=MOJE_ID),before)
+    assert result.status=='deferred_preparation'
+    assert not db.nastavenia.get('circuit_until')
+    before.assert_not_awaited()
+
+
+async def test_poll_recovers_new_native_messages_after_transient_read_error(monkeypatch):
+    import instagram_api as api
+    db=OperatorDb(reply_mode='semi')
+    agent=InstagramAgent(db,FakeLlm())
+    raw=thread(datetime.now(timezone.utc))
+    outcomes=iter([api.InstagramError('temporary',kod=1),{'data':[raw],'after':''}])
+    def page(*a,**kw):
+        value=next(outcomes)
+        if isinstance(value,Exception):raise value
+        return value
+    monkeypatch.setattr(api,'conversation_page',page)
+    agent._delivery.process_one=AsyncMock()
+    await agent._delivery.poll()
+    assert not db.nastavenia.get('circuit_until')
+    await agent._delivery.poll()
+    assert db.nastavenia['poll_error']==''
+    assert any(m['role']=='user' for m in db.spravy)
+    agent._delivery.process_one.assert_awaited_once()

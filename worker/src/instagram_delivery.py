@@ -95,10 +95,12 @@ class InstagramDelivery:
 
     async def provider_error(self, exc, *, during_read=False):
         # Never persist a provider URL or token from exception text.
-        if during_read and exc.kod == 0:
+        if during_read and exc.kod in (0, 1, 2):
             # Network/decoding failures on GET have no uncertain send outcome.
             # The normal poll interval retries reads; owner sends independently
             # refresh the target thread and keep all send-side gates.
+            log.warning('model %s: Instagram transient read error code=%s http=%s; retrying history sync',
+                        self.db.model_id, exc.kod, exc.http_status)
             await self.db.save({'poll_error': 'Temporary connection problem; retrying history sync'})
             return
         patch = {'poll_error': f'Meta error {exc.kod}; delivery paused'}
@@ -604,7 +606,7 @@ class InstagramDelivery:
                             {'telegram': 'telegram', 'bio_link': 'linkpage', 'fanvue': 'fanvue'}[link_target], scope=cfg['ig_user_id'])
         except api.InstagramError as exc:
             await self.provider_error(exc, during_read=True)
-            reason = 'provider_read_limit' if exc.kod == 4 else 'provider_read_unavailable' if exc.kod == 0 else f'refresh_meta_{exc.kod}'
+            reason = 'provider_read_limit' if exc.kod == 4 else 'provider_read_unavailable' if exc.kod in (0, 1, 2) else f'refresh_meta_{exc.kod}'
             if operator and not message_attempted:
                 if reserved_started:
                     await self.db.rpc('release_unsent', action=action['id'], lease=action['lease_token'], reason=reason)
@@ -613,7 +615,7 @@ class InstagramDelivery:
                 return
             if exc.kod == 4 and not operator and await self.prepare_synced_preview(cfg, action):
                 return
-            await self.defer(action, f'refresh_meta_{exc.kod}')
+            await self.defer(action, f'refresh_meta_{exc.kod}', minutes=1 if exc.kod in (0, 1, 2) else 15)
 
     async def operator_snapshot(self, cfg, command):
         raw = None
@@ -646,7 +648,7 @@ class InstagramDelivery:
             raw = await self.operator_snapshot(cfg, command)
         except api.InstagramError as exc:
             await self.provider_error(exc, during_read=True)
-            if exc.kod in (0, 4):
+            if exc.kod in (0, 1, 2, 4):
                 return DeliveryResult('deferred_preparation', 'provider_read_limit' if exc.kod == 4 else 'provider_read_unavailable')
             return DeliveryResult.blocked('instagram_disconnected' if exc.kod == 190 else 'history_unavailable')
         if not raw:
