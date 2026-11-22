@@ -41,10 +41,12 @@ const copy=nodes.find(n=>n.type==='button'&&n.props['aria-label']==='Copy reply 
 assert.ok(copy&&!copy.props.disabled);
 await copy.props.onClick();await settle();assert.deepEqual(copied,['hello there']);assert.equal(commands.length,0);
 const compose=nodes.find(n=>n.type==='form'&&n.props.className.includes('social-exact-composer'));
-compose.props.onSubmit({preventDefault(){}});await settle();assert.deepEqual(copied,['hello there','my own reply']);assert.equal(commands.length,0);
+const manualSend=all(compose).find(n=>n.type==='button'&&n.props.type==='submit');assert.equal(manualSend.props.disabled,true);assert.ok(JSON.stringify(manualSend).includes('Send'));assert.ok(!JSON.stringify(manualSend).includes('Copy'));
+compose.props.onSubmit({preventDefault(){}});await settle();assert.deepEqual(copied,['hello there']);assert.equal(commands.length,0);
+const manualCopy=all(compose).find(n=>n.type==='button'&&JSON.stringify(n).includes('Copy for Instagram'));assert.ok(manualCopy&&!manualCopy.props.disabled);await manualCopy.props.onClick();assert.deepEqual(copied,['hello there','my own reply']);
 const say=nodes.find(n=>n.type==='form'&&n!==compose);
 say.props.onSubmit({preventDefault(){}});await settle();assert.equal(commands.length,1);assert.equal(commands[0].operation,'regenerate');assert.equal(commands[0].brief,'say hi in your style');
 assert.ok(nodes.some(n=>n.type==='a'&&n.props.href==='https://www.instagram.com/gary.boone9/'));
 nodes=all(render(false));assert.ok(!nodes.some(n=>n.type==='button'&&n.props['aria-label']==='Copy reply 1'));
 const send=nodes.find(n=>n.type==='button'&&n.props['aria-label']==='Send reply 1');assert.ok(send&&!send.props.disabled);await send.props.onClick();await settle();assert.equal(commands[0].operation,'approve');assert.equal(copied.length,0);
-console.log('PASS: actual Conversation expired Copy/native link, no send commands, Say this still works, new inbound restores Send');
+console.log('PASS: actual Conversation expired Send disabled with explicit Copy/native alternative, no hidden copy on submit, Say this works, new inbound restores Send');
