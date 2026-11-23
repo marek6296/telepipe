@@ -72,3 +72,55 @@ async def test_preview_source_is_tenant_scoped_and_orders_by_provider_time():
     assert await db.preview_source('fan') == {'mid':'provider-mid','role':'user'}
     transport._get.assert_awaited_once_with('/ig_messages',{'model_id':'eq.model',
         'igsid':'eq.fan','select':'mid,role','order':'occurred_at.desc.nullslast,id.desc','limit':'1'})
+
+
+async def test_normal_semi_poll_does_not_refetch_meta_to_generate_private_draft(monkeypatch):
+    db,control,agent=await prepared()
+    db.preview_source=lambda igsid:synced_source(db,igsid)
+    monkeypatch.setattr(api,'conversation_page',lambda *a,**kw:{'data':[snapshot(INCOMING)],'after':''})
+    monkeypatch.setattr(api,'conversation',lambda *a,**kw:pytest.fail('Private drafts use the history just synchronised'))
+    await agent._delivery.poll()
+    assert len(control.karty)==1
+    assert db.queue['1']['state']=='approval'
+
+
+async def test_read_rate_cooldown_is_bounded_and_increases_on_repeated_failures(monkeypatch):
+    import instagram_delivery
+    db,_,agent=await prepared()
+    now=datetime.now(timezone.utc)
+    monkeypatch.setattr(instagram_delivery,'utcnow',lambda:now)
+    for minutes in [5,10,20,40,60,60]:
+        await agent._delivery.provider_error(api.InstagramError('rate',kod=4,http_status=400),during_read=True)
+        until=datetime.fromisoformat(db.nastavenia['circuit_until'])
+        assert until-now==timedelta(minutes=minutes)
+
+
+async def test_rate_cooldown_respects_provider_wait_but_unknown_post_keeps_hour(monkeypatch):
+    import instagram_delivery
+    db,_,agent=await prepared()
+    now=datetime.now(timezone.utc)
+    monkeypatch.setattr(instagram_delivery,'utcnow',lambda:now)
+    await agent._delivery.provider_error(api.InstagramError('rate',kod=4,http_status=400,retry_after_seconds=1200),during_read=True)
+    assert datetime.fromisoformat(db.nastavenia['circuit_until'])-now==timedelta(minutes=20)
+    await agent._delivery.provider_error(api.InstagramError('ambiguous',kod=4,http_status=500))
+    assert datetime.fromisoformat(db.nastavenia['circuit_until'])-now==timedelta(hours=1)
+
+
+async def test_late_read_rejection_cannot_shorten_existing_send_cooldown(monkeypatch):
+    import instagram_delivery
+    db,_,agent=await prepared()
+    now=datetime.now(timezone.utc)
+    monkeypatch.setattr(instagram_delivery,'utcnow',lambda:now)
+    db.nastavenia.update(circuit_reason='meta_4',circuit_until=(now+timedelta(hours=1)).isoformat())
+    await agent._delivery.provider_error(api.InstagramError('rate',kod=4,http_status=400),during_read=True)
+    assert datetime.fromisoformat(db.nastavenia['circuit_until'])==now+timedelta(hours=1)
+
+
+async def test_semi_poll_retires_non_text_actions_instead_of_deferring_forever(monkeypatch):
+    db,control,agent=await prepared()
+    db.preview_source=lambda igsid:synced_source(db,igsid)
+    db.queue['1']['kind']='reaction'
+    monkeypatch.setattr(api,'conversation_page',lambda *a,**kw:{'data':[snapshot(INCOMING)],'after':''})
+    await agent._delivery.poll()
+    assert db.queue['1']['state']=='skipped'
+    assert not control.karty

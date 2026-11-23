@@ -13,6 +13,7 @@ export type SocialChannelState = {
   settingsHref: string;
   syncStatus: string;
   lastSyncAt: string | null;
+  retryAt?: string | null;
   notice: string | null;
 };
 

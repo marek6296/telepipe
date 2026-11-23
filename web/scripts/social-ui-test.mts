@@ -117,3 +117,8 @@ assert.equal(instagramReplyWindowClosed('instagram',[igRow(null)],windowNow),fal
 assert.equal(instagramReplyWindowClosed('telegram',[igRow('2026-11-18T18:06:00Z')],windowNow),false);
 assert.equal(instagramReplyWindowClosed('instagram',[igRow('2026-11-21T14:00:00Z')],windowNow),true);
 console.log('PASS: Instagram expiry uses newest inbound source time and reopens on new inbound');
+
+const pausedChannel={syncStatus:'paused',retryAt:'2026-11-23T03:15:00Z'};
+assert.match(commandExplanation({...command,channel:'instagram',operation:'approve',status:'queued',reason:''},pausedChannel),/paused.*queued/i);
+assert.match(commandExplanation({...command,channel:'instagram',operation:'approve',status:'queued',reason:''},pausedChannel),/03:15/);
+assert.equal(commandExplanation({...command,channel:'instagram',operation:'regenerate',status:'queued',reason:''},pausedChannel),'');

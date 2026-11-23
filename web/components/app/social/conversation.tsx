@@ -53,7 +53,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
   const progressBusy = draft.submitting || Boolean(activeCommand && commandInProgress(activeCommand));
   const progressError = Boolean(draft.error || (activeCommand && (["failed", "uncertain", "blocked", "stale"].includes(activeCommand.status)
     || ["uncertain", "blocked", "cancelled", "expired", "skipped"].includes(activeCommand.deliveryState ?? ""))));
-  const progressText = activityHidden ? "" : draft.submitting ? "Submitting…" : draft.error || (activeCommand ? [commandLabel(activeCommand),commandExplanation(activeCommand)].filter(Boolean).join(" · ") : draft.notice);
+  const progressText = activityHidden ? "" : draft.submitting ? "Submitting…" : draft.error || (activeCommand ? [commandLabel(activeCommand),commandExplanation(activeCommand,channelState)].filter(Boolean).join(" · ") : draft.notice);
   const canSend = Boolean(thread && channelState?.available && channelState.connected && !resource.error);
   const blocked = !canSend || waitingForCommand || draft.submitting || skipLoading || Boolean(draft.retry);
   const replyWindowClosed = instagramReplyWindowClosed(current.channel,thread?.messages || []);
@@ -233,7 +233,7 @@ export function Conversation({ modelId, contact, channelState, draft, updateDraf
           {progressBusy ? <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 animate-spin" /> : !progressError && <Check aria-hidden="true" className="h-4 w-4 shrink-0" />}{progressText}
         </p>
         {activeCommand && canDismissCommand(activeCommand) && <button type="button" disabled={dismissing===activeCommand.id} onClick={()=>void dismissAttempt(activeCommand.id)} className="app-btn app-btn-quiet mt-1 min-h-8 px-2 text-[10px]"><X className="h-3 w-3"/>Remove from chat</button>}
-        {progressBusy && <p className="mt-1 text-[10.5px] text-[var(--app-text-3)]">Please wait — your request is in progress.</p>}
+        {progressBusy && <p className="mt-1 text-[10.5px] text-[var(--app-text-3)]">{activeCommand?.status==="queued" ? "Saved to the background queue. You can leave this chat or close the app." : "Your request is in progress."}</p>}
         {draft.retry && !draft.submitting && <button type="button" onClick={() => void submit(draft.retry!)} className="app-btn app-btn-ghost mt-2 min-h-8 px-3 text-[11px]">Retry the same request</button>}
       </div>}
       <form onSubmit={event => { event.preventDefault(); if (draft.text.trim()) void command("send_text",draft.text.trim()); }} className="social-exact-composer border-t border-[var(--app-border)] p-4">

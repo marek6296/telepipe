@@ -9,9 +9,10 @@ const compiled=ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.
 const now=Date.parse('2026-11-22T14:00:00Z');
 const contact={key:'instagram:fan',channel:'instagram',externalId:'fan',username:'gary.boone9',displayName:'Gary',accountScope:'account',lastMessageId:'42',identityId:null,identityUpdatedAt:null};
 let copied:string[]=[];let commands:any[]=[];let updates:any[]=[];
-function render(expired:boolean){
+function render(expired:boolean,paused=false){
  copied=[];commands=[];updates=[];
  const thread={contact,messages:[{id:'42',channel:'instagram',role:'user',content:'Are you there?',occurredAt:expired?'2026-11-18T18:06:00Z':'2026-11-22T13:59:00Z'}],commands:expired?[{id:'failed',operation:'approve',channel:'instagram',externalId:'fan',status:'blocked',reason:'window_expired',text:'my previously selected reply',createdAt:'2026-11-22T13:00:00Z',deliveryState:null}]:[],pending:{id:'pending',updatedAt:'now',suggestions:['hello there']},linkedContacts:[]};
+ if(paused)thread.commands=[{id:'queued',operation:'approve',channel:'instagram',externalId:'fan',status:'queued',reason:'',text:'selected reply',createdAt:'2026-11-22T13:00:00Z',deliveryState:null}];
  const draft={text:'my own reply',brief:'say hi in your style',submitting:false,retry:null,activity:null,error:'',notice:''};
  const transport={submitSocialCommand:async(_model:string,input:any)=>{commands.push(input);return {command:{id:'queued',status:'queued'}}},skipSocialPending:async()=>({})};
  const jsx=(type:any,props:any)=>({type,props});
@@ -29,7 +30,7 @@ function render(expired:boolean){
  const mod={exports:{}};
  const context=vm.createContext({module:mod,exports:mod.exports,require:(name:string)=>{assert.ok(name in mocks,name);return mocks[name]},URLSearchParams,AbortController,crypto,Date:class extends Date{static now(){return now}},navigator:{clipboard:{writeText:async(text:string)=>{copied.push(text)}}}});
  vm.runInContext(compiled,context);
- return (mod.exports as any).Conversation({modelId:'model',contact,channelState:{available:true,connected:true,mode:'semi'},draft,updateDraft:(_key:string,fn:any)=>updates.push(fn(draft)),selectContact(){},refreshInbox(){}});
+ return (mod.exports as any).Conversation({modelId:'model',contact,channelState:{available:true,connected:true,mode:'semi',syncStatus:paused?'paused':'ready',retryAt:paused?'2026-11-23T03:15:00Z':null},draft,updateDraft:(_key:string,fn:any)=>updates.push(fn(draft)),selectContact(){},refreshInbox(){}});
 }
 function all(node:any):any[]{if(!node||typeof node!=='object')return [];return [node,...[node.props?.children].flat(Infinity).flatMap(all)]}
 const settle=async()=>{await new Promise(resolve=>setTimeout(resolve,0))};
@@ -50,3 +51,8 @@ assert.ok(nodes.some(n=>n.type==='a'&&n.props.href==='https://www.instagram.com/
 nodes=all(render(false));assert.ok(!nodes.some(n=>n.type==='button'&&n.props['aria-label']==='Copy reply 1'));
 const send=nodes.find(n=>n.type==='button'&&n.props['aria-label']==='Send reply 1');assert.ok(send&&!send.props.disabled);await send.props.onClick();await settle();assert.equal(commands[0].operation,'approve');assert.equal(copied.length,0);
 console.log('PASS: actual Conversation expired Send disabled with explicit Copy/native alternative, no hidden copy on submit, Say this works, new inbound restores Send');
+
+nodes=all(render(false,true));
+assert.ok(nodes.some(n=>n.props?.role==='status'&&JSON.stringify(n).includes('Instagram API is paused')));
+assert.ok(nodes.some(n=>JSON.stringify(n).includes('Saved to the background queue')));
+console.log('PASS: queued Conversation shows channel cooldown and background processing without requiring worker claim');

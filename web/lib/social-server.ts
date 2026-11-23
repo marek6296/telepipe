@@ -89,6 +89,7 @@ export async function loadSocialSnapshot(modelId: string, input: {search?: strin
       mode:activeMode,connectHref:`${base}/${channel}`,settingsHref:`${base}/${channel}/settings`,
       syncStatus:channel === "instagram" ? circuit ? "paused" : syncDelayed ? "retrying" : str(ig?.sync_status) || "not_started" : running && connected ? "live" : "offline",
       lastSyncAt:channel === "instagram" ? ig?.last_poll_at || ig?.sync_completed_at || null : running ? model.heartbeat_at : null,
+      retryAt:circuit ? ig?.circuit_until || null : null,
       notice:circuit ? "Instagram sync is paused. New messages will appear when the connection resumes." : syncDelayed ? "Instagram sync is delayed. Retrying automatically." : config?.last_error ? "Connection needs attention. Open channel settings." : !running ? "Agent is offline. Replies will wait until it is running." : null};
   });
   return {modelId,modelName:model.name,channels,people:groupSocialPeople(contacts),total:Number(inbox?.total || 0),offset:query.offset,pageSize:30,loadedAt,

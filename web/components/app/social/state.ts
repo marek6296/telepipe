@@ -111,7 +111,8 @@ export function outboxCommands(commands:SocialCommand[],messages:SocialMessage[]
   ))).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
 }
 
-export function commandExplanation(command:SocialCommand):string {
+export function commandExplanation(command:SocialCommand, channelState?:{syncStatus:string;retryAt?:string|null}):string {
+  if(command.channel==="instagram" && command.operation!=="regenerate" && command.status==="queued" && channelState?.syncStatus==="paused")return `Instagram API is paused. Your reply is queued.${channelState.retryAt ? ` Next attempt after ${sourceTime(channelState.retryAt)}.` : ""} You can close the app.`;
   if(command.status==="queued" && command.reason==="waiting_provider_read_unavailable")return "Instagram could not be reached. This reply is queued and will retry after the pause; you can close the app.";
   if(command.status==="queued" && ["waiting_provider_read_limit","waiting_provider_read_unavailable","waiting_meta_4","waiting_provider_pause"].includes(command.reason))return "Instagram is temporarily limiting API requests. This reply is queued and will retry after the pause; you can close the app.";
   if(command.status==="queued" && command.reason.startsWith("waiting_"))return "Waiting for Instagram’s delivery limits. This reply will send automatically; you can leave this chat.";

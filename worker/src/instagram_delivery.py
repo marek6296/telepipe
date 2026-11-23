@@ -44,6 +44,7 @@ class InstagramDelivery:
         self.media = for_db(db, agent._llm)
         self.round = 0
         self._poll_snapshots = {}
+        self._rate_failures = 0
 
     async def ingest_page(self, page, cfg, *, bootstrap):
         for item in page['data']:
@@ -103,6 +104,7 @@ class InstagramDelivery:
             cfg['replies_started_at'] = utcnow().isoformat()
             await self.db.save({'replies_started_at': cfg['replies_started_at']})
         bootstrap = not cfg.get('sync_completed_at')
+        rate_failures = self._rate_failures
         try:
             page = await asyncio.to_thread(api.conversation_page, cfg['access_token'], cfg['ig_user_id'], summary_only=True)
             await self.ingest_page(page, cfg, bootstrap=bootstrap)
@@ -118,8 +120,10 @@ class InstagramDelivery:
             if active and not bootstrap:
                 if self.round % 10 == 0 and cfg.get('reply_comments') and cfg['reply_mode'] == 'auto':
                     await self.comments(cfg)
-                await self.process_one(cfg)
+                await self.process_one(cfg, preview_only=cfg['reply_mode'] == 'semi')
             self.round += 1
+            if self._rate_failures == rate_failures:
+                self._rate_failures = 0
         except api.InstagramError as exc:
             await self.provider_error(exc, during_read=True)
             return exc.kod != 190
@@ -139,7 +143,15 @@ class InstagramDelivery:
         if exc.kod == 190:
             patch.update(connected=False, last_error='Instagram access revoked. Reconnect.')
         else:
-            patch.update(circuit_until=(utcnow()+timedelta(hours=1)).isoformat(), circuit_reason=f'meta_{exc.kod}')
+            seconds = 3600
+            if exc.kod == 4 and (during_read or exc.http_status in (400, 401, 403, 404, 429)):
+                self._rate_failures = min(self._rate_failures + 1, 6)
+                seconds = max(min(300 * 2 ** (self._rate_failures - 1), 3600), exc.retry_after_seconds)
+            existing = parse_time((await self.db.settings()).get('circuit_until'))
+            deadline = max(utcnow()+timedelta(seconds=seconds), existing or utcnow())
+            log.warning('model %s: Instagram cooldown code=%s phase=%s seconds=%s usage=%s',
+                        self.db.model_id, exc.kod, 'read' if during_read else 'send', seconds, exc.usage)
+            patch.update(circuit_until=deadline.isoformat(), circuit_reason=f'meta_{exc.kod}')
         await self.db.save(patch)
 
     async def ingest(self, raw, cfg, bootstrap=False, *, process_media=True):
@@ -400,7 +412,7 @@ class InstagramDelivery:
         return '' if testing or (block and in_active_window(local, behavior.active_start_min, behavior.active_end_min)) else 'sleeping'
 
     async def prepare_synced_preview(self, cfg, action):
-        """Publish only a source-fenced preview during Meta's read rate backoff.
+        """Publish a source-fenced private preview from synchronised history.
 
         This never grants delivery permission: approval still uses the full
         remote refresh/reservation/seen/send path. Native/new inbound imports
@@ -454,6 +466,9 @@ class InstagramDelivery:
             await self.db.change_action(action, {'state': 'cancelled', 'reason': 'operator_dispatch_required'})
             return
         if preview_only:
+            if action['kind'] != 'dm':
+                await self.db.change_action(action, {'state': 'skipped', 'reason': 'semi_text_only'})
+                return
             if not await self.prepare_synced_preview(cfg, action):
                 await self.defer(action, 'refresh_meta_4')
             return

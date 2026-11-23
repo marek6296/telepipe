@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -50,11 +51,43 @@ MAX_BAJTOV_KOMENTAR = 300
 class InstagramError(RuntimeError):
     """Čokoľvek, čo Instagram odmietol. Nesie aj kód, nech sa dá rozhodnúť."""
 
-    def __init__(self, sprava: str, kod: int = 0, podtyp: str = "", http_status: int | None = None) -> None:
+    def __init__(self, sprava: str, kod: int = 0, podtyp: str = "", http_status: int | None = None,
+                 *, retry_after_seconds: float = 0, usage: dict | None = None) -> None:
         super().__init__(sprava)
         self.kod = kod
         self.podtyp = podtyp
         self.http_status = http_status
+        self.retry_after_seconds = retry_after_seconds
+        self.usage = usage or {}
+
+
+def rate_metadata(headers):
+    """Only numeric quota diagnostics, never raw headers, URLs or account IDs."""
+    values = {str(k).lower(): v for k, v in (headers or {}).items()}
+    def number(value):
+        try:
+            n = float(value)
+            return n if math.isfinite(n) and 0 <= n <= 604800 else 0
+        except (TypeError, ValueError):
+            return 0
+    wait = number(values.get('retry-after'))
+    usage = {}
+    for name in ('x-app-usage', 'x-business-use-case-usage'):
+        try:
+            data = json.loads(values.get(name) or '{}')
+        except (TypeError, ValueError):
+            continue
+        rows = []
+        if isinstance(data, dict):
+            rows = [data] if name == 'x-app-usage' else [r for group in data.values() if isinstance(group, list) for r in group]
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            for field in ('call_count', 'total_cputime', 'total_time'):
+                if field in row:
+                    usage[field] = max(usage.get(field, 0), number(row[field]))
+            wait = max(wait, min(number(row.get('estimated_time_to_regain_access')) * 60, 604800))
+    return wait, usage
 
 
 def _volaj(url: str, data: Optional[Dict[str, Any]] = None, timeout: float = 20.0) -> Dict[str, Any]:
@@ -68,6 +101,9 @@ def _volaj(url: str, data: Optional[Dict[str, Any]] = None, timeout: float = 20.
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as odpoved:
+            _, usage = rate_metadata(getattr(odpoved, 'headers', {}))
+            if any(value >= 80 for value in usage.values()):
+                log.warning('Instagram quota nearing limit: usage=%s', usage)
             return json.loads(odpoved.read().decode() or "{}")
     except urllib.error.HTTPError as exc:  # noqa: PERF203
         surove = exc.read().decode(errors="replace")
@@ -75,11 +111,16 @@ def _volaj(url: str, data: Optional[Dict[str, Any]] = None, timeout: float = 20.
             chyba = (json.loads(surove).get("error") or {})
         except json.JSONDecodeError:
             chyba = {}
+        wait, usage = rate_metadata(exc.headers)
+        code = int(chyba.get("code") or exc.code)
+        log.warning('Instagram API rejected %s: code=%s http=%s usage=%s retry_seconds=%s',
+                    'POST' if telo else 'GET', code, exc.code, usage, wait)
         raise InstagramError(
             str(chyba.get("message") or surove)[:300],
-            kod=int(chyba.get("code") or exc.code),
+            kod=code,
             podtyp=str(chyba.get("error_subcode") or ""),
             http_status=exc.code,
+            retry_after_seconds=wait, usage=usage,
         ) from exc
     except Exception as exc:  # noqa: BLE001 - sieť
         raise InstagramError(str(exc)[:300]) from exc

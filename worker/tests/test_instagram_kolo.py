@@ -118,6 +118,10 @@ class FakeDb:
     async def latest_message_id(self, igsid):
         return max((i for i, m in enumerate(self.spravy, 1) if m['igsid'] == igsid), default=0)
 
+    async def preview_source(self, igsid):
+        rows = [m for m in self.spravy if m['igsid'] == igsid]
+        return dict(rows[-1]) if rows else {}
+
     async def schedule(self):
         return {}
 
