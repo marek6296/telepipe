@@ -687,7 +687,7 @@ class InstagramDelivery:
 
     async def operator_snapshot(self, cfg, command):
         raw = None
-        previous = await self.db.actions(igsid='eq.' + command['external_id'], order='created_at.desc', limit='1')
+        previous = await self.db.actions(igsid='eq.' + command['external_id'], target_id='neq.', order='created_at.desc', limit='1')
         if previous and previous[0].get('target_id'):
             raw = await asyncio.to_thread(api.conversation, cfg['access_token'], previous[0]['target_id'])
         else:

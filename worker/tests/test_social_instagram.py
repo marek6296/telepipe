@@ -446,3 +446,15 @@ async def test_poll_recovers_new_native_messages_after_transient_read_error(monk
     assert db.nastavenia['poll_error']==''
     assert any(m['role']=='user' for m in db.spravy)
     agent._delivery.process_one.assert_awaited_once()
+
+
+async def test_native_reply_ledger_does_not_force_full_inbox_discovery(monkeypatch):
+    import instagram_api as api
+    db=OperatorDb(reply_mode='semi');agent=InstagramAgent(db,FakeLlm())
+    db.queue={'native':{'id':'native','igsid':'fan','target_id':'','state':'sent'},
+              'known':{'id':'known','igsid':'fan','target_id':'thread','state':'sent'}}
+    raw=thread(datetime.now(timezone.utc))
+    monkeypatch.setattr(api,'conversation',lambda *a,**kw:raw)
+    monkeypatch.setattr(api,'conversation_page',lambda *a,**kw:pytest.fail('A known thread must not re-expand the whole inbox'))
+    result=await agent._delivery.operator_snapshot(db.nastavenia,command(channel='instagram',external_id='fan',account_scope=MOJE_ID))
+    assert result==raw

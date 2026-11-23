@@ -143,6 +143,8 @@ class FakeDb:
                 rows = [r for r in rows if str(r.get(key, '')).lower() == expected.lower()]
             elif value == 'not.is.null':
                 rows = [r for r in rows if r.get(key) is not None]
+            elif value.startswith('neq.'):
+                rows = [r for r in rows if str(r.get(key, '')) != value[4:]]
             elif value.startswith('in.('):
                 rows = [r for r in rows if r.get(key) in value[4:-1].split(',')]
         return [dict(r) for r in rows]
