@@ -25,3 +25,15 @@ def test_graph_error_retains_safe_quota_and_retry_metadata(monkeypatch):
     with pytest.raises(api.InstagramError) as caught:real_volaj('https://graph.example/request')
     assert caught.value.retry_after_seconds==1200
     assert caught.value.usage=={'call_count':97,'total_cputime':24,'total_time':100}
+
+
+def test_delivery_freshness_reads_bound_history_but_background_keeps_full_context(monkeypatch):
+    from urllib.parse import urlparse,parse_qs
+    urls=[]
+    monkeypatch.setattr(api,'_volaj',lambda url:urls.append(url) or {})
+    api.conversation('test','thread',recent_only=True)
+    api.conversation('test','thread')
+    fields=[parse_qs(urlparse(u).query)['fields'][0] for u in urls]
+    assert 'messages.limit(5)' in fields[0]
+    assert 'messages.limit(20)' in fields[1]
+    assert all('attachments' in f for f in fields)

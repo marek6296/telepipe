@@ -97,3 +97,22 @@ async def test_newer_database_message_forces_provider_refresh(monkeypatch):
     agent._db.preview_source=AsyncMock(return_value={'mid':'new-native-reply','role':'assistant'})
     await agent._delivery.poll()
     assert details==['thread','thread']
+
+
+@pytest.mark.parametrize('known_boundary',[True,False])
+async def test_completed_sync_reads_recent_tail_and_expands_only_for_missing_messages(monkeypatch,known_boundary):
+    agent=InstagramAgent(FakeDb(reply_mode='semi'),FakeLlm())
+    stamp=datetime.now(timezone.utc)
+    raw=thread(stamp)
+    raw['messages']['data']=[{'id':f'm{i}','created_time':(stamp+timedelta(seconds=i)).isoformat(),'from':{'id':'fan'},'message':f'question {i}'} for i in reversed(range(5))]
+    full=deepcopy(raw)
+    full['messages']['data'].append({'id':'older','created_time':(stamp-timedelta(seconds=1)).isoformat(),'from':{'id':'fan'},'message':'earlier question'})
+    agent._db.known_mids=AsyncMock(return_value={'m0'} if known_boundary else set())
+    calls=[]
+    def detail(*a,**kw):
+        calls.append(kw.get('recent_only',False))
+        return deepcopy(raw if kw.get('recent_only') else full)
+    monkeypatch.setattr(api,'conversation',detail)
+    snapshot=await agent._delivery.poll_snapshot(agent._db.nastavenia,'thread')
+    assert calls==([True] if known_boundary else [True,False])
+    assert len(snapshot['messages']['data'])==(5 if known_boundary else 6)

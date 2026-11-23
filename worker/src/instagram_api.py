@@ -281,6 +281,7 @@ def v_okne(posledna_jeho: Any, teraz: Optional[datetime] = None, hodin: int = OK
 
 
 FIELDS = f"id,updated_time,participants,messages.limit({HISTORIA}){{id,created_time,from,to,message,attachments}}"
+RECENT_FIELDS = FIELDS.replace(f'messages.limit({HISTORIA})', 'messages.limit(5)')
 
 
 def conversation_page(token: str, account_id: str, after: str = '', *, summary_only: bool = False) -> Dict[str, Any]:
@@ -294,8 +295,11 @@ def conversation_page(token: str, account_id: str, after: str = '', *, summary_o
             'after': str((paging.get('cursors') or {}).get('after') or '') if paging.get('next') else ''}
 
 
-def conversation(token: str, thread_id: str) -> Dict[str, Any]:
-    return _volaj(_url(thread_id, token, fields=FIELDS))
+def conversation(token: str, thread_id: str, *, recent_only: bool = False) -> Dict[str, Any]:
+    # Delivery checks the current source; background sync imports the longer
+    # transcript. Re-expanding 20 historical attachments at every send gate
+    # exhausts Meta's total_time quota even at a low request count.
+    return _volaj(_url(thread_id, token, fields=RECENT_FIELDS if recent_only else FIELDS))
 
 
 def react(token: str, account_id: str, igsid: str, mid: str) -> Dict[str, Any]:

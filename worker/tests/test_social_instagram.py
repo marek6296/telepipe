@@ -318,20 +318,21 @@ async def test_read_rate_limit_after_seen_before_message_goes_back_to_queue(monk
     raw=thread(datetime.now(timezone.utc));db=OperatorDb(reply_mode='semi');agent=InstagramAgent(db,FakeLlm())
     await db.ensure_user('fan')
     monkeypatch.setattr(api,'conversation_page',lambda *a,**kw:{'data':[raw],'after':''})
-    calls=0
+    calls=0;seen=[]
     def read(*args,**kw):
         nonlocal calls
         calls+=1
-        if calls==3:raise api.InstagramError('rate',kod=4)
+        if seen:raise api.InstagramError('rate',kod=4)
         return raw
     monkeypatch.setattr(api,'conversation',read)
-    monkeypatch.setattr(api,'mark_seen',lambda *a,**kw:{})
+    monkeypatch.setattr(api,'mark_seen',lambda *a,**kw:seen.append(True))
     monkeypatch.setattr(operator_delivery,'composition_pause',AsyncMock())
     sends=[];monkeypatch.setattr(api,'posli_text',lambda *a,**kw:sends.append(a))
     result=await agent.deliver_operator(command(channel='instagram',external_id='fan',account_scope=MOJE_ID),AsyncMock(return_value=True))
     assert not sends
     assert result.status=='deferred' and result.reason=='provider_read_limit'
     assert db.queue['op']['reserved_at'] is None
+    assert calls==2, 'Final and post-seen reads remain; the duplicate full preparation read is gone'
 
 
 async def test_explicit_message_rate_rejection_is_waiting_not_uncertain(monkeypatch):

@@ -46,6 +46,21 @@ class InstagramDelivery:
         self._poll_snapshots = {}
         self._rate_failures = 0
 
+    async def poll_snapshot(self, cfg, thread_id):
+        recent = bool(cfg.get('sync_completed_at'))
+        raw = await asyncio.to_thread(api.conversation, cfg['access_token'], thread_id, recent_only=recent)
+        if recent:
+            chat = api.rozober(raw, cfg['ig_user_id'])
+            messages = chat['spravy']
+            if len(messages) >= 5:
+                known = await self.db.known_mids(chat['igsid'])
+                # A known boundary proves the new tail is complete. Otherwise
+                # catch up with full history, including multi-message bursts.
+                media_tail = all(m['role'] == 'user' and m.get('kind') != 'dm' for m in messages)
+                if messages[0]['mid'] not in known or media_tail:
+                    raw = await asyncio.to_thread(api.conversation, cfg['access_token'], thread_id)
+        return raw
+
     async def ingest_page(self, page, cfg, *, bootstrap):
         for item in page['data']:
             key = (cfg['ig_user_id'], str(item.get('id') or ''))
@@ -62,12 +77,12 @@ class InstagramDelivery:
                 raw = deepcopy(cached[2])
                 reused = True
             else:
-                raw = await asyncio.to_thread(api.conversation, cfg['access_token'], item['id'])
+                raw = await self.poll_snapshot(cfg, item['id'])
             if reused:
                 chat = api.rozober(raw, cfg['ig_user_id'])
                 latest = await self.db.preview_source(chat['igsid']) if chat['igsid'] else {}
                 if latest.get('mid') and (not chat['spravy'] or latest['mid'] != chat['spravy'][-1]['mid']):
-                    raw = await asyncio.to_thread(api.conversation, cfg['access_token'], item['id'])
+                    raw = await self.poll_snapshot(cfg, item['id'])
                     reused = False
             snapshot = deepcopy(raw)
             # Still reconcile/enqueue every cycle: a mode change, released
@@ -328,7 +343,12 @@ class InstagramDelivery:
 
     async def refresh_action(self, cfg, action, *, state='leased', source_message_id=None, reconciled_raw=None):
         """Import a fresh provider snapshot, then validate this exact reply target."""
-        raw = await asyncio.to_thread(api.conversation, cfg['access_token'], action['target_id'])
+        raw = await asyncio.to_thread(api.conversation, cfg['access_token'], action['target_id'], recent_only=True)
+        # A media tail may point to an older text in the same unanswered turn.
+        # Expand only when the bounded freshness read cannot include that target.
+        reply_to = (action.get('payload') or {}).get('reply_to_mid')
+        if reply_to and not any(m.get('id') == reply_to for m in (raw.get('messages') or {}).get('data') or []):
+            raw = await asyncio.to_thread(api.conversation, cfg['access_token'], action['target_id'])
         if raw != reconciled_raw:
             await self.ingest(raw, cfg, process_media=False)
         fresh = api.rozober(raw, cfg['ig_user_id'])
@@ -499,9 +519,10 @@ class InstagramDelivery:
                 text = await self.agent._napis_komentar(comment)
                 link = reminder = False
             else:
-                raw = await asyncio.to_thread(api.conversation, cfg['access_token'], action['target_id'])
-                # deliver_operator already reconciled this snapshot. Still fetch
-                # Meta again, and re-import if ANY provider content changed.
+                raw = reconciled_raw if operator and reconciled_raw is not None else await asyncio.to_thread(
+                    api.conversation, cfg['access_token'], action['target_id'])
+                # The immutable operator intent already fetched/reconciled this
+                # full snapshot. Final source and post-pause checks still read Meta.
                 if not operator or raw != reconciled_raw:
                     await self.ingest(raw, cfg, process_media=False)
                 user = await self.db.user(action['igsid']) or {}
@@ -607,7 +628,7 @@ class InstagramDelivery:
                     from operator_delivery import composition_pause
                     await composition_pause(text)
                     # Reconcile changes arriving during the pause before sending.
-                    after_pause = await asyncio.to_thread(api.conversation, cfg['access_token'], action['target_id'])
+                    after_pause = await asyncio.to_thread(api.conversation, cfg['access_token'], action['target_id'], recent_only=True)
                     if after_pause != raw:
                         await self.ingest(after_pause, cfg, process_media=False)
                 if reason := await self.send_readiness(cfg, action):
